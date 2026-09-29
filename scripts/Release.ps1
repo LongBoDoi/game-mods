@@ -27,7 +27,7 @@ $gameDir = Join-Path $repo $Game
 $tag     = "$Game-v$Version"
 
 function Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
-function Git { $out = & git -C $repo @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed" }; $out }
+function Invoke-Git { $out = & git.exe -C $repo @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed" }; $out }
 
 if (-not (Test-Path -LiteralPath (Join-Path $gameDir 'installer\Install.ps1'))) {
     $games = Get-ChildItem -LiteralPath $repo -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'installer') } | ForEach-Object Name
@@ -38,12 +38,12 @@ if ($Version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.]+)?$') { throw "Version s
 # --- GitHub ------------------------------------------------------------------------------
 $api = $null
 if ($Publish) {
-    if (Git status --porcelain) { throw 'Working tree has uncommitted changes; commit (and push) before publishing.' }
-    Git fetch --quiet origin
-    $head = Git rev-parse HEAD
-    if ($head -ne (Git rev-parse '@{u}')) { throw 'HEAD is not pushed (or is behind origin); push/pull before publishing.' }
+    if (Invoke-Git status --porcelain) { throw 'Working tree has uncommitted changes; commit (and push) before publishing.' }
+    Invoke-Git fetch --quiet origin
+    $head = Invoke-Git rev-parse HEAD
+    if ($head -ne (Invoke-Git rev-parse '@{u}')) { throw 'HEAD is not pushed (or is behind origin); push/pull before publishing.' }
 
-    $remote = Git remote get-url origin
+    $remote = Invoke-Git remote get-url origin
     if ($remote -notmatch 'github\.com[:/]([^/]+)/([^/]+?)(\.git)?$') { throw "origin is not a GitHub repo: $remote" }
     $slug = "$($matches[1])/$($matches[2])"
 
