@@ -1,0 +1,3 @@
+# Third-party files downloaded by scripts\Release.ps1 and shipped inside the KebabChefs release zip.
+# BepInEx 6 bleeding-edge build 785 (IL2CPP, LGPL-2.1): builds.bepinex.dev is often very slow.
+https://builds.bepinex.dev/projects/bepinex_be/785/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.785%2B6abdba4.zip

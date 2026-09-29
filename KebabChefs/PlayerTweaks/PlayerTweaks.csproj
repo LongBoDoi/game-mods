@@ -1,0 +1,85 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>PlayerTweaks</AssemblyName>
+    <RootNamespace>PlayerTweaks</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>portable</DebugType>
+    <!-- Interop assemblies are IL2CPP stubs; they trigger a lot of noise we don't care about. -->
+    <NoWarn>$(NoWarn);CS0626;CS0649;CS0108;CS0114;MSB3277</NoWarn>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <!-- Point this at your game install if you ever move it. -->
+  <PropertyGroup>
+    <GameDir>E:\Steam\steamapps\common\Kebab Chefs!</GameDir>
+    <BepInExDir>$(GameDir)\BepInEx</BepInExDir>
+  </PropertyGroup>
+
+  <!-- BepInEx runtime + Harmony -->
+  <ItemGroup>
+    <Reference Include="BepInEx.Core">
+      <HintPath>$(BepInExDir)\core\BepInEx.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP">
+      <HintPath>$(BepInExDir)\core\BepInEx.Unity.IL2CPP.dll</HintPath>
+    </Reference>
+    <Reference Include="BepInEx.Unity.Common">
+      <HintPath>$(BepInExDir)\core\BepInEx.Unity.Common.dll</HintPath>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(BepInExDir)\core\Il2CppInterop.Runtime.dll</HintPath>
+    </Reference>
+    <Reference Include="Il2CppInterop.Common">
+      <HintPath>$(BepInExDir)\core\Il2CppInterop.Common.dll</HintPath>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BepInExDir)\core\0Harmony.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!--
+    Every generated interop assembly. Referencing the whole folder is simpler than
+    tracking individual Unity modules, and unused references cost nothing at runtime.
+  -->
+  <ItemGroup>
+    <Reference Include="@(InteropDll)" />
+  </ItemGroup>
+  <Target Name="CollectInteropRefs" BeforeTargets="BeforeResolveReferences">
+    <ItemGroup>
+      <InteropAssembly Include="$(BepInExDir)\interop\*.dll" />
+      <Reference Include="%(InteropAssembly.Filename)">
+        <HintPath>%(InteropAssembly.FullPath)</HintPath>
+        <Private>false</Private>
+      </Reference>
+    </ItemGroup>
+  </Target>
+
+  <!--
+    Drop the built plugin straight into the game so you can just relaunch.
+    The game locks the DLL while it is running, so a failed copy is reported as a
+    warning rather than failing the build - the compile itself still succeeded.
+  -->
+  <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFolder="$(BepInExDir)\plugins\PlayerTweaks\"
+          ContinueOnError="WarnAndContinue"
+          Retries="0">
+      <Output TaskParameter="CopiedFiles" ItemName="Deployed" />
+    </Copy>
+    <Message Importance="high" Condition="'@(Deployed)' != ''"
+             Text="Deployed $(TargetFileName) -> $(BepInExDir)\plugins\PlayerTweaks\" />
+    <Warning Condition="'@(Deployed)' == ''"
+             Text="Build OK but NOT deployed - close the game and run: dotnet build -c Release" />
+
+    <!-- Stage the DLL in the game's dist\ folder, which scripts\Release.ps1 zips with the installer. -->
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(MSBuildProjectDirectory)\..\dist\" />
+  </Target>
+
+</Project>

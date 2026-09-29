@@ -43,8 +43,8 @@
     <Message Importance="high" Condition="'@(Deployed)' != ''" Text="Deployed $(TargetFileName) -> $(BepInExDir)\plugins\HoldAct\" />
     <Warning Condition="'@(Deployed)' == ''" Text="Build OK but NOT deployed - close the game and run: dotnet build -c Release" />
 
-    <!-- Keep the redistributable folder (installer + DLL) in step, so dist\ is always shippable. -->
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(MSBuildProjectDirectory)\dist\" />
+    <!-- Stage the DLL in the game's dist\ folder, which scripts\Release.ps1 zips with the installer. -->
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(MSBuildProjectDirectory)\..\dist\" />
   </Target>
 
 </Project>

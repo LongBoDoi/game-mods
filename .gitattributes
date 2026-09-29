@@ -1,3 +1,5 @@
 * text=auto
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
+# Packed byte-for-byte into the Lemon Cake patch pak - keep exactly as extracted.
+LemonCake/LemonCoop/pak/** -text

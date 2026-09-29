@@ -2,8 +2,11 @@
     Installs the Hold Act mod for Bone's Cafe.
 
     - Finds the game through Steam (or use -GameDir "D:\path\to\Bone's Cafe").
-    - Installs BepInEx 5 if it is not there yet (bundled zip, or downloaded if the zip is missing).
+    - Installs BepInEx 5 if it is not there yet (a BepInEx zip placed next to this script, or downloaded).
     - Copies HoldAct.dll into BepInEx\plugins\HoldAct\.
+
+    The mod files are taken from this script's folder (release zip) or from ..\dist (repo checkout,
+    after build.cmd).
 
     -Uninstall removes only the mod; BepInEx is left in place.
 #>
@@ -68,6 +71,15 @@ function Find-GameDir {
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# Release zip: files sit next to this script. Repo checkout: build.cmd stages them in ..\dist.
+function Find-Payload($name) {
+    foreach ($dir in $here, (Join-Path $here '..\dist')) {
+        $p = Join-Path $dir $name
+        if (Test-Path -LiteralPath $p) { return (Resolve-Path -LiteralPath $p).Path }
+    }
+    return $null
+}
+
 # --- Locate the game --------------------------------------------------------
 if (-not $GameDir) {
     Write-Step 'Looking for Bone''s Cafe in your Steam libraries...'
@@ -100,6 +112,9 @@ if ($Uninstall) {
     exit 0
 }
 
+$dll = Find-Payload "$PluginName.dll"
+if (-not $dll) { Fail "$PluginName.dll not found next to this installer (or in ..\dist - run HoldAct\build.cmd first)." }
+
 # --- BepInEx ----------------------------------------------------------------
 $bepCore = Join-Path $GameDir 'BepInEx\core\BepInEx.dll'
 $loader  = Join-Path $GameDir 'winhttp.dll'
@@ -107,12 +122,13 @@ if ((Test-Path -LiteralPath $bepCore) -and (Test-Path -LiteralPath $loader)) {
     Write-Step 'BepInEx is already installed.'
 } else {
     Write-Step "Installing BepInEx $BepInExVersion..."
-    $zip = Join-Path $here $BepInExZipName
+    $zip = Find-Payload $BepInExZipName
     $downloaded = $false
-    if (-not (Test-Path -LiteralPath $zip)) {
+    if (-not $zip) {
         $zip = Join-Path $env:TEMP $BepInExZipName
         Write-Host "    Downloading $BepInExUrl"
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $ProgressPreference = 'SilentlyContinue'   # the progress bar makes 5.1's download crawl
         try {
             Invoke-WebRequest -Uri $BepInExUrl -OutFile $zip -UseBasicParsing
         } catch {
@@ -125,9 +141,6 @@ if ((Test-Path -LiteralPath $bepCore) -and (Test-Path -LiteralPath $loader)) {
 }
 
 # --- The mod ----------------------------------------------------------------
-$dll = Join-Path $here "$PluginName.dll"
-if (-not (Test-Path -LiteralPath $dll)) { Fail "$PluginName.dll must be in the same folder as this installer." }
-
 Write-Step 'Installing Hold Act...'
 New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
 Copy-Item -LiteralPath $dll -Destination $pluginDir -Force

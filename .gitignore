@@ -1,10 +1,15 @@
 # Build output
 bin/
 obj/
+build/
+dist/
 *.user
 .vs/
 
-# Built mods and third-party loaders are attached to GitHub Releases, not committed.
-# (Installers download BepInEx themselves when its zip isn't next to them.)
-**/dist/*.dll
-**/dist/*.zip
+# Local toolchains and downloaded dependencies (build scripts fetch these on demand)
+.tools/
+.release/
+MK11/MK11Tweaks/deps/
+
+# Runtime files the mods write next to themselves
+LemonCake/LemonCoop/dualmonitor.txt
