@@ -47,9 +47,18 @@ if ($Publish) {
     if ($remote -notmatch 'github\.com[:/]([^/]+)/([^/]+?)(\.git)?$') { throw "origin is not a GitHub repo: $remote" }
     $slug = "$($matches[1])/$($matches[2])"
 
+    # Ask Git Credential Manager for the saved login. Fed through files: piping text into
+    # git from some PowerShell hosts arrives without the protocol line.
     $env:GCM_INTERACTIVE = 'never'
-    $cred  = "protocol=https`nhost=github.com`n`n" | git credential fill 2>$null
-    $token = ($cred | Where-Object { $_ -like 'password=*' }) -replace '^password=', ''
+    $credIn = [IO.Path]::GetTempFileName(); $credOut = [IO.Path]::GetTempFileName()
+    try {
+        [IO.File]::WriteAllText($credIn, "protocol=https`nhost=github.com`n`n")
+        Start-Process git.exe -ArgumentList 'credential', 'fill' -RedirectStandardInput $credIn `
+            -RedirectStandardOutput $credOut -NoNewWindow -Wait
+        $token = (Get-Content $credOut | Where-Object { $_ -like 'password=*' }) -replace '^password=', ''
+    } finally {
+        Remove-Item $credIn, $credOut -Force -ErrorAction SilentlyContinue
+    }
     if (-not $token) { throw 'No GitHub login in Git Credential Manager (push to github.com once to store one).' }
 
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
