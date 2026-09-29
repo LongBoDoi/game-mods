@@ -1,0 +1,10 @@
+# Build output
+bin/
+obj/
+*.user
+.vs/
+
+# Built mods and third-party loaders are attached to GitHub Releases, not committed.
+# (Installers download BepInEx themselves when its zip isn't next to them.)
+**/dist/*.dll
+**/dist/*.zip

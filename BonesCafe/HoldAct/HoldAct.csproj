@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>HoldAct</AssemblyName>
+    <RootNamespace>HoldAct</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>none</DebugType>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <!-- Point this at your game install if you ever move it. -->
+  <PropertyGroup>
+    <GameDir>E:\Steam\steamapps\common\Bone's Cafe</GameDir>
+    <ManagedDir>$(GameDir)\BonesCafe_Data\Managed</ManagedDir>
+    <BepInExDir>$(GameDir)\BepInEx</BepInExDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx"><HintPath>$(BepInExDir)\core\BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(BepInExDir)\core\0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(ManagedDir)\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(ManagedDir)\UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Unity.InputSystem"><HintPath>$(ManagedDir)\Unity.InputSystem.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <!--
+    Drop the built plugin straight into the game so you can just relaunch.
+    The game locks the DLL while it is running, so a failed copy is a warning, not an error.
+  -->
+  <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExDir)\plugins\HoldAct\"
+          ContinueOnError="WarnAndContinue" Retries="0">
+      <Output TaskParameter="CopiedFiles" ItemName="Deployed" />
+    </Copy>
+    <Message Importance="high" Condition="'@(Deployed)' != ''" Text="Deployed $(TargetFileName) -> $(BepInExDir)\plugins\HoldAct\" />
+    <Warning Condition="'@(Deployed)' == ''" Text="Build OK but NOT deployed - close the game and run: dotnet build -c Release" />
+
+    <!-- Keep the redistributable folder (installer + DLL) in step, so dist\ is always shippable. -->
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(MSBuildProjectDirectory)\dist\" />
+  </Target>
+
+</Project>
