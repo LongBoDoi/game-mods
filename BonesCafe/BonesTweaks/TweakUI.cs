@@ -22,6 +22,7 @@ namespace BonesTweaks
         private Rect _panel = new Rect(40f, 40f, PanelWidth, 200f);
         private bool _dirty;
         private float _nextSave;
+        private float _nextTopUp;
         private bool _prevCursorVisible;
 
         private Key _toggleKey = Key.F1;
@@ -32,6 +33,13 @@ namespace BonesTweaks
         private void Update()
         {
             if (Plugin.AnyTweakOn) Plugin.TweaksUsed = true;
+
+            // Keep discovered ingredients at 99: loading a save or a new day brings fresh counts.
+            if (Plugin.InfiniteIngredients.Value && Time.unscaledTime >= _nextTopUp)
+            {
+                _nextTopUp = Time.unscaledTime + 1f;
+                InfiniteIngredients.TopUp();
+            }
 
             var kb = Keyboard.current;
             if (kb != null && kb[ResolveToggleKey()].wasPressedThisFrame) SetOpen(!_open);
@@ -171,12 +179,12 @@ namespace BonesTweaks
             y += Row;
 
             bool inf = GUI.Toggle(new Rect(x, y, w, Row), Plugin.InfiniteIngredients.Value, "  Nguyên liệu vô hạn");
-            if (inf != Plugin.InfiniteIngredients.Value) { Plugin.InfiniteIngredients.Value = inf; MarkDirty(); }
+            if (inf != Plugin.InfiniteIngredients.Value) { Plugin.InfiniteIngredients.Value = inf; MarkDirty(); if (inf) InfiniteIngredients.TopUp(); }
             y += Row;
 
-            GUI.Label(new Rect(x, y, w, Row), "<i>Lấy từ tủ lạnh (bò, cá, trứng...) không bị trừ số lượng.</i>");
+            GUI.Label(new Rect(x, y, w, Row), "<i>Nguyên liệu đã mở khóa (bò, cá, trứng...) luôn là 99, lấy ra không bị trừ.</i>");
             y += Row;
-            GUI.Label(new Rect(x, y, w, Row), "<i>Chỉ áp dụng cho nguyên liệu đã mở khóa.</i>");
+            GUI.Label(new Rect(x, y, w, Row), "<i>Số 99 được lưu vào save, tắt đi vẫn giữ nguyên.</i>");
             y += Row + 8f;
 
             // --- Infinite souls --------------------------------------------------------
@@ -193,7 +201,7 @@ namespace BonesTweaks
             }
             y += Row;
 
-            GUI.Label(new Rect(x, y, w, Row), "<i>Triệu hồi bộ xương phụ bếp không giới hạn (cần đã mở khóa triệu hồi).</i>");
+            GUI.Label(new Rect(x, y, w, Row), "<i>Luôn còn 99 lượt triệu hồi, triệu hồi không bị trừ (cần đã mở khóa triệu hồi).</i>");
             y += Row + 8f;
 
             // --- Cafe size -------------------------------------------------------------
