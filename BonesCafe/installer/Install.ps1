@@ -1,5 +1,5 @@
 <#
-    Installs Bone's Cafe Tweaks (F1 panel: fast Act hold, infinite ingredients).
+    Installs Bone's Cafe Tweaks (F1 panel: fast Act hold, infinite ingredients, infinite souls, cafe size).
 
     - Finds the game through Steam (or use -GameDir "D:\path\to\Bone's Cafe").
     - Installs BepInEx 5 if it is not there yet (a BepInEx zip placed next to this script, or downloaded).
@@ -154,6 +154,6 @@ Copy-Item -LiteralPath $dll -Destination $pluginDir -Force
 
 Write-Host ''
 Write-Host 'Done! Launch Bone''s Cafe and press F1 in-game to open the panel.' -ForegroundColor Green
-Write-Host 'Both tweaks start switched off: turn on fast Act hold and/or infinite ingredients there.'
+Write-Host 'All tweaks start switched off: fast Act hold, infinite ingredients, infinite souls and cafe size are toggled there.'
 Write-Host 'Settings are saved to:'
 Write-Host "    $(Join-Path $GameDir 'BepInEx\config\manhl.bonescafe.tweaks.cfg')"

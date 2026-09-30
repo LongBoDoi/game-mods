@@ -30,7 +30,7 @@ namespace BonesTweaks
 
         private void Update()
         {
-            if (Plugin.FastAct.Value || Plugin.InfiniteIngredients.Value) Plugin.TweaksUsed = true;
+            if (Plugin.AnyTweakOn) Plugin.TweaksUsed = true;
 
             var kb = Keyboard.current;
             if (kb != null && kb[ResolveToggleKey()].wasPressedThisFrame) SetOpen(!_open);
@@ -165,7 +165,27 @@ namespace BonesTweaks
             GUI.Label(new Rect(x, y, w, Row), "<i>Lấy từ tủ lạnh (bò, cá, trứng...) không bị trừ số lượng.</i>");
             y += Row;
             GUI.Label(new Rect(x, y, w, Row), "<i>Chỉ áp dụng cho nguyên liệu đã mở khóa.</i>");
+            y += Row + 8f;
+
+            // --- Infinite souls --------------------------------------------------------
+            GUI.Label(new Rect(x, y, w, Row), "<b>Linh hồn</b>");
             y += Row;
+
+            bool souls = GUI.Toggle(new Rect(x, y, w, Row), Plugin.InfiniteSouls.Value, "  Linh hồn vô hạn");
+            if (souls != Plugin.InfiniteSouls.Value)
+            {
+                Plugin.InfiniteSouls.Value = souls;
+                MarkDirty();
+                // The HUD counter only redraws when the game changes it; show the new number now.
+                try { FindObjectOfType<SoulsManager>()?.UpdateDisplayedSummonsAvailable(); } catch { }
+            }
+            y += Row;
+
+            GUI.Label(new Rect(x, y, w, Row), "<i>Triệu hồi bộ xương phụ bếp không giới hạn (cần đã mở khóa triệu hồi).</i>");
+            y += Row + 8f;
+
+            // --- Cafe size -------------------------------------------------------------
+            y = DrawCafeSize(x, y, w);
 
             // --- Leaderboard note ------------------------------------------------------
             if (Plugin.TweaksUsed && Plugin.KeepLeaderboardsClean.Value)
@@ -180,6 +200,81 @@ namespace BonesTweaks
             }
 
             _panel.height = y + Pad;
+        }
+
+        private float DrawCafeSize(float x, float y, float w)
+        {
+            GUI.Label(new Rect(x, y, w, Row), "<b>Kích thước quán</b>");
+            y += Row;
+
+            bool on = GUI.Toggle(new Rect(x, y, w, Row), Plugin.CafeSizeEnabled.Value, "  Tự chọn kích thước quán");
+            if (on != Plugin.CafeSizeEnabled.Value) { Plugin.CafeSizeEnabled.Value = on; MarkDirty(); }
+            y += Row;
+
+            if (on)
+            {
+                // One button per layout, 0 (smallest) to 5 (largest); the chosen one stays lit.
+                const int count = 6;
+                float bx = x + 18f, bw = (w - 18f - (count - 1) * 4f) / count;
+                var prevBg = GUI.backgroundColor;
+                for (int i = 0; i < count; i++)
+                {
+                    bool chosen = Plugin.CafeSizeLevel.Value == i;
+                    GUI.backgroundColor = chosen ? new Color(0.45f, 0.8f, 1f) : prevBg;
+                    if (GUI.Button(new Rect(bx + i * (bw + 4f), y, bw, Row), chosen ? $"<b>{i}</b>" : i.ToString()) && !chosen)
+                    {
+                        Plugin.CafeSizeLevel.Value = i;
+                        MarkDirty();
+                    }
+                }
+                GUI.backgroundColor = prevBg;
+                y += Row + 4f;
+
+                int size = CafeSize.Chosen;
+                GUI.Label(new Rect(x + 18f, y, w - 18f, Row), $"Cỡ {size}: khoảng {CafeSize.Dimensions[size]} ô" + (size == 5 ? " (lớn nhất)" : ""));
+                y += Row;
+            }
+
+            if (CafeSize.PendingReload)
+            {
+                bool canReload = CanReloadCafe();
+                var prevEnabled = GUI.enabled;
+                GUI.enabled = canReload;
+                if (GUI.Button(new Rect(x + 18f, y, 220f, Row), "Áp dụng ngay (tải lại quán)")) ReloadCafe();
+                GUI.enabled = prevEnabled;
+                y += Row;
+                GUI.Label(new Rect(x + 18f, y, w - 18f, Row * 2f), canReload
+                    ? "<i>Hoặc sẽ tự áp dụng khi quán tải lại (ngày mới).</i>"
+                    : "<i>Chỉ tải lại được trước khi mở cửa. Sẽ tự áp dụng vào ngày mới.</i>");
+                y += Row * 2f;
+            }
+            GUI.Label(new Rect(x, y, w, Row * 2f), "<i>Thu nhỏ quán: đồ nằm ngoài tường được trả về kho. Không áp dụng cho thử thách.</i>");
+            y += Row * 2f;
+            return y;
+        }
+
+        /// <summary>Only before the day starts (the layout phase), and never in a challenge or the tutorial.</summary>
+        private static bool CanReloadCafe()
+        {
+            var gc = GameController.Instance;
+            var ms = MainGameState.Instance;
+            return gc != null && gc.state == GameState.KitchenLayout && ms != null && !ms.isChallengeMode && !ms.isTutorialMode;
+        }
+
+        /// <summary>What the game's own cafe-size picker does: save, then load the cafe scene again.</summary>
+        private void ReloadCafe()
+        {
+            try
+            {
+                Save();
+                SetOpen(false);
+                GameData.Instance.SaveGame();
+                SceneFader.LoadScene("MainGame0");
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"Cafe size: reload failed: {e.Message}");
+            }
         }
 
         /// <summary>Label, slider and value on one row; returns the slider's value.</summary>
