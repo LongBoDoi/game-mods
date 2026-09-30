@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -14,7 +15,7 @@ namespace BonesTweaks
         private const float Pad = 12f;
         private const float Row = 24f;
         private const float LabelW = 150f;
-        private const float ValueW = 90f;
+        private const float FieldW = 64f;
         private const int WindowId = 0x0B0E5CAF;
 
         private bool _open;
@@ -57,6 +58,7 @@ namespace BonesTweaks
         private void SetOpen(bool open)
         {
             if (open == _open) return;
+            _editId = null;
             _open = open;
             if (open)
             {
@@ -120,6 +122,8 @@ namespace BonesTweaks
 
         private void DrawWindow(int id)
         {
+            TrackEditFocus();
+
             var r = new Rect(0f, 0f, _panel.width, _panel.height);
             Backdrop(r);
 
@@ -139,13 +143,21 @@ namespace BonesTweaks
 
             if (fast)
             {
-                float rate = Mathf.Round(1f / Mathf.Max(0.02f, Plugin.RepeatInterval.Value));
-                float newRate = Mathf.Round(SliderRow(ref y, x, w, "Tốc độ lặp", rate, 4f, 20f, $"{rate:0} lần/giây"));
-                if (!Mathf.Approximately(newRate, rate)) { Plugin.RepeatInterval.Value = 1f / newRate; MarkDirty(); }
+                // Shown as repeats per second; stored as the interval between them.
+                float rate = 1f / Mathf.Max(0.02f, Plugin.RepeatInterval.Value);
+                NumberRow(ref y, x, w, "rate", "Tốc độ lặp", rate.ToString("0.#"), $"lần/giây ({MinRate}–{MaxRate})", text =>
+                {
+                    if (!TryParseNumber(text, out float r)) return false;
+                    Plugin.RepeatInterval.Value = 1f / Mathf.Clamp(r, MinRate, MaxRate);
+                    return true;
+                });
 
-                float delay = Plugin.InitialDelay.Value;
-                float newDelay = Mathf.Round(SliderRow(ref y, x, w, "Chờ trước khi lặp", delay, 0.1f, 0.5f, $"{delay:0.00} giây") * 20f) / 20f;
-                if (!Mathf.Approximately(newDelay, delay)) { Plugin.InitialDelay.Value = newDelay; MarkDirty(); }
+                NumberRow(ref y, x, w, "delay", "Chờ trước khi lặp", Plugin.InitialDelay.Value.ToString("0.##"), "giây (0,02–1)", text =>
+                {
+                    if (!TryParseNumber(text, out float d)) return false;
+                    Plugin.InitialDelay.Value = Mathf.Clamp(d, 0.02f, 1f);
+                    return true;
+                });
             }
             else
             {
@@ -242,13 +254,20 @@ namespace BonesTweaks
 
                 if (custom)
                 {
-                    int width = CafeSize.ChosenWidth, depth = CafeSize.ChosenDepth;
-                    int newW = Mathf.RoundToInt(SliderRow(ref y, x, w, "Chiều rộng", width,
-                        CustomLayout.MinWidth, CustomLayout.MaxWidth, $"{width} ô"));
-                    if (newW != width) { Plugin.CafeWidth.Value = newW; MarkDirty(); }
-                    int newD = Mathf.RoundToInt(SliderRow(ref y, x, w, "Chiều sâu", depth,
-                        CustomLayout.MinDepth, CustomLayout.MaxDepth, $"{depth} ô"));
-                    if (newD != depth) { Plugin.CafeDepth.Value = newD; MarkDirty(); }
+                    NumberRow(ref y, x, w, "width", "Chiều rộng", CafeSize.ChosenWidth.ToString(),
+                        $"ô ({CustomLayout.MinWidth}–{CustomLayout.MaxWidth})", text =>
+                        {
+                            if (!TryParseNumber(text, out float v)) return false;
+                            Plugin.CafeWidth.Value = Mathf.Clamp(Mathf.RoundToInt(v), CustomLayout.MinWidth, CustomLayout.MaxWidth);
+                            return true;
+                        });
+                    NumberRow(ref y, x, w, "depth", "Chiều sâu", CafeSize.ChosenDepth.ToString(),
+                        $"ô ({CustomLayout.MinDepth}–{CustomLayout.MaxDepth})", text =>
+                        {
+                            if (!TryParseNumber(text, out float v)) return false;
+                            Plugin.CafeDepth.Value = Mathf.Clamp(Mathf.RoundToInt(v), CustomLayout.MinDepth, CustomLayout.MaxDepth);
+                            return true;
+                        });
                     GUI.Label(new Rect(x + 18f, y, w - 18f, Row * 2f),
                         "<i>Cửa và tường trước giữ nguyên; quán mở rộng sang trái, phải và ra sau. " +
                         "Lớn hơn 25x15 thì camera sẽ thu nhỏ.</i>");
@@ -304,17 +323,57 @@ namespace BonesTweaks
             }
         }
 
-        /// <summary>Label, slider and value on one row; returns the slider's value.</summary>
-        private static float SliderRow(ref float y, float x, float w, string label, float value, float min, float max, string shown)
+        // ------------------------------------------------------------ number input
+
+        private const int MinRate = 1, MaxRate = 50;   // RepeatInterval's 0.02..1 s, as repeats per second
+
+        // The field being typed in, and what has been typed. While a field has focus it shows the
+        // typed text, not the stored value, so a half-typed "3" on the way to "35" is not rewritten
+        // to the clamped minimum under the cursor. Once focus leaves (click elsewhere, Enter, or
+        // closing the panel) it shows the stored - clamped - value again.
+        private string _editId, _editText;
+
+        /// <summary>Label, text box and unit on one row. A valid number applies as it is typed.</summary>
+        private void NumberRow(ref float y, float x, float w, string id, string label, string current,
+                               string unit, Func<string, bool> apply)
         {
             GUI.Label(new Rect(x + 18f, y, LabelW, Row), label);
-            float sx = x + 18f + LabelW;
-            float sw = w - 18f - LabelW - ValueW - 8f;
-            float v = GUI.HorizontalSlider(new Rect(sx, y + 7f, sw, Row), value, min, max);
-            GUI.Label(new Rect(sx + sw + 8f, y, ValueW, Row), shown);
+            var box = new Rect(x + 18f + LabelW, y + 2f, FieldW, Row - 4f);
+
+            GUI.SetNextControlName(id);
+            string shown = _editId == id ? _editText : current;
+            string typed = GUI.TextField(box, shown, 6);
+            if (typed != shown)
+            {
+                _editId = id;
+                _editText = typed;
+                if (apply(typed)) MarkDirty();
+            }
+
+            GUI.Label(new Rect(box.xMax + 8f, y, w - 18f - LabelW - FieldW - 8f, Row), unit);
             y += Row;
-            return v;
         }
+
+        /// <summary>Ends typing when the focused field changes or Enter is pressed.</summary>
+        private void TrackEditFocus()
+        {
+            var e = Event.current;
+            if (_editId != null && e.type == EventType.KeyDown &&
+                (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter))
+            {
+                GUIUtility.keyboardControl = 0;
+                _editId = null;
+                e.Use();
+                return;
+            }
+            if (_editId != null && e.type == EventType.Repaint && GUI.GetNameOfFocusedControl() != _editId)
+                _editId = null;
+        }
+
+        /// <summary>Accepts both "0.25" and the Vietnamese "0,25".</summary>
+        private static bool TryParseNumber(string text, out float value) =>
+            float.TryParse((text ?? "").Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out value)
+            && !float.IsNaN(value) && !float.IsInfinity(value);
 
         // -------------------------------------------------------------------- theme
 
@@ -373,6 +432,12 @@ namespace BonesTweaks
                         st.textColor = TextBright;
                 }
                 copy.label.wordWrap = true;
+
+                // Text boxes: light text too, but no rich text - it would hide what is typed.
+                foreach (var st in new[] { copy.textField.normal, copy.textField.hover, copy.textField.active, copy.textField.focused,
+                                           copy.textField.onNormal, copy.textField.onHover, copy.textField.onActive, copy.textField.onFocused })
+                    st.textColor = TextBright;
+                copy.textField.alignment = TextAnchor.MiddleCenter;
                 _skin = copy;
             }
             catch (Exception e)
