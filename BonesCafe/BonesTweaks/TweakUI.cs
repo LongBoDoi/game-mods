@@ -213,26 +213,53 @@ namespace BonesTweaks
 
             if (on)
             {
-                // One button per layout, 0 (smallest) to 5 (largest); the chosen one stays lit.
-                const int count = 6;
-                float bx = x + 18f, bw = (w - 18f - (count - 1) * 4f) / count;
+                // One button per preset, 0 (smallest) to 5 (largest), then "custom"; the chosen one stays lit.
+                const int presets = 6;
+                float bx = x + 18f, customW = 86f;
+                float bw = (w - 18f - customW - presets * 4f) / presets;
+                bool custom = Plugin.CafeSizeCustom.Value;
                 var prevBg = GUI.backgroundColor;
-                for (int i = 0; i < count; i++)
+                var lit = new Color(0.45f, 0.8f, 1f);
+                for (int i = 0; i < presets; i++)
                 {
-                    bool chosen = Plugin.CafeSizeLevel.Value == i;
-                    GUI.backgroundColor = chosen ? new Color(0.45f, 0.8f, 1f) : prevBg;
+                    bool chosen = !custom && Plugin.CafeSizeLevel.Value == i;
+                    GUI.backgroundColor = chosen ? lit : prevBg;
                     if (GUI.Button(new Rect(bx + i * (bw + 4f), y, bw, Row), chosen ? $"<b>{i}</b>" : i.ToString()) && !chosen)
                     {
                         Plugin.CafeSizeLevel.Value = i;
+                        Plugin.CafeSizeCustom.Value = false;
                         MarkDirty();
                     }
+                }
+                GUI.backgroundColor = custom ? lit : prevBg;
+                if (GUI.Button(new Rect(bx + presets * (bw + 4f), y, customW, Row), custom ? "<b>Tùy chỉnh</b>" : "Tùy chỉnh") && !custom)
+                {
+                    Plugin.CafeSizeCustom.Value = true;
+                    MarkDirty();
                 }
                 GUI.backgroundColor = prevBg;
                 y += Row + 4f;
 
-                int size = CafeSize.Chosen;
-                GUI.Label(new Rect(x + 18f, y, w - 18f, Row), $"Cỡ {size}: khoảng {CafeSize.Dimensions[size]} ô" + (size == 5 ? " (lớn nhất)" : ""));
-                y += Row;
+                if (custom)
+                {
+                    int width = CafeSize.ChosenWidth, depth = CafeSize.ChosenDepth;
+                    int newW = Mathf.RoundToInt(SliderRow(ref y, x, w, "Chiều rộng", width,
+                        CustomLayout.MinWidth, CustomLayout.MaxWidth, $"{width} ô"));
+                    if (newW != width) { Plugin.CafeWidth.Value = newW; MarkDirty(); }
+                    int newD = Mathf.RoundToInt(SliderRow(ref y, x, w, "Chiều sâu", depth,
+                        CustomLayout.MinDepth, CustomLayout.MaxDepth, $"{depth} ô"));
+                    if (newD != depth) { Plugin.CafeDepth.Value = newD; MarkDirty(); }
+                    GUI.Label(new Rect(x + 18f, y, w - 18f, Row * 2f),
+                        "<i>Cửa và tường trước giữ nguyên; quán mở rộng sang trái, phải và ra sau. " +
+                        "Lớn hơn 25x15 thì camera sẽ thu nhỏ.</i>");
+                    y += Row * 2f;
+                }
+                else
+                {
+                    int size = CafeSize.Chosen;
+                    GUI.Label(new Rect(x + 18f, y, w - 18f, Row), $"Cỡ {size}: khoảng {CafeSize.Dimensions[size]} ô" + (size == 5 ? " (lớn nhất)" : ""));
+                    y += Row;
+                }
             }
 
             if (CafeSize.PendingReload)

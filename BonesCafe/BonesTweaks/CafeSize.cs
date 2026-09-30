@@ -12,32 +12,51 @@ namespace BonesTweaks
     // about size asks GetCafeSizeOverride: assistant path bounds (StepGoto), the furniture-bounds
     // cleanup when shrinking (GameController.CheckFurnitureBounds), menu goals (RatingSystem).
     //
-    // So a custom size is: (1) Awake picks our layout instead of the rating's, and (2)
-    // GetCafeSizeOverride reports it. The size is fixed when the cafe scene loads and held until the
-    // next load, so changing it in the panel mid-day never leaves the bounds out of step with the
-    // walls. Challenge mode (its own fixed size) and the tutorial are left alone.
+    // A preset size is: (1) Awake picks our layout instead of the rating's, and (2)
+    // GetCafeSizeOverride reports it. A custom width x depth uses layout 5 and reshapes it
+    // (CustomLayout.cs). The choice is fixed when the cafe scene loads and held until the next
+    // load, so changing it in the panel mid-day never leaves bounds out of step with the walls.
+    // Challenge mode (its own fixed size) and the tutorial are left alone.
     internal static class CafeSize
     {
-        /// <summary>Approximate floor size of each layout, from the game's own bounds.</summary>
+        /// <summary>Approximate floor size of each preset, from the game's own bounds.</summary>
         internal static readonly string[] Dimensions = { "5x8", "7x8", "7x12", "7x16", "10x20", "15x25" };
 
-        private const int Undecided = -2;
-        private static int _active = Undecided;
-
-        internal static int Chosen => Mathf.Clamp(Plugin.CafeSizeLevel.Value, 0, 5);
-
-        /// <summary>The size in force for the loaded cafe, or -1 when the game decides.</summary>
-        internal static int Active
+        internal readonly struct Choice : IEquatable<Choice>
         {
-            get
+            public readonly int Index;      // layout 0..5, or -1 = the game decides
+            public readonly bool Custom;
+            public readonly int Width, Depth;
+
+            public Choice(int index, bool custom, int width, int depth)
             {
-                if (_active == Undecided) _active = Applies() ? Chosen : -1;
-                return _active;
+                Index = index; Custom = custom; Width = custom ? width : 0; Depth = custom ? depth : 0;
             }
+
+            public static readonly Choice Game = new Choice(-1, false, 0, 0);
+            public bool Equals(Choice o) => Index == o.Index && Custom == o.Custom && Width == o.Width && Depth == o.Depth;
         }
 
-        /// <summary>True while the loaded cafe uses a size that differs from what the panel shows.</summary>
-        internal static bool PendingReload => Active != (Applies() ? Chosen : -1);
+        private static Choice? _active;
+
+        internal static int Chosen => Mathf.Clamp(Plugin.CafeSizeLevel.Value, 0, 5);
+        internal static int ChosenWidth => Mathf.Clamp(Plugin.CafeWidth.Value, CustomLayout.MinWidth, CustomLayout.MaxWidth);
+        internal static int ChosenDepth => Mathf.Clamp(Plugin.CafeDepth.Value, CustomLayout.MinDepth, CustomLayout.MaxDepth);
+
+        /// <summary>What the panel currently asks for.</summary>
+        private static Choice Wanted()
+        {
+            if (!Applies()) return Choice.Game;
+            return Plugin.CafeSizeCustom.Value
+                ? new Choice(5, true, ChosenWidth, ChosenDepth)
+                : new Choice(Chosen, false, 0, 0);
+        }
+
+        /// <summary>The choice in force for the loaded cafe.</summary>
+        internal static Choice Active => _active ?? (_active = Wanted()).Value;
+
+        /// <summary>True while the loaded cafe differs from what the panel shows.</summary>
+        internal static bool PendingReload => !Active.Equals(Wanted());
 
         private static bool Applies()
         {
@@ -55,9 +74,9 @@ namespace BonesTweaks
         }
 
         /// <summary>Called by GameController.Awake in place of GetRatingLevel() when indexing interiorLayouts.</summary>
-        public static int LayoutIndex(GameData gd) => Active >= 0 ? Active : gd.GetRatingLevel();
+        public static int LayoutIndex(GameData gd) => Active.Index >= 0 ? Active.Index : gd.GetRatingLevel();
 
-        internal static void ForgetDecision() => _active = Undecided;
+        internal static void ForgetDecision() => _active = null;
     }
 
     [HarmonyPatch(typeof(GameData), nameof(GameData.GetCafeSizeOverride))]
@@ -65,8 +84,20 @@ namespace BonesTweaks
     {
         private static void Postfix(ref int __result)
         {
-            int size = CafeSize.Active;
+            int size = CafeSize.Active.Index;
             if (size >= 0) __result = size;
+        }
+    }
+
+    /// <summary>The game's furniture cleanup knows only the six presets; use the custom floor instead.</summary>
+    [HarmonyPatch(typeof(GameController), "CheckFurnitureBounds")]
+    internal static class CafeFurnitureBoundsPatch
+    {
+        private static bool Prefix()
+        {
+            if (!CafeSize.Active.Custom) return true;
+            CustomLayout.ClearOutside();
+            return false;
         }
     }
 
@@ -77,6 +108,8 @@ namespace BonesTweaks
         private static readonly MethodInfo CheckFurnitureBounds = AccessTools.Method(typeof(GameController), "CheckFurnitureBounds");
         private static readonly AccessTools.FieldRef<GameController, bool> IsTutorialLevel =
             AccessTools.FieldRefAccess<GameController, bool>("isTutorialLevel");
+        private static readonly AccessTools.FieldRef<GameController, GameObject[]> InteriorLayouts =
+            AccessTools.FieldRefAccess<GameController, GameObject[]>("interiorLayouts");
 
         // Decide afresh for every cafe load: LoadGame (the first thing Awake does) has run by the
         // time anything asks, so the decision sees this save's rating and tutorial state.
@@ -100,32 +133,42 @@ namespace BonesTweaks
                 .InstructionEnumeration();
         }
 
-        // Below the top rating the game never shrinks a cafe, so it never clears furniture that is
-        // now outside the walls; do what it does at the top rating (items go back to the inventory,
-        // assistants outside are unsummoned). At the top rating Awake already did it with our size.
-        // Likewise when a custom size is switched off: the previous load may have placed furniture
-        // where the rating's own (smaller) cafe has no floor, and the game would never clear it.
+        // After Awake has picked and loaded the layout:
+        //  - custom size: reshape layout 5, then clear furniture outside the new floor;
+        //  - any size the game would not have picked, or the first load after one: run the game's
+        //    own furniture-bounds cleanup, which it only does itself when shrinking at the top
+        //    rating (and never twice - its Destroy is deferred, so a second pass would refund twice).
         private static void Postfix(GameController __instance)
         {
             if (IsTutorialLevel(__instance) || MainGameState.Instance.isChallengeMode) return;
             try
             {
-                int rating = GameData.Instance.GetRatingLevel();
-                int size = CafeSize.Active;
-                if (size >= 0)
+                var choice = CafeSize.Active;
+                var gd = GameData.Instance;
+                int size = gd.GetCafeSizeOverride();
+                bool gameCleaned = gd.GetRatingLevel() >= 5 && size != 5;
+
+                if (choice.Custom)
                 {
                     SetLastLoadedCustom(true);
-                    if (size < 5 && rating < 5) CheckFurnitureBounds.Invoke(__instance, new object[] { size });
+                    CustomLayout.SetSize(choice.Width, choice.Depth);
+                    CustomLayout.Build(InteriorLayouts(__instance)[choice.Index]);
+                    if (!gameCleaned) CustomLayout.ClearOutside();   // otherwise the prefix above already ran it
+                }
+                else if (choice.Index >= 0)
+                {
+                    SetLastLoadedCustom(true);
+                    if (!gameCleaned) CheckFurnitureBounds.Invoke(__instance, new object[] { size });
                 }
                 else if (Plugin.CafeSizeLastLoadedCustom.Value)
                 {
                     SetLastLoadedCustom(false);
-                    if (rating < 5) CheckFurnitureBounds.Invoke(__instance, new object[] { rating });
+                    if (!gameCleaned) CheckFurnitureBounds.Invoke(__instance, new object[] { size });
                 }
             }
             catch (Exception e)
             {
-                Plugin.Log.LogWarning($"Cafe size: furniture bounds check failed: {e.Message}");
+                Plugin.Log.LogError($"Cafe size: {e}");
             }
         }
 

@@ -29,6 +29,9 @@ namespace BonesTweaks
         internal static ConfigEntry<bool> InfiniteSouls;
         internal static ConfigEntry<bool> CafeSizeEnabled;
         internal static ConfigEntry<int> CafeSizeLevel;
+        internal static ConfigEntry<bool> CafeSizeCustom;
+        internal static ConfigEntry<int> CafeWidth;
+        internal static ConfigEntry<int> CafeDepth;
         internal static ConfigEntry<bool> CafeSizeLastLoadedCustom;
         internal static ConfigEntry<bool> KeepLeaderboardsClean;
 
@@ -68,6 +71,14 @@ namespace BonesTweaks
             CafeSizeLevel = Config.Bind("CafeSize", "Size", 5,
                 new ConfigDescription("Restaurant layout: 0 = smallest (about 5x8) ... 5 = largest (15x25). Furniture outside a smaller cafe goes back to your inventory.",
                     new AcceptableValueRange<int>(0, 5)));
+            CafeSizeCustom = Config.Bind("CafeSize", "Custom", false,
+                "Build a restaurant of the width and depth below (from the largest layout) instead of using a preset.");
+            CafeWidth = Config.Bind("CafeSize", "Width", 25,
+                new ConfigDescription("Custom size: floor tiles from left wall to right wall (the largest preset is 25).",
+                    new AcceptableValueRange<int>(CustomLayout.MinWidth, CustomLayout.MaxWidth)));
+            CafeDepth = Config.Bind("CafeSize", "Depth", 15,
+                new ConfigDescription("Custom size: floor tiles from the front wall to the back wall (the largest preset is 15).",
+                    new AcceptableValueRange<int>(CustomLayout.MinDepth, CustomLayout.MaxDepth)));
             CafeSizeLastLoadedCustom = Config.Bind("CafeSize", "LastLoadedCustom", false,
                 "Internal: set while a custom size is loaded, so switching it off can tidy furniture left outside the walls.");
 
@@ -84,6 +95,7 @@ namespace BonesTweaks
             harmony.PatchAll(typeof(InfiniteSoulsPatch));
             harmony.PatchAll(typeof(CafeSizeOverridePatch));
             harmony.PatchAll(typeof(CafeLayoutPatch));
+            harmony.PatchAll(typeof(CafeFurnitureBoundsPatch));
             harmony.PatchAll(typeof(LeaderboardGuard));
 
             // Our own object rather than the plugin's: BepInEx's manager object can be destroyed
