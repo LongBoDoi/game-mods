@@ -2,13 +2,13 @@
 
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
-    <AssemblyName>HoldAct</AssemblyName>
-    <RootNamespace>HoldAct</RootNamespace>
+    <AssemblyName>BonesTweaks</AssemblyName>
+    <RootNamespace>BonesTweaks</RootNamespace>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <DebugType>none</DebugType>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
   </PropertyGroup>
 
   <!-- Point this at your game install if you ever move it. -->
@@ -26,8 +26,11 @@
     <Reference Include="BepInEx"><HintPath>$(BepInExDir)\core\BepInEx.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="0Harmony"><HintPath>$(BepInExDir)\core\0Harmony.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Assembly-CSharp"><HintPath>$(ManagedDir)\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="com.rlabrecque.steamworks.net"><HintPath>$(ManagedDir)\com.rlabrecque.steamworks.net.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine"><HintPath>$(ManagedDir)\UnityEngine.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.IMGUIModule"><HintPath>$(ManagedDir)\UnityEngine.IMGUIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(ManagedDir)\UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Unity.InputSystem"><HintPath>$(ManagedDir)\Unity.InputSystem.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
 
@@ -36,12 +39,15 @@
     The game locks the DLL while it is running, so a failed copy is a warning, not an error.
   -->
   <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExDir)\plugins\HoldAct\"
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExDir)\plugins\BonesTweaks\"
           ContinueOnError="WarnAndContinue" Retries="0">
       <Output TaskParameter="CopiedFiles" ItemName="Deployed" />
     </Copy>
-    <Message Importance="high" Condition="'@(Deployed)' != ''" Text="Deployed $(TargetFileName) -> $(BepInExDir)\plugins\HoldAct\" />
+    <Message Importance="high" Condition="'@(Deployed)' != ''" Text="Deployed $(TargetFileName) -> $(BepInExDir)\plugins\BonesTweaks\" />
     <Warning Condition="'@(Deployed)' == ''" Text="Build OK but NOT deployed - close the game and run: dotnet build -c Release" />
+
+    <!-- HoldAct 1.0 is now part of this plugin; left in place it would patch the same method twice. -->
+    <RemoveDir Directories="$(BepInExDir)\plugins\HoldAct" Condition="'@(Deployed)' != ''" ContinueOnError="WarnAndContinue" />
 
     <!-- Stage the DLL in the game's dist\ folder, which scripts\Release.ps1 zips with the installer. -->
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(MSBuildProjectDirectory)\..\dist\" />

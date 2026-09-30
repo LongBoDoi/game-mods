@@ -1,9 +1,9 @@
 <#
-    Installs the Hold Act mod for Bone's Cafe.
+    Installs Bone's Cafe Tweaks (F1 panel: fast Act hold, infinite ingredients).
 
     - Finds the game through Steam (or use -GameDir "D:\path\to\Bone's Cafe").
     - Installs BepInEx 5 if it is not there yet (a BepInEx zip placed next to this script, or downloaded).
-    - Copies HoldAct.dll into BepInEx\plugins\HoldAct\.
+    - Copies BonesTweaks.dll into BepInEx\plugins\BonesTweaks\ (and removes the old HoldAct plugin).
 
     The mod files are taken from this script's folder (release zip) or from ..\dist (repo checkout,
     after build.cmd).
@@ -22,7 +22,7 @@ $BepInExZipName = "BepInEx_win_x64_$BepInExVersion.zip"
 $BepInExUrl     = "https://github.com/BepInEx/BepInEx/releases/download/v$BepInExVersion/$BepInExZipName"
 $AppId          = '1739070'
 $GameFolderName = "Bone's Cafe"
-$PluginName     = 'HoldAct'
+$PluginName     = 'BonesTweaks'
 
 function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Fail($msg)       { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
@@ -100,20 +100,26 @@ if ($running) {
 }
 
 $pluginDir = Join-Path $GameDir "BepInEx\plugins\$PluginName"
+# v1.0 shipped the Act-hold tweak alone as HoldAct; it is part of BonesTweaks now, and both
+# loaded together would patch the same method twice.
+$oldPluginDir = Join-Path $GameDir 'BepInEx\plugins\HoldAct'
 
 # --- Uninstall --------------------------------------------------------------
 if ($Uninstall) {
-    if (Test-Path -LiteralPath $pluginDir) {
-        Remove-Item -LiteralPath $pluginDir -Recurse -Force
-        Write-Step 'Hold Act removed. (BepInEx was left installed; delete winhttp.dll in the game folder to disable all mods.)'
+    $removed = $false
+    foreach ($dir in $pluginDir, $oldPluginDir) {
+        if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force; $removed = $true }
+    }
+    if ($removed) {
+        Write-Step 'Bone''s Cafe Tweaks removed. (BepInEx was left installed; delete winhttp.dll in the game folder to disable all mods.)'
     } else {
-        Write-Step 'Hold Act is not installed; nothing to remove.'
+        Write-Step 'Bone''s Cafe Tweaks is not installed; nothing to remove.'
     }
     exit 0
 }
 
 $dll = Find-Payload "$PluginName.dll"
-if (-not $dll) { Fail "$PluginName.dll not found next to this installer (or in ..\dist - run HoldAct\build.cmd first)." }
+if (-not $dll) { Fail "$PluginName.dll not found next to this installer (or in ..\dist - run BonesTweaks\build.cmd first)." }
 
 # --- BepInEx ----------------------------------------------------------------
 $bepCore = Join-Path $GameDir 'BepInEx\core\BepInEx.dll'
@@ -141,11 +147,13 @@ if ((Test-Path -LiteralPath $bepCore) -and (Test-Path -LiteralPath $loader)) {
 }
 
 # --- The mod ----------------------------------------------------------------
-Write-Step 'Installing Hold Act...'
+Write-Step "Installing Bone's Cafe Tweaks..."
+if (Test-Path -LiteralPath $oldPluginDir) { Remove-Item -LiteralPath $oldPluginDir -Recurse -Force; Write-Host '    Removed the old HoldAct plugin (now part of Bone''s Cafe Tweaks).' }
 New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
 Copy-Item -LiteralPath $dll -Destination $pluginDir -Force
 
 Write-Host ''
-Write-Host 'Done! Launch Bone''s Cafe and hold the Act button (J / gamepad X) to chop and grind continuously.' -ForegroundColor Green
-Write-Host 'Settings appear after the first launch in:'
-Write-Host "    $(Join-Path $GameDir 'BepInEx\config\manhl.bonescafe.holdact.cfg')"
+Write-Host 'Done! Launch Bone''s Cafe and press F1 in-game to open the panel.' -ForegroundColor Green
+Write-Host 'Both tweaks start switched off: turn on fast Act hold and/or infinite ingredients there.'
+Write-Host 'Settings are saved to:'
+Write-Host "    $(Join-Path $GameDir 'BepInEx\config\manhl.bonescafe.tweaks.cfg')"

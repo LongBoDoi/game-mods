@@ -1,46 +1,15 @@
 using System.Collections.Generic;
-using System.Reflection;
 using System.Reflection.Emit;
-using BepInEx;
-using BepInEx.Configuration;
-using BepInEx.Logging;
 using HarmonyLib;
 
-namespace HoldAct
+namespace BonesTweaks
 {
     // The game already repeats Act (chop/grind) while the button is held, via
     // PlayerController.CheckHoldChopKey: it fires once currentTimeActHold > 0.25f, then resets.
     // We swap that hard-coded 0.25f for our own threshold, so the repeat rate is configurable and
     // the first repeat can wait a little longer than the rest (so a normal tap never double-chops).
-    [BepInPlugin(Guid, "Hold Act", "1.0.0")]
-    public class Plugin : BaseUnityPlugin
-    {
-        public const string Guid = "manhl.bonescafe.holdact";
-
-        internal static ManualLogSource Log;
-        internal static ConfigEntry<bool> Enabled;
-        internal static ConfigEntry<float> RepeatInterval;
-        internal static ConfigEntry<float> InitialDelay;
-
-        private void Awake()
-        {
-            Log = Logger;
-            Enabled = Config.Bind("General", "Enabled", true,
-                "Use the settings below. When false, holding Act behaves exactly like the unmodded game (a repeat every 0.25 s).");
-            RepeatInterval = Config.Bind("General", "RepeatInterval", 0.1f,
-                new ConfigDescription("Seconds between repeated Act presses (chop, grind...) while the button is held. Vanilla is 0.25.",
-                    new AcceptableValueRange<float>(0.02f, 1f)));
-            InitialDelay = Config.Bind("General", "InitialDelay", 0.25f,
-                new ConfigDescription("Seconds the button must be held before repeating starts, so a quick tap still acts only once. Vanilla is 0.25.",
-                    new AcceptableValueRange<float>(0.02f, 1f)));
-
-            new Harmony(Guid).PatchAll(typeof(HoldChopPatch));
-            Log.LogInfo($"Hold Act loaded (interval {RepeatInterval.Value}s, initial delay {InitialDelay.Value}s)");
-        }
-    }
-
     [HarmonyPatch(typeof(PlayerController), "CheckHoldChopKey")]
-    internal static class HoldChopPatch
+    internal static class HoldActPatch
     {
         private static readonly AccessTools.FieldRef<PlayerController, float> HoldTime =
             AccessTools.FieldRefAccess<PlayerController, float>("currentTimeActHold");
@@ -50,7 +19,7 @@ namespace HoldAct
 
         public static float Threshold(PlayerController pc)
         {
-            if (!Plugin.Enabled.Value)
+            if (!Plugin.FastAct.Value)
                 return 0.25f;
             return Repeating.Contains(pc) ? Plugin.RepeatInterval.Value : Plugin.InitialDelay.Value;
         }
@@ -66,7 +35,7 @@ namespace HoldAct
 
             if (matcher.IsInvalid)
             {
-                Plugin.Log.LogError("CheckHoldChopKey no longer matches the expected code; hold speed is unchanged.");
+                Plugin.Log.LogError("CheckHoldChopKey no longer matches the expected code; Act hold speed is unchanged.");
                 return instructions;
             }
 
@@ -74,7 +43,7 @@ namespace HoldAct
             return matcher
                 .Advance(1)
                 .SetAndAdvance(OpCodes.Ldarg_0, null)
-                .Insert(new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(HoldChopPatch), nameof(Threshold))))
+                .Insert(new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(HoldActPatch), nameof(Threshold))))
                 .InstructionEnumeration();
         }
 
