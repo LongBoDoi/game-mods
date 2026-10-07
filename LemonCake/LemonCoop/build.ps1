@@ -2,7 +2,8 @@
     Builds LemonCoop for release:
       - packs pak\ into LemonCake-WindowsNoEditor_P.pak (repak, UE 4.24 = V8B, mount ../../../),
         which adds the gamepad bindings to LemonCake/Config/DefaultInput.ini;
-      - stages the pak and the UE4SS Lua mod (Scripts\, DualMonitor.ps1, README.md) in ..\dist\.
+      - stages the pak and the UE4SS Lua mod (Scripts\, the .ps1 helpers main.lua launches,
+        the .js save tools, README.md) in ..\dist\.
 
     -Install then runs ..\installer\Install.ps1 on the result.
     repak is taken from $env:REPAK, else <repo>\.tools\repak, else downloaded there.
@@ -50,7 +51,11 @@ if ($LASTEXITCODE -ne 0) { throw "repak failed ($LASTEXITCODE)" }
 
 Write-Host 'Staging LemonCoop'
 Copy-Item -LiteralPath (Join-Path $here 'Scripts\main.lua') -Destination (Join-Path $stage 'Scripts')
-Copy-Item -LiteralPath (Join-Path $here 'DualMonitor.ps1'), (Join-Path $here 'README.md') -Destination $stage
+# main.lua launches BackupSaves.ps1 and SaveGuard.ps1 from its own folder every load, so they have
+# to ship next to it; gvas.js / fixsave.js are the by-hand save tools the README documents.
+Copy-Item -Destination $stage -LiteralPath `
+    (Join-Path $here 'DualMonitor.ps1'), (Join-Path $here 'BackupSaves.ps1'), (Join-Path $here 'SaveGuard.ps1'),
+    (Join-Path $here 'gvas.js'), (Join-Path $here 'fixsave.js'), (Join-Path $here 'README.md')
 
 Write-Host "Built -> $dist"
 

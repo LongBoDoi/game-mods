@@ -204,5 +204,7 @@ Write-Host 'Done!' -ForegroundColor Green
 Write-Note 'IMPORTANT: turn Steam Input off for Lemon Cake (Steam > Lemon Cake > Properties > Controller >'
 Write-Note '"Disable Steam Input"), otherwise Steam turns the gamepad into a fake keyboard/mouse.'
 Write-Note 'Player 2 joins automatically once you are in the game (first gamepad = player 2).'
-Write-Note 'Keys: F1 split layout, F2 join, F3 remove player 2, F4 teleport player 2 to player 1, F8 dual monitor.'
+Write-Note 'Keys: F1 split layout, F2 join, F3 remove player 2, F4 teleport player 2 to player 1, F8 dual monitor,'
+Write-Note '      Ctrl+Shift+A write the achievements listed in main.lua.'
+Write-Note 'Your saves are snapshotted at every launch into Saved\SaveGames_LemonCoopBackups\ (newest 15 kept).'
 Write-Note "Options are at the top of $(Join-Path $modDir 'Scripts\main.lua')."

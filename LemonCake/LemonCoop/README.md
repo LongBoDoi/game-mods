@@ -71,6 +71,42 @@ Money, XP and level are shared: anything player 2 earns goes to player 1's accou
 Player 2 can pick up, carry, place, bake, serve and clean. The menus (shop, recipes, wardrobe,
 save/load) stay on player 1's screen and mouse.
 
+## Steam achievements (Ctrl+Shift+A)
+
+Writes the achievements listed in `AchievementsToUnlock` (top of `Scripts/main.lua`) through the
+same engine proxy the game uses (`AchievementWriteCallbackProxy.WriteAchievementProgress` +
+`Activate`), so Steam sees normal writes from the real game. Edit that list to choose which.
+
+This deliberately does **not** touch the `SV_ACV*` counters in `SaveSlotGlobal.sav`: those are also
+pushed to Steam *leaderboards*, and inflating them would skew other players' rankings. Note that
+writing 100% progress does set the Steam *stats* behind each achievement to their threshold values.
+
+Verify what unlocked by reading Steam's own cache:
+`Steam\appcache\stats\UserGameStats_<accountid>_1338330.bin` — the `AchievementTimes` block lists an
+unlock timestamp per achievement index, ordered as in `UserGameStatsSchema_1338330.bin`.
+
+## Save safety
+
+Every launch, the mod snapshots your `.sav` files into
+`%LOCALAPPDATA%\LemonCake\Saved\SaveGames_LemonCoopBackups\<timestamp>\` (newest 15 kept; identical
+snapshots are skipped). To roll back, copy a folder's `.sav` files over
+`%LOCALAPPDATA%\LemonCake\Saved\SaveGames\` with the game closed.
+
+This exists because **co-op play makes the game save with all four rooms' upgrade flags cleared**,
+while money, level, day and recipes stay correct. It has happened on more than one session and the
+exact Blueprint path has not been pinned down yet (removing player 2's duplicate HUD and its
+`WBP_Shop` did not stop it), so the mod also runs a guard:
+
+`SaveGuard.ps1` watches the save folder while the game runs and, when a save appears with *every*
+upgrade flag zeroed, restores them and logs to `%LOCALAPPDATA%\LemonCake\Saved\SaveGuard.log`.
+The version the game wrote is kept under `SaveGuard_wiped\<timestamp>\`. It only acts when all
+flags in a room are zero **and** `SV_Day >= 10`, so a genuinely new game is never touched.
+Run `SaveGuard.ps1 -Once` by hand to repair a save without the game running.
+
+`gvas.js` and `fixsave.js` (Node) here read and repair saves:
+`node fixsave.js <in.sav> <out.sav>` restores all four upgrade arrays;
+`node gvas.js <file.sav>` dumps a save's contents. Close the game before writing a save.
+
 ## Known limitations
 
 - Player 2 uses the default character look.

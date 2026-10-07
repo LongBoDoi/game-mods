@@ -445,9 +445,38 @@ end
 -- dualmonitor.txt, and applies the borderless span once the game has switched resolution.
 -- This mod's folder (…/Mods/LemonCoop/), taken from this script's own path so it works in any install.
 local ModDir = (function()
+    -- Prefer this script's own path; otherwise try the usual spots relative to the game's working
+    -- directory. Verified by opening a file we know lives in the folder, so we never guess silently.
+    local cands = {}
     local src = (debug.getinfo(1, "S").source or ""):gsub("^@", ""):gsub("\\", "/")
-    return src:match("^(.*/)Scripts/[^/]*$") or "Mods/LemonCoop/"   -- fallback: relative to Binaries/Win64
+    local fromSrc = src:match("^(.*/)Scripts/[^/]*$")
+    if fromSrc then table.insert(cands, fromSrc) end
+    table.insert(cands, "Mods/LemonCoop/")
+    table.insert(cands, "LemonCake/Binaries/Win64/Mods/LemonCoop/")
+    table.insert(cands, "../../../LemonCake/Binaries/Win64/Mods/LemonCoop/")
+    for _, c in ipairs(cands) do
+        local fh = io.open(c .. "BackupSaves.ps1", "r")
+        if fh then fh:close(); return c end
+    end
+    return cands[1] or "Mods/LemonCoop/"
 end)()
+-- Save safety net: snapshot the .sav files at every launch (rotating, newest 15 kept).
+-- A co-op session once saved with the shop-upgrade flags taken from player 2's duplicate HUD,
+-- which wiped every purchased upgrade, so always keep history we can roll back to.
+do
+    os.execute('start "" /min powershell -NoProfile -ExecutionPolicy Bypass -File "' .. ModDir:gsub("/", "\\") .. 'BackupSaves.ps1"')
+    local probe = io.open(ModDir .. "BackupSaves.ps1", "r")
+    if probe then probe:close(); log("save backup: snapshot requested (SaveGames_LemonCoopBackups)")
+    else log("save backup: BackupSaves.ps1 NOT found under %s - saves are NOT being backed up", ModDir) end
+
+    -- Guard: co-op play can make the game save with every shop-upgrade flag cleared; this watcher
+    -- restores them right after such a write, and exits by itself when the game closes.
+    os.execute('start "" /min powershell -NoProfile -ExecutionPolicy Bypass -File "' .. ModDir:gsub("/", "\\") .. 'SaveGuard.ps1"')
+    local g = io.open(ModDir .. "SaveGuard.ps1", "r")
+    if g then g:close(); log("save guard: watching for wiped upgrade flags")
+    else log("save guard: SaveGuard.ps1 NOT found under %s", ModDir) end
+end
+
 local function consoleCmd(cmd)
     local ok, err = pcall(function()
         local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
@@ -505,6 +534,51 @@ end
 RegisterKeyBind(Key.F8, function()
     ExecuteInGameThread(function() dualMonitor(not State.dualMonitor) end)
 end)
+
+-- ---------------------------------------------------- Steam achievements (Ctrl+Shift+A)
+-- Writes achievements through the engine proxy the game itself uses
+-- (AchievementWriteCallbackProxy.WriteAchievementProgress + Activate), so Steam sees a normal
+-- write from the real game. Deliberately does NOT touch the SV_ACV* counters: those are also
+-- pushed to Steam leaderboards, and inflating them would skew other players' rankings.
+local AchievementsToUnlock = {
+    "REACH_LEVEL_20",   -- Adept Baker
+    "REACH_LEVEL_30",   -- Expert Baker
+    "REACH_LEVEL_40",   -- Master Baker
+    "ADOPT_CATS",       -- A Loving Home (50 cat adoptions)
+    "BAKE_LEMON_CAKE",  -- The Famous Lemon Cake
+    "EARN_10000_COINS", -- Bakery Empire
+}
+
+State.achProxies = State.achProxies or {}   -- keep refs so GC cannot eat an in-flight write
+
+local function unlockAchievements(list)
+    ExecuteInGameThread(function()
+        local cdo = StaticFindObject("/Script/OnlineSubsystemUtils.Default__AchievementWriteCallbackProxy")
+        if not isValid(cdo) then log("achievements: proxy class not loaded (is Steam running?)") return end
+        local pc = getPC(0)
+        if not isValid(pc) then log("achievements: no player controller yet") return end
+        local done, failed = 0, 0
+        for _, name in ipairs(list) do
+            local ok, err = pcall(function()
+                local p = cdo:WriteAchievementProgress(pc, pc, FName(name), 100.0, 0)
+                if isValid(p) then
+                    table.insert(State.achProxies, p)
+                    p:Activate()
+                    done = done + 1
+                    log("  achievement sent: %s", name)
+                else
+                    failed = failed + 1
+                    log("  achievement %s: proxy not created", name)
+                end
+            end)
+            if not ok then failed = failed + 1; log("  achievement %s failed: %s", name, tostring(err)) end
+        end
+        log("achievements: %d sent, %d failed", done, failed)
+    end)
+end
+
+-- Ctrl+Shift+A (F12 is Steam's screenshot key, F10 the UE4SS console, F11 fullscreen).
+RegisterKeyBind(Key.A, { ModifierKey.CONTROL, ModifierKey.SHIFT }, function() unlockAchievements(AchievementsToUnlock) end)
 
 RegisterKeyBind(Key.F1, function()
     ExecuteInGameThread(function()
