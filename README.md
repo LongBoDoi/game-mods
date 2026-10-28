@@ -9,6 +9,7 @@ My mods for various games, one folder per game. Each game has its own GitHub rel
 | [Lemon Cake](LemonCake/) | LemonCoop (split-screen co-op, save backup + upgrade repair, achievements) | UE4SS 3.0.1 (Lua) + patch pak | [LemonCake](../../releases?q=LemonCake) |
 | [Mortal Kombat 11](MK11/) | MK11Tweaks | Ultimate ASI Loader (C++) | [MK11](../../releases?q=MK11) |
 | [Overcooked! 2](Overcooked2/) | LobbyTools (lobby panel: ping, force host, kick, saved bans) | BepInEx 5 (Mono, x86) | [Overcooked2](../../releases?q=Overcooked2) |
+| [Stardew Valley](StardewValley/) | MonitorCoop (local co-op on a monitor each, laid out like your monitors) | SMAPI 4 | [StardewValley](../../releases?q=StardewValley) |
 
 ## Installing
 
@@ -33,6 +34,7 @@ Every mod has a `build.cmd`, which builds the mod and stages the result in `<Gam
 | Mods | Needs |
 |---|---|
 | C# (BepInEx) | .NET SDK, plus the game with its BepInEx installed (the projects reference the game's assemblies) |
+| MonitorCoop | .NET SDK, plus Stardew Valley with SMAPI installed (it references the game's assemblies and SMAPI's Harmony) |
 | LemonCoop | Nothing: [repak](https://github.com/trumank/repak) is downloaded on first build |
 | MK11Tweaks | Nothing: [llvm-mingw](https://github.com/mstorsjo/llvm-mingw) and the C++ dependencies are downloaded on first build |
 

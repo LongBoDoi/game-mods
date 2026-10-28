@@ -1,0 +1,9 @@
+{
+    "Name": "Monitor Co-op",
+    "Author": "manhl",
+    "Version": "1.0.0",
+    "Description": "Gives each local co-op player their own monitor instead of a slice of one window, laid out the way your monitors are.",
+    "UniqueID": "manhl.MonitorCoop",
+    "EntryDll": "MonitorCoop.dll",
+    "MinimumApiVersion": "4.0.0"
+}

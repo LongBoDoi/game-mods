@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- The game and SMAPI both run on .NET 6. -->
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>MonitorCoop</AssemblyName>
+    <RootNamespace>MonitorCoop</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>none</DebugType>
+    <EnableDefaultItems>true</EnableDefaultItems>
+    <Version>1.0.0</Version>
+    <GameDir Condition="'$(GameDir)' == ''">E:\Steam\steamapps\common\Stardew Valley</GameDir>
+    <SmapiDir>$(GameDir)\smapi-internal</SmapiDir>
+    <DeployToGame Condition="'$(DeployToGame)' == ''">false</DeployToGame>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Stardew Valley"><HintPath>$(GameDir)\Stardew Valley.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="StardewValley.GameData"><HintPath>$(GameDir)\StardewValley.GameData.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="StardewModdingAPI"><HintPath>$(GameDir)\StardewModdingAPI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="MonoGame.Framework"><HintPath>$(GameDir)\MonoGame.Framework.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="xTile"><HintPath>$(GameDir)\xTile.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="SMAPI.Toolkit.CoreInterfaces"><HintPath>$(SmapiDir)\SMAPI.Toolkit.CoreInterfaces.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(SmapiDir)\0Harmony.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="manifest.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="CheckGameReferences" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(GameDir)\Stardew Valley.dll')" Text="Stardew Valley not found. Pass -p:GameDir=&quot;&lt;game folder&gt;&quot; to point at your install." />
+    <Error Condition="!Exists('$(SmapiDir)\0Harmony.dll')" Text="Install SMAPI into the game folder first (installer\Install.cmd does it)." />
+  </Target>
+  <Target Name="StagePlugin" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <!-- SMAPI loads a mod from its own folder, so the DLL and the manifest ship together. -->
+    <Copy SourceFiles="$(TargetPath);$(MSBuildProjectDirectory)\manifest.json" DestinationFolder="$(MSBuildProjectDirectory)\..\dist\MonitorCoop\" />
+  </Target>
+  <Target Name="InstallPlugin" AfterTargets="StagePlugin" Condition="'$(Configuration)' == 'Release' and '$(DeployToGame)' == 'true'">
+    <Copy SourceFiles="$(TargetPath);$(MSBuildProjectDirectory)\manifest.json" DestinationFolder="$(GameDir)\Mods\MonitorCoop\" />
+  </Target>
+</Project>
