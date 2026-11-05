@@ -1,0 +1,16 @@
+{
+  "Name": "Auto Fish Co-op",
+  "Author": "manhl",
+  "Version": "1.0.0",
+  "Description": "Gives every local co-op player their own Auto Fishing settings instead of one set shared by all of them.",
+  "UniqueID": "manhl.AutoFishCoop",
+  "EntryDll": "AutoFishCoop.dll",
+  "MinimumApiVersion": "4.0.0",
+  "Dependencies": [
+    {
+      "UniqueID": "Tibbles.AutoFishing2",
+      "MinimumVersion": "2.1.1",
+      "IsRequired": true
+    }
+  ]
+}

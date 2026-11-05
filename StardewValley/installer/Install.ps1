@@ -1,15 +1,16 @@
 <#
-    Installs Monitor Co-op (a monitor each for local split-screen players) for Stardew Valley.
+    Installs the Stardew Valley mods in this folder: Monitor Co-op (a monitor each for local split-screen
+    players) and Auto Fish Co-op (Auto Fishing's settings per player).
 
     - Finds the game through Steam (or use -GameDir "D:\path\to\Stardew Valley").
     - Installs SMAPI if it is not there yet (a SMAPI installer zip placed next to this script, or
       downloaded from GitHub). SMAPI's own installer does the work, unattended.
-    - Copies the mod into Mods\MonitorCoop\, leaving your other mods alone.
+    - Copies each mod into its own folder under Mods\, leaving your other mods alone.
 
     The mod files are taken from this script's folder (release zip) or from ..\dist (repo checkout,
     after build.cmd).
 
-    -Uninstall removes only this mod's files; SMAPI, your other mods and this mod's config.json stay.
+    -Uninstall removes only these mods' files; SMAPI, your other mods and these mods' config.json stay.
 #>
 param(
     [string]$GameDir,
@@ -23,8 +24,16 @@ $SmapiZipName   = "SMAPI-$SmapiVersion-installer.zip"
 $SmapiUrl       = "https://github.com/Pathoschild/SMAPI/releases/download/$SmapiVersion/$SmapiZipName"
 $AppId          = '413150'
 $GameFolderName = 'Stardew Valley'
-$ModName        = 'MonitorCoop'
-$ModFiles       = @('MonitorCoop.dll', 'manifest.json')
+
+# One folder under Mods\ each, with the files that belong to the mod itself (config.json is the player's).
+$Mods = @(
+    @{ Name = 'MonitorCoop';  Files = @('MonitorCoop.dll', 'manifest.json') }
+    @{ Name = 'AutoFishCoop'; Files = @('AutoFishCoop.dll', 'manifest.json') }
+)
+
+# Auto Fish Co-op has nothing to do without the mod it fixes, which is not ours to install.
+$AutoFishingName = 'AutoFishing2'
+$AutoFishingUrl  = 'https://www.nexusmods.com/stardewvalley/mods/21339'
 
 function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Fail($msg)       { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
@@ -101,45 +110,59 @@ if ($running) {
     Fail 'Stardew Valley is running. Close the game and run the installer again.'
 }
 
-# Keep the mod inside Mods\ even if the mod name ever gains a path separator.
+# Keep each mod inside Mods\ even if a mod name ever gains a path separator.
 $modRoot = [IO.Path]::GetFullPath((Join-Path $GameDir 'Mods'))
-$modDir  = [IO.Path]::GetFullPath((Join-Path $modRoot $ModName))
-if (-not $modDir.StartsWith($modRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
-    Fail 'The mod path would land outside the Mods folder.'
+foreach ($mod in $Mods) {
+    $mod.Dir = [IO.Path]::GetFullPath((Join-Path $modRoot $mod.Name))
+    if (-not $mod.Dir.StartsWith($modRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        Fail "The path for $($mod.Name) would land outside the Mods folder."
+    }
 }
 
 # --- Uninstall --------------------------------------------------------------
 if ($Uninstall) {
-    # Only this mod's own files: config.json and anything else in the folder stays.
-    $removed = @()
-    foreach ($file in $ModFiles) {
-        $installed = Join-Path $modDir $file
-        if (Test-Path -LiteralPath $installed) {
-            Remove-Item -LiteralPath $installed -Force
-            $removed += $file
+    # Only these mods' own files: config.json and anything else in the folder stays.
+    $removedAny = $false
+    foreach ($mod in $Mods) {
+        $removed = @()
+        foreach ($file in $mod.Files) {
+            $installed = Join-Path $mod.Dir $file
+            if (Test-Path -LiteralPath $installed) {
+                Remove-Item -LiteralPath $installed -Force
+                $removed += $file
+            }
         }
-    }
-    if (-not $removed.Count) {
-        Write-Step "$ModName is not installed; nothing to remove."
-        exit 0
+        if (-not $removed.Count) {
+            Write-Step "$($mod.Name) is not installed; nothing to remove."
+            continue
+        }
+        $removedAny = $true
+
+        # SMAPI warns about a mod folder with no manifest, so take the folder too once it is empty.
+        if (Test-Path -LiteralPath $mod.Dir) {
+            if (-not (Get-ChildItem -LiteralPath $mod.Dir -Force)) {
+                Remove-Item -LiteralPath $mod.Dir -Force
+            } else {
+                Write-Step "Kept $($mod.Dir) (your config.json is in there)."
+            }
+        }
+        Write-Step "$($mod.Name) removed."
     }
 
-    # SMAPI warns about a mod folder with no manifest, so take the folder too once it is empty.
-    if (Test-Path -LiteralPath $modDir) {
-        if (-not (Get-ChildItem -LiteralPath $modDir -Force)) {
-            Remove-Item -LiteralPath $modDir -Force
-        } else {
-            Write-Step "Kept $modDir (your config.json is in there)."
-        }
-    }
-    Write-Step "$ModName removed. (SMAPI and your other mods were left in place.)"
+    if ($removedAny) { Write-Step 'Done. (SMAPI and your other mods were left in place.)' }
     exit 0
 }
 
-$payload = Find-Payload $ModName
-if (-not $payload) { Fail "$ModName\ not found next to this installer (or in ..\dist - run $ModName\build.cmd first)." }
-foreach ($file in $ModFiles) {
-    if (-not (Test-Path -LiteralPath (Join-Path $payload $file))) { Fail "$file is missing from '$payload'." }
+foreach ($mod in $Mods) {
+    $mod.Payload = Find-Payload $mod.Name
+    if (-not $mod.Payload) {
+        Fail "$($mod.Name)\ not found next to this installer (or in ..\dist - run $($mod.Name)\build.cmd first)."
+    }
+    foreach ($file in $mod.Files) {
+        if (-not (Test-Path -LiteralPath (Join-Path $mod.Payload $file))) {
+            Fail "$file is missing from '$($mod.Payload)'."
+        }
+    }
 }
 
 # --- SMAPI ------------------------------------------------------------------
@@ -184,19 +207,31 @@ if (Test-Path -LiteralPath $smapiExe) {
     $script:FreshSmapi = $true
 }
 
-# --- The mod ----------------------------------------------------------------
-Write-Step "Installing $ModName..."
-New-Item -ItemType Directory -Force -Path $modDir | Out-Null
-foreach ($file in $ModFiles) {
-    Copy-Item -LiteralPath (Join-Path $payload $file) -Destination (Join-Path $modDir $file) -Force
+# --- The mods ---------------------------------------------------------------
+foreach ($mod in $Mods) {
+    Write-Step "Installing $($mod.Name)..."
+    New-Item -ItemType Directory -Force -Path $mod.Dir | Out-Null
+    foreach ($file in $mod.Files) {
+        Copy-Item -LiteralPath (Join-Path $mod.Payload $file) -Destination (Join-Path $mod.Dir $file) -Force
+    }
 }
 
 Write-Host ''
 Write-Host 'Done! Start the game through SMAPI (StardewModdingAPI.exe), then start local co-op as usual:' -ForegroundColor Green
 Write-Host '    co-op menu, or press Start on a second controller in an existing save.'
-Write-Host 'Each player gets a whole monitor, in the order your monitors are arranged.'
-Write-Host 'F7 turns that off and on again in game. Settings:'
-Write-Host "    $(Join-Path $modDir 'config.json')   (written the first time the mod runs)"
+Write-Host 'Each player gets a whole monitor, in the order your monitors are arranged, and their own'
+Write-Host 'Auto Fishing settings. F7 turns the monitor layout off and on again in game. Settings:'
+foreach ($mod in $Mods) {
+    Write-Host "    $(Join-Path $mod.Dir 'config.json')"
+}
+Write-Host '    (each written the first time that mod runs)'
+
+if (-not (Test-Path -LiteralPath (Join-Path $modRoot $AutoFishingName))) {
+    Write-Host ''
+    Write-Host "AutoFishCoop needs Auto Fishing 2.0, which is not installed and is not mine to ship." -ForegroundColor Yellow
+    Write-Host "SMAPI will skip AutoFishCoop until it is there: $AutoFishingUrl"
+}
+
 if ($script:FreshSmapi) {
     Write-Host ''
     Write-Host 'SMAPI was just installed. To launch it from Steam, set the game''s launch options to:' -ForegroundColor Yellow

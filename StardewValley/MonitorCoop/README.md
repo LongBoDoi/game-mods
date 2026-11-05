@@ -116,14 +116,15 @@ fight over it.
 ## Testing
 
 ```bat
-dotnet run --project ..\tests\MonitorCoop.Tests.csproj
+dotnet run --project ..\tests\StardewValley.Tests.csproj
 powershell -NoProfile -File ..\tests\CheckRuntime.ps1
 ```
 
-The first covers the layout maths with no game involved: how players are spread over monitors, the
-seating order (including monitors at different heights and a 2x2 grid), the window that has to be
-spanned, negative coordinates, mixed resolutions, players sharing a monitor, and that the fractions
-handed to the game survive its rounding as the exact rectangle intended.
+The first runs the offline checks for both of this game's mods. The layout half covers this one with no
+game involved: how players are spread over monitors, the seating order (including monitors at different
+heights and a 2x2 grid), the window that has to be spanned, negative coordinates, mixed resolutions,
+players sharing a monitor, and that the fractions handed to the game survive its rounding as the exact
+rectangle intended.
 
 `CheckRuntime.ps1` checks the built DLL against the installed game and SMAPI: every type, method and
 field it uses resolves, and `Game1.SetWindowSize` still has the shape the transpiler needs — one

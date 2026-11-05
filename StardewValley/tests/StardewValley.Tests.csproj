@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\MonitorCoop\Layout.cs" Link="Layout.cs" />
+    <Compile Include="..\AutoFishCoop\PlayerSettings.cs" Link="PlayerSettings.cs" />
   </ItemGroup>
 </Project>
