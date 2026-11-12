@@ -9,11 +9,16 @@ My mods for various games, one folder per game. Each game has its own GitHub rel
 | [Lemon Cake](LemonCake/) | LemonCoop (split-screen co-op, save backup + upgrade repair, achievements) | UE4SS 3.0.1 (Lua) + patch pak | [LemonCake](../../releases?q=LemonCake) |
 | [Mortal Kombat 11](MK11/) | MK11Tweaks | Ultimate ASI Loader (C++) | [MK11](../../releases?q=MK11) |
 | [Overcooked! 2](Overcooked2/) | OC2Tweaks (panel: ping, force host, kick, bans; plus a one-key level restart), RandomLevel (random DIY levels, Continue goes straight to the next) | BepInEx 5 (Mono, x86) | [Overcooked2](../../releases?q=Overcooked2) |
+| [Project Zomboid](ProjectZomboid/) | MonitorCoop (local split-screen on a monitor each, laid out like your monitors, with who sits where up to you) | Java agent, with its own launcher | [ProjectZomboid](../../releases?q=ProjectZomboid) |
 | [Stardew Valley](StardewValley/) | MonitorCoop (local co-op on a monitor each, laid out like your monitors), AutoFishCoop (Auto Fishing settings per local player, with controller shortcuts and a menu each) | SMAPI 4 | [StardewValley](../../releases?q=StardewValley) |
 
 ## Installing
 
 Download the game's zip from its release, extract it, and double-click `Install.cmd` with the game closed. Each installer finds the game through Steam (or pass `-GameDir "<folder>"`), installs the mod loader if it's missing, and copies the mods in. `Uninstall.cmd` reverses it.
+
+The Project Zomboid installer only copies its mod into the game folder and leaves every game file
+alone; that game is then started through `<game>\MonitorCoop\Play.cmd` (or Steam's launch options
+pointed at it), which is what loads the mod.
 
 The Overcooked! 2 installer instead stays open on a menu: it asks which mods you want, does it, then asks again until you quit. It can also install, upgrade or remove BepInEx on its own, and put the third-party OC2DIYLevel level pack in place (that pack is not included here — you supply the folder) — see [Overcooked2/README.md](Overcooked2/README.md).
 
@@ -36,7 +41,8 @@ Every mod has a `build.cmd`, which builds the mod and stages the result in `<Gam
 | Mods | Needs |
 |---|---|
 | C# (BepInEx) | .NET SDK, plus the game with its BepInEx installed (the projects reference the game's assemblies) |
-| MonitorCoop, AutoFishCoop | .NET SDK, plus Stardew Valley with SMAPI installed (they reference the game's assemblies and SMAPI's Harmony) |
+| MonitorCoop, AutoFishCoop (Stardew Valley) | .NET SDK, plus Stardew Valley with SMAPI installed (they reference the game's assemblies and SMAPI's Harmony) |
+| MonitorCoop (Project Zomboid) | Project Zomboid (the mod is compiled against its `projectzomboid.jar`), plus a JDK as new as the game's own Java - `JAVA_HOME`, a `javac` on the path, or one downloaded to `.tools\jdk` |
 | LemonCoop | Nothing: [repak](https://github.com/trumank/repak) is downloaded on first build |
 | MK11Tweaks | Nothing: [llvm-mingw](https://github.com/mstorsjo/llvm-mingw) and the C++ dependencies are downloaded on first build |
 
