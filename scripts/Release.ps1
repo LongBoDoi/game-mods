@@ -92,7 +92,11 @@ if (Test-Path -LiteralPath $zip)   { Remove-Item -LiteralPath $zip -Force }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
 Copy-Item -Path (Join-Path $dist '*') -Destination $stage -Recurse
-Copy-Item -Path (Join-Path $gameDir 'installer\*') -Destination $stage -Recurse
+# OC2's installer can consume a user-supplied third-party pack from installer\plugins locally.
+# It is not our payload and must never be included in the release archive.
+Get-ChildItem -LiteralPath (Join-Path $gameDir 'installer') |
+    Where-Object { $Game -ne 'Overcooked2' -or $_.Name -ne 'plugins' } |
+    ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $stage -Recurse }
 Copy-Item -LiteralPath (Join-Path $gameDir 'README.md') -Destination $stage
 foreach ($mod in $mods) {
     $readme = Join-Path $mod.FullName 'README.md'

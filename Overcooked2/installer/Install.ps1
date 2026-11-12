@@ -5,8 +5,9 @@
     the list refreshed, until you choose Q. Pass -All/-Only/-Yes and it does that one thing and
     exits instead, so scripted use never loops.
 
-      LobbyTools       F6 lobby panel: ping, force host, kick, saved bans.
-      QuickKeyRestart  F5 restarts the level you are playing, skipping the pause menu.
+      OC2Tweaks        F6 panel: ping, force host, kick, saved bans, and an F5 instant
+                       restart you can switch off or rebind in its Phim tat tab.
+      RandomLevel      random DIY levels; Continue goes straight to the next random level.
       BepInEx          the mod loader itself (BepInEx 5 x86), installed or upgraded in place.
 
     - Finds the game through Steam (or use -GameDir "D:\path\to\Overcooked! 2").
@@ -21,11 +22,11 @@
     Examples:
       Install.ps1                                  ask, keep asking until you quit
       Install.ps1 -All                             everything, once, no questions
-      Install.ps1 -Only QuickKeyRestart            just that mod, once
+      Install.ps1 -Only OC2Tweaks                  just that mod, once
       Install.ps1 -Only BepInEx                    just install/upgrade the loader
       Install.ps1 -Only BepInEx -BepInExVersion 5.4.23.2    pin a version
       Install.ps1 -Uninstall                       ask what to remove, until you quit
-      Install.ps1 -Uninstall -All                  remove both mods and the loader, once
+      Install.ps1 -Uninstall -All                  remove all mods and the loader, once
 #>
 param(
     [string]$GameDir,
@@ -58,12 +59,12 @@ $BepInExFallback = '5.4.23.2'
 # LegacyId: a config this mod used to write under a different plugin GUID. It is renamed on install
 # so settings made before the mod moved into this repo are not silently abandoned.
 $Targets = @(
-    [pscustomobject]@{ Key = 'LobbyTools'; Kind = 'Mod'
-        Blurb = 'F6 lobby panel: ping, force host, kick, saved bans'
-        Id = 'com.manhl.overcooked2.lobbytools'; LegacyId = $null }
-    [pscustomobject]@{ Key = 'QuickKeyRestart'; Kind = 'Mod'
-        Blurb = 'F5 restarts the level you are playing'
-        Id = 'com.manhl.overcooked2.quickkeyrestart'; LegacyId = 'com.yourname.quickkeyrestart' }
+    [pscustomobject]@{ Key = 'OC2Tweaks'; Kind = 'Mod'
+        Blurb = 'F6 panel: ping, force host, kick, bans, F5 instant restart'
+        Id = 'com.manhl.overcooked2.tweaks'; LegacyId = 'com.manhl.overcooked2.lobbytools' }
+    [pscustomobject]@{ Key = 'RandomLevel'; Kind = 'Mod'
+        Blurb = 'random DIY levels; F8 skips, Continue plays the next level'
+        Id = 'com.manhl.overcooked2.randomlevel'; LegacyId = $null }
     [pscustomobject]@{ Key = 'OC2DIYLevel'; Kind = 'Pack'
         Blurb = 'custom level pack + helper plugins (not bundled: ~400 MB)'
         Id = $null; LegacyId = $null }
@@ -79,11 +80,17 @@ $Targets = @(
     next to this installer, or one you paste in when asked.
 
     Its README tells you to delete the whole BepInEx\plugins folder before copying it in. That
-    would take LobbyTools and QuickKeyRestart with it, so instead only the pack's own entries are
+    would take OC2Tweaks and RandomLevel with it, so instead only the pack's own entries are
     cleared before copying - which is what actually prevents the stale-level conflicts it warns
     about. What got copied is recorded in a manifest so removing the pack takes exactly those
     entries back out and nothing else.
 #>
+# Plugin folders that OC2Tweaks replaces, and the configs it takes settings over from.
+$MergedInto      = 'OC2Tweaks'
+$MergedFolders   = @('LobbyTools', 'QuickKeyRestart')
+$MergedRestartId = @('com.manhl.overcooked2.quickkeyrestart', 'com.yourname.quickkeyrestart')
+$MergedBansId    = 'com.manhl.overcooked2.lobbytools'
+
 $PackName = 'OC2DIYLevel'
 $PackManifestName = 'com.manhl.overcooked2.diypack.manifest'
 # Fallback for a pack that was copied in by hand, before any manifest existed.
@@ -445,7 +452,7 @@ function Remove-DiyPack {
     $size = 0
     try {
         $size = [math]::Round((Get-ChildItem -LiteralPath $pluginRoot -Recurse -File -Force -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -notmatch '\\(LobbyTools|QuickKeyRestart)\\' } |
+            Where-Object { $_.FullName -notmatch '\\(OC2Tweaks|RandomLevel|LobbyTools|QuickKeyRestart)\\' } |
             Measure-Object Length -Sum).Sum / 1MB)
     } catch {}
     $go = $Yes
@@ -592,7 +599,7 @@ function Invoke-Remove($selected) {
 
     if (-not ($selected | Where-Object { $_.Kind -eq 'Loader' })) { return }
 
-    # Removing the loader stops every BepInEx mod in this game, not just these two.
+    # Removing the loader stops every BepInEx mod in this game.
     $others = @()
     $packEntries = @(Get-PackInstalledEntries)
     if (Test-Path -LiteralPath $pluginRoot) {
@@ -715,6 +722,71 @@ function Install-BepInEx {
     Write-Note "BepInEx is now $script:loaderVersion."
 }
 
+<#
+    Carries a LobbyTools + QuickKeyRestart setup over to OC2Tweaks, which replaced both.
+
+    Three things have to move, or installing the merged mod looks like a clean install and
+    quietly loses what the user had set:
+      - the ban list, which is named after the plugin GUID like the config is;
+      - the restart key, which lived in a config of its own and now belongs to a section of
+        OC2Tweaks' config (the key alone is written, and BepInEx fills in the rest on load);
+      - the old plugin folders, which otherwise keep loading beside OC2Tweaks: two F6 panels,
+        two handlers on the restart key, and two mods writing one ban file.
+
+    Everything it reads is left on disk apart from the plugin DLLs, so nothing here loses a
+    setting if it guesses wrong.
+#>
+function Convert-MergedMod {
+    $newId = 'com.manhl.overcooked2.tweaks'
+
+    # The ban list: same name as the config, different extension.
+    $oldBans = Join-Path $configDir "$MergedBansId.bans.tsv"
+    $newBans = Join-Path $configDir "$newId.bans.tsv"
+    if ((Test-Path -LiteralPath $oldBans) -and -not (Test-Path -LiteralPath $newBans)) {
+        Move-Item -LiteralPath $oldBans -Destination $newBans
+        Write-Note 'Kept your ban list from LobbyTools.'
+    }
+
+    # The restart key, out of whichever of QuickKeyRestart's configs is there.
+    $newConfig = Join-Path $configDir "$newId.cfg"
+    $already = $false
+    if (Test-Path -LiteralPath $newConfig) {
+        $already = [IO.File]::ReadAllText($newConfig) -match '(?m)^\s*RestartKey\s*='
+    }
+    if (-not $already) {
+        foreach ($oldId in $MergedRestartId) {
+            $oldConfig = Join-Path $configDir "$oldId.cfg"
+            if (-not (Test-Path -LiteralPath $oldConfig)) { continue }
+            $match = [regex]::Match([IO.File]::ReadAllText($oldConfig), '(?m)^\s*RestartKey\s*=\s*(.+?)\s*$')
+            if (-not $match.Success) { continue }
+            # Follow the endings already in the file rather than forcing CRLF, so an edited or
+            # hand-written config does not come back with mixed endings. BepInEx writes CRLF.
+            $existing = if (Test-Path -LiteralPath $newConfig) { [IO.File]::ReadAllText($newConfig) } else { '' }
+            $eol = if ($existing -match '[^\r]\n') { "`n" } else { "`r`n" }
+
+            # A bare "Section/Key = value" is all BepInEx needs to read a setting back; it
+            # rewrites the file with the descriptions and defaults the next time the game runs.
+            $section = "[QuickRestart]$eol" + "RestartKey = $($match.Groups[1].Value)"
+            $body = if ($existing) { $existing.TrimEnd() + $eol + $eol + $section } else { $section }
+            [IO.File]::WriteAllText($newConfig, $body + $eol, (New-Object Text.UTF8Encoding($false)))
+            Write-Note "Kept your restart key ($($match.Groups[1].Value)) from QuickKeyRestart."
+            break
+        }
+    }
+
+    # The superseded plugins themselves.
+    foreach ($folder in $MergedFolders) {
+        $dir = Get-PluginDir $folder
+        if (-not (Test-Path -LiteralPath $dir)) { continue }
+        try {
+            Remove-Item -LiteralPath $dir -Recurse -Force
+            Write-Note "Removed the old $folder plugin, now part of $MergedInto."
+        } catch {
+            Write-Warn "Could not remove the old $folder plugin at $dir : $($_.Exception.Message)"
+            Write-Warn "Delete that folder by hand, or it keeps loading alongside $MergedInto."
+        }
+    }
+}
 function Invoke-Install($selected) {
     $payloads = @()
     foreach ($target in @($selected | Where-Object { $_.Kind -eq 'Mod' })) {
@@ -747,6 +819,15 @@ function Invoke-Install($selected) {
         $packInstalled = Install-DiyPack
     }
 
+    # This add-on cannot load without the third-party plugin. Re-check after installing the pack,
+    # since both may have been selected in the same round.
+    $payloads = @($payloads | Where-Object {
+        if ($_.Target.Key -eq 'RandomLevel' -and -not (Test-Path -LiteralPath (Join-Path $pluginRoot 'OC2DIYLevel\OC2DIYLevel.dll'))) {
+            Write-Warn 'Skipped RandomLevel: install OC2DIYLevel first (choose it from the menu, or use -Only OC2DIYLevel -DiyPackDir <folder>).'
+            $false
+        } else { $true }
+    })
+
     foreach ($payload in $payloads) {
         $target    = $payload.Target
         $pluginDir = Get-PluginDir $target.Key
@@ -768,15 +849,16 @@ function Invoke-Install($selected) {
         }
     }
 
-    # Pre-release LobbyTools builds wrote a [Connection filter] section that the mod no longer
-    # reads; drop it without touching the hotkey, the force-host choice or the ban list.
-    if ($payloads | Where-Object { $_.Target.Key -eq 'LobbyTools' }) {
-        $lobbyConfig = Join-Path $configDir 'com.manhl.overcooked2.lobbytools.cfg'
-        if (Test-Path -LiteralPath $lobbyConfig) {
-            $originalConfig = [IO.File]::ReadAllText($lobbyConfig)
+    if ($payloads | Where-Object { $_.Target.Key -eq $MergedInto }) {
+        Convert-MergedMod
+        # Pre-release builds wrote a [Connection filter] section the mod no longer reads; drop it
+        # without touching the hotkeys, the force-host choice or the ban list.
+        $tweaksConfig = Join-Path $configDir 'com.manhl.overcooked2.tweaks.cfg'
+        if (Test-Path -LiteralPath $tweaksConfig) {
+            $originalConfig = [IO.File]::ReadAllText($tweaksConfig)
             $updatedConfig = [regex]::Replace($originalConfig, '(?ms)^\[Connection filter\][^\r\n]*\r?\n.*?(?=^\[|\z)', '')
             if ($updatedConfig -ne $originalConfig) {
-                [IO.File]::WriteAllText($lobbyConfig, $updatedConfig, (New-Object Text.UTF8Encoding($false)))
+                [IO.File]::WriteAllText($tweaksConfig, $updatedConfig, (New-Object Text.UTF8Encoding($false)))
             }
         }
     }
@@ -790,11 +872,12 @@ function Invoke-Install($selected) {
     } else {
         Write-Host "BepInEx $script:loaderVersion is in place. Nothing else was installed." -ForegroundColor Green
     }
-    if ($installedNames -contains 'LobbyTools') {
-        Write-Note 'LobbyTools: press F6 in a lobby you host (panel in Vietnamese). Host only.'
+    if ($installedNames -contains $MergedInto) {
+        Write-Note 'OC2Tweaks: press F6 for the panel (in Vietnamese), F5 while playing to restart the level.'
+        Write-Note '           Its Phim tat tab switches the restart key off or rebinds either key. Host only.'
     }
-    if ($installedNames -contains 'QuickKeyRestart') {
-        Write-Note 'QuickKeyRestart: press F5 while playing a level to restart it immediately. Host only.'
+    if ($installedNames -contains 'RandomLevel') {
+        Write-Note 'RandomLevel: More Levels -> Choi ngau nhien. F8 = skip round, Continue = next random level, Restart = same level, F7 = main menu at results. Host only.'
     }
     if ($installedNames -contains $PackName) {
         Write-Note "$PackName : custom levels. Everyone in the match needs the same pack."

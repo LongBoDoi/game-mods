@@ -3,7 +3,7 @@
 | Mod | What it does |
 |---|---|
 | [OC2Tweaks](OC2Tweaks/) | In-game panel (**F6**, Vietnamese) for the lobby you host: every remote player's **ping** in ms, **kick**, **ban** (saved, and re-kicked automatically next time), and **force host** so public Arcade/Versus matchmaking creates your lobby instead of joining someone else's. Plus **F5** to restart the level you're playing straight away — no pause menu, no "are you sure?" — switchable and rebindable from the panel's **Phím tắt** tab |
-| [RandomLevel](RandomLevel/) | **More Levels → Chơi ngẫu nhiên — tất cả màn** starts a shuffled rotation of installed DIY levels. **Continue** loads the next random level directly; **Restart** keeps the current level; **F7** at results returns to the main menu. Requires OC2DIYLevel |
+| [RandomLevel](RandomLevel/) | **More Levels → Chơi ngẫu nhiên — tất cả màn** starts a shuffled rotation of installed DIY levels. **F8** skips the current round; **Continue** loads the next random level directly; **Restart** keeps the current level; **F7** at results returns to the main menu. Requires OC2DIYLevel |
 
 **Install:** download `Overcooked2-v*.zip` from the release, extract it anywhere, and double-click `Install.cmd` with the game closed. It finds the game through Steam and then **stays open**, asking what you want, doing it, and asking again with the list refreshed — so you can install one mod, upgrade BepInEx and check the result in one sitting. It closes when you choose **Q**.
 
@@ -61,9 +61,18 @@ Only the host needs OC2Tweaks or RandomLevel.
 
 ## RandomLevel
 
-In **More Levels**, choose **Chơi ngẫu nhiên — tất cả màn**, then pick your usual DIY save slot. At the results screen, **Continue** goes straight to another random custom level, **Restart** replays the current level, and **F7** or the **Về menu chính** button returns to the main menu. The regular controller buttons still work for Continue and Restart.
+In **More Levels**, choose **Chơi ngẫu nhiên — tất cả màn**, then pick your usual DIY save slot. During a round, **F8** skips straight to another level without recording a score for the unfinished round; no panel is shown during gameplay. The results screen shows just **F7 — Về menu chính** as a key hint. **Continue** goes straight to another random custom level, **Restart** replays the current level, and **F7** returns to the main menu once the results animation finishes. The regular controller buttons still work for Continue and Restart.
 
 Levels are drawn from all installed sets without repeats within each shuffled cycle; cycle boundaries also avoid the level just played. Choosing a specific DIY level returns to normal play. The host chooses the next scene and the game waits for everyone's Continue as usual. Requires **OC2DIYLevel 0.10.0**; everyone still needs the same custom-level pack. See [RandomLevel/README.md](RandomLevel/README.md) for build commands, settings and the in-game test checklist.
+
+## Original custom level: Relay Kitchen
+
+**Bếp Tiếp Sức — Chợ Đêm / Night Market Relay 2.0** is a separate OC2DIYLevel map in
+**GameMods Originals**: a six-minute kitchen for 1–4 players, with nine burger, pizza
+and sushi recipes, two opposing conveyor lanes, two crossings, native floor materials,
+and preparation, cooking, washing and serving on both banks.
+See [RelayKitchen/README.md](RelayKitchen/README.md) for the layout,
+build and install instructions, attribution, and current playtest status.
 
 ## OC2Tweaks
 

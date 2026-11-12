@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\RandomLevel\RandomRotation.cs" Link="RandomRotation.cs" />
+    <Compile Include="..\RandomLevel\NextRandomScene.cs" Link="NextRandomScene.cs" />
+    <Compile Include="..\RandomLevel\SkipLevel.cs" Link="SkipLevel.cs" />
+  </ItemGroup>
+</Project>

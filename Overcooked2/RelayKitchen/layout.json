@@ -1,0 +1,568 @@
+{
+  "id": "manhl_relay_kitchen",
+  "scene": "s_manhl_relay_kitchen_1",
+  "name": "Bếp Tiếp Sức — Chợ Đêm / Night Market Relay",
+  "version": "2.0.0",
+  "grid": {
+    "columns": 16,
+    "rows": 13,
+    "cell": 1.2,
+    "origin": [
+      -3.6,
+      3.6
+    ]
+  },
+  "round_seconds": 360,
+  "players": [
+    [
+      3,
+      3
+    ],
+    [
+      12,
+      3
+    ],
+    [
+      3,
+      9
+    ],
+    [
+      12,
+      9
+    ]
+  ],
+  "stars": [
+    [
+      360,
+      650,
+      950,
+      1400
+    ],
+    [
+      700,
+      1200,
+      1750,
+      2450
+    ],
+    [
+      950,
+      1650,
+      2350,
+      3200
+    ],
+    [
+      1200,
+      2050,
+      2850,
+      3850
+    ]
+  ],
+  "stations": [
+    {
+      "kind": "dough",
+      "cell": [
+        1,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "tomato",
+      "cell": [
+        2,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "fish",
+      "cell": [
+        3,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "seaweed",
+      "cell": [
+        4,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "chop",
+      "cell": [
+        5,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "oven",
+      "cell": [
+        6,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "lettuce",
+      "cell": [
+        0,
+        1
+      ],
+      "yaw": -90
+    },
+    {
+      "kind": "serve",
+      "cell": [
+        0,
+        3.5
+      ],
+      "yaw": -90,
+      "width": 2,
+      "axis": "row",
+      "return": "west"
+    },
+    {
+      "kind": "plates",
+      "cell": [
+        0,
+        6
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "return",
+      "cell": [
+        0,
+        7
+      ],
+      "yaw": -90,
+      "key": "west"
+    },
+    {
+      "kind": "sink",
+      "cell": [
+        0,
+        9.5
+      ],
+      "yaw": -90,
+      "width": 2,
+      "axis": "row"
+    },
+    {
+      "kind": "bin",
+      "cell": [
+        0,
+        11
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "chop",
+      "cell": [
+        3,
+        5
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "chop",
+      "cell": [
+        4,
+        5
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "stove_pan",
+      "cell": [
+        1,
+        12
+      ],
+      "yaw": 180
+    },
+    {
+      "kind": "oven",
+      "cell": [
+        6,
+        12
+      ],
+      "yaw": 180
+    },
+    {
+      "kind": "extinguisher",
+      "cell": [
+        3,
+        12
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "cheese",
+      "cell": [
+        9,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "pepperoni",
+      "cell": [
+        10,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "rice",
+      "cell": [
+        11,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "cucumber",
+      "cell": [
+        12,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "chop",
+      "cell": [
+        13,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "stove_pot",
+      "cell": [
+        14,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "stove_pot",
+      "cell": [
+        15,
+        2
+      ],
+      "yaw": 90
+    },
+    {
+      "kind": "chop",
+      "cell": [
+        12,
+        6
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "chop",
+      "cell": [
+        13,
+        6
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "return",
+      "cell": [
+        15,
+        6
+      ],
+      "yaw": 90,
+      "key": "east"
+    },
+    {
+      "kind": "plates",
+      "cell": [
+        15,
+        7
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "sink",
+      "cell": [
+        15,
+        9.5
+      ],
+      "yaw": 90,
+      "width": 2,
+      "axis": "row"
+    },
+    {
+      "kind": "bin",
+      "cell": [
+        15,
+        11
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "meat",
+      "cell": [
+        9,
+        12
+      ],
+      "yaw": 180
+    },
+    {
+      "kind": "bun",
+      "cell": [
+        10,
+        12
+      ],
+      "yaw": 180
+    },
+    {
+      "kind": "stove_pan",
+      "cell": [
+        11,
+        12
+      ],
+      "yaw": 180
+    },
+    {
+      "kind": "serve",
+      "cell": [
+        13.5,
+        12
+      ],
+      "yaw": 180,
+      "width": 2,
+      "return": "east"
+    },
+    {
+      "kind": "extinguisher",
+      "cell": [
+        14,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "counter",
+      "cell": [
+        10,
+        6
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "counter",
+      "cell": [
+        5,
+        8
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "conveyor",
+      "cell": [
+        6,
+        6
+      ],
+      "yaw": 180,
+      "speed": 0.65
+    },
+    {
+      "kind": "conveyor",
+      "cell": [
+        7,
+        6
+      ],
+      "yaw": 180,
+      "speed": 0.65
+    },
+    {
+      "kind": "conveyor",
+      "cell": [
+        8,
+        6
+      ],
+      "yaw": 180,
+      "speed": 0.65
+    },
+    {
+      "kind": "conveyor",
+      "cell": [
+        9,
+        6
+      ],
+      "yaw": 180,
+      "speed": 0.65
+    },
+    {
+      "kind": "conveyor",
+      "cell": [
+        6,
+        8
+      ],
+      "yaw": 0,
+      "speed": 0.65
+    },
+    {
+      "kind": "conveyor",
+      "cell": [
+        7,
+        8
+      ],
+      "yaw": 0,
+      "speed": 0.65
+    },
+    {
+      "kind": "conveyor",
+      "cell": [
+        8,
+        8
+      ],
+      "yaw": 0,
+      "speed": 0.65
+    },
+    {
+      "kind": "conveyor",
+      "cell": [
+        9,
+        8
+      ],
+      "yaw": 0,
+      "speed": 0.65
+    },
+    {
+      "kind": "counter",
+      "cell": [
+        3,
+        6
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "counter",
+      "cell": [
+        3,
+        7
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "counter",
+      "cell": [
+        4,
+        7
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "counter",
+      "cell": [
+        13,
+        5
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "counter",
+      "cell": [
+        12,
+        4
+      ],
+      "yaw": 0
+    },
+    {
+      "kind": "counter",
+      "cell": [
+        13,
+        4
+      ],
+      "yaw": 0
+    }
+  ],
+  "divider": {
+    "columns": [
+      7,
+      8
+    ],
+    "rows": [
+      1,
+      2,
+      5,
+      6,
+      7,
+      8,
+      9
+    ]
+  },
+  "room": {
+    "left": -4.8,
+    "right": 15.6,
+    "north": 4.8,
+    "south": -12
+  },
+  "order_intervals": [
+    18,
+    13,
+    10,
+    8
+  ],
+  "order_lifetimes": [
+    150,
+    130,
+    120,
+    110
+  ],
+  "recipes": [
+    "Burger_Plain_SO",
+    "Burger_Cheese_SO",
+    "Burger_LettuceTomato_SO",
+    "Burger_CheeseLettuce_SO",
+    "Pizza_Plain_SO",
+    "Pizza_Peperoni_SO",
+    "Sushi_Fish_SO",
+    "Sushi_Cucumber_SO",
+    "Sushi_All_SO"
+  ],
+  "ingredients": {
+    "tomato": "TomatoSO",
+    "lettuce": "LettuceSO",
+    "cheese": "CheeseSO",
+    "meat": "MeatSO",
+    "bun": "ChoppedBunSO",
+    "dough": "DoughSO",
+    "pepperoni": "PepperoniSO",
+    "fish": "SushiFishSO",
+    "rice": "SushiRiceSO",
+    "seaweed": "SeaweedSO",
+    "cucumber": "CucumberSO"
+  },
+  "passages": [
+    {
+      "columns": [
+        7,
+        8
+      ],
+      "rows": [
+        3,
+        4
+      ]
+    },
+    {
+      "columns": [
+        7,
+        8
+      ],
+      "rows": [
+        10,
+        11
+      ]
+    }
+  ]
+}

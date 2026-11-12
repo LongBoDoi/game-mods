@@ -5,10 +5,12 @@ build/
 dist/
 *.user
 .vs/
+__pycache__/
 
 # Local toolchains and downloaded dependencies (build scripts fetch these on demand)
 .tools/
 .release/
+Overcooked2/installer/plugins/
 MK11/MK11Tweaks/deps/
 
 # Runtime files the mods write next to themselves
