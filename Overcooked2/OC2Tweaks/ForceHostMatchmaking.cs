@@ -2,7 +2,7 @@ using System;
 using System.Reflection;
 using HarmonyLib;
 
-namespace LobbyTools
+namespace OC2Tweaks
 {
     [HarmonyPatch(typeof(ClientLobbyFlowController), "TryJoinGame")]
     [HarmonyAfter("com.github.yuxuanchiadm.hostforcetheme")]

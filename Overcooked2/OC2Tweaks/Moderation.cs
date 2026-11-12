@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Team17.Online;
 
-namespace LobbyTools
+namespace OC2Tweaks
 {
     internal static class SessionStatus
     {

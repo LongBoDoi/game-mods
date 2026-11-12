@@ -1,10 +1,17 @@
 using System;
+using System.Collections.Generic;
+using BepInEx.Configuration;
 using UnityEngine;
 
-namespace LobbyTools
+namespace OC2Tweaks
 {
-    internal sealed class LobbyUI : MonoBehaviour
+    internal sealed class ToolsUI : MonoBehaviour
     {
+        private enum Tab { Players, Bans, Matchmaking, Hotkeys }
+
+        /// <summary>Which binding the panel is waiting for a keypress to replace.</summary>
+        private enum Capture { None, Toggle, Restart }
+
         internal static bool IsOpen { get; private set; }
         private static float inputReleasedAt;
         private static bool closingWithMouse;
@@ -19,8 +26,8 @@ namespace LobbyTools
         }
         private Rect window = new Rect(40, 40, 600, 620);
         private Vector2 scroll;
-        private bool bansTab;
-        private bool settingsTab;
+        private Tab tab = Tab.Players;
+        private Capture capturing;
         private bool oldVisible;
         private CursorLockMode oldLock;
         private GUISkin skin;
@@ -32,7 +39,18 @@ namespace LobbyTools
         private float nextRefresh;
         private float nextBanCheck;
         private float nextBanErrorLog;
+        // Resources.FindObjectsOfTypeAll walks every loaded object of the type, and OnGUI runs
+        // several times a frame, so the Phim tat tab reads this instead of asking directly.
+        private float nextLevelCheck;
+        private bool inLevel;
         private RemoteParty[] parties = new RemoteParty[0];
+
+        private static readonly KeyCode[] ModifierKeys =
+        {
+            KeyCode.LeftControl, KeyCode.RightControl, KeyCode.LeftShift, KeyCode.RightShift,
+            KeyCode.LeftAlt, KeyCode.RightAlt, KeyCode.AltGr, KeyCode.LeftCommand,
+            KeyCode.RightCommand, KeyCode.LeftWindows, KeyCode.RightWindows
+        };
 
         private void Update()
         {
@@ -61,6 +79,10 @@ namespace LobbyTools
                     }
                 }
             }
+
+            // While waiting for a new binding, every key belongs to the rebind and to nothing else.
+            if (capturing != Capture.None) return;
+
             if (Input.GetKeyDown(Plugin.ToggleKey.Value)) SetOpen(!IsOpen);
             else if (IsOpen && Input.GetKeyDown(KeyCode.Escape))
             {
@@ -73,6 +95,16 @@ namespace LobbyTools
                 try { parties = Moderation.Parties(); }
                 catch (Exception error) { status = "Không thể tải danh sách người chơi: " + error.Message; parties = new RemoteParty[0]; }
             }
+            if (IsOpen && tab == Tab.Hotkeys && Time.realtimeSinceStartup >= nextLevelCheck)
+            {
+                nextLevelCheck = Time.realtimeSinceStartup + 0.25f;
+                try { inLevel = QuickRestart.IsLevelRunning(); }
+                catch (Exception error) { inLevel = false; status = "Không kiểm tra được trạng thái màn: " + error.Message; }
+            }
+
+            // Suppressed with the panel open: the panel is a menu, and a restart key that also
+            // works while you are clicking around in it restarts levels by accident.
+            if (!IsOpen) QuickRestart.Tick(Time.realtimeSinceStartup);
         }
 
         private void LateUpdate()
@@ -85,6 +117,7 @@ namespace LobbyTools
             if (open == IsOpen) return;
             IsOpen = open;
             pending = null;
+            capturing = Capture.None;
             if (open)
             {
                 oldVisible = Cursor.visible;
@@ -137,6 +170,12 @@ namespace LobbyTools
         private void OnGUI()
         {
             if (!IsOpen) return;
+
+            // Taken before the window draws: a key event consumed by a control inside the window
+            // would never reach the rebind.
+            if (capturing != Capture.None && Event.current != null &&
+                Event.current.type == EventType.KeyDown) CaptureKey();
+
             GUISkin previousSkin = GUI.skin;
             Color previousBackground = GUI.backgroundColor;
             Color previousColor = GUI.color;
@@ -167,23 +206,35 @@ namespace LobbyTools
         {
             GUI.DrawTexture(new Rect(0, 0, window.width, window.height), fill);
             GUI.Label(new Rect(14, 12, window.width - 70, 25),
-                "Overcooked 2 - Quản lý phòng  |  " + Plugin.ToggleKey.Value);
+                "Overcooked 2 - Bộ công cụ  |  " + Plugin.ToggleKey.Value);
             if (GUI.Button(new Rect(window.width - 44, 10, 30, 26), "X")) SetOpen(false);
             GUI.DragWindow(new Rect(0, 0, window.width - 50, 40));
-            if (GUI.Button(new Rect(14, 48, 150, 30), "Người chơi"))
-            { bansTab = false; settingsTab = false; pending = null; scroll = Vector2.zero; }
-            if (GUI.Button(new Rect(174, 48, 150, 30), "Đã cấm (" + Plugin.Bans.Snapshot().Length + ")"))
-            { bansTab = true; settingsTab = false; pending = null; scroll = Vector2.zero; }
-            if (GUI.Button(new Rect(334, 48, 150, 30), "Ghép trận"))
-            { settingsTab = true; pending = null; }
 
-            if (settingsTab)
+            string[] labels =
             {
-                DrawSettings();
-                GUI.Label(new Rect(14, window.height - 48, window.width - 28, 42), status);
+                "Người chơi", "Đã cấm (" + Plugin.Bans.Snapshot().Length + ")",
+                "Ghép trận", "Phím tắt"
+            };
+            float tabWidth = (window.width - 28 - 30) / 4f;
+            for (int i = 0; i < labels.Length; i++)
+            {
+                if (!GUI.Button(new Rect(14 + i * (tabWidth + 10), 48, tabWidth, 30), labels[i])) continue;
+                tab = (Tab)i;
+                pending = null;
+                capturing = Capture.None;
+                scroll = Vector2.zero;
+                nextLevelCheck = 0; // Show the real state as soon as Phim tat opens.
+            }
+
+            if (tab == Tab.Matchmaking || tab == Tab.Hotkeys)
+            {
+                if (tab == Tab.Matchmaking) DrawMatchmaking();
+                else DrawHotkeys();
+                DrawStatus(status);
                 return;
             }
 
+            bool bansTab = tab == Tab.Bans;
             string reason;
             bool canManage = Moderation.HostCanManage(out reason);
             GUI.Label(new Rect(14, 88, window.width - 28, 42),
@@ -233,11 +284,16 @@ namespace LobbyTools
                 GUI.enabled = true;
                 if (GUI.Button(new Rect(184, y + 62, 100, 28), "Hủy")) pending = null;
             }
-            GUI.Label(new Rect(14, window.height - 48, window.width - 28, 42),
-                string.IsNullOrEmpty(status) ? "Nhấn Esc để đóng. Chọn Đuổi hoặc Cấm, rồi xác nhận người chơi đã chọn." : status);
+            DrawStatus(string.IsNullOrEmpty(status)
+                ? "Nhấn Esc để đóng. Chọn Đuổi hoặc Cấm, rồi xác nhận người chơi đã chọn." : status);
         }
 
-        private void DrawSettings()
+        private void DrawStatus(string text)
+        {
+            GUI.Label(new Rect(14, window.height - 48, window.width - 28, 42), text);
+        }
+
+        private void DrawMatchmaking()
         {
             GUI.enabled = Plugin.ForceHostReady;
             bool forceHost = GUI.Toggle(new Rect(14, 86, window.width - 28, 26),
@@ -255,6 +311,145 @@ namespace LobbyTools
                 "Không thể dùng chức năng này. Xem BepInEx/LogOutput.log.");
             GUI.Label(new Rect(14, 196, window.width - 28, 64),
                 "Độ trễ chỉ dùng để hiển thị trong thẻ Người chơi. Mod không tự động đuổi người chơi vì độ trễ cao.");
+        }
+
+        private void DrawHotkeys()
+        {
+            float right = window.width - 150;
+            float y = 90;
+
+            GUI.Label(new Rect(14, y, right - 24, 26), "Mở bộ công cụ: " + Plugin.ToggleKey.Value);
+            if (GUI.Button(new Rect(right, y - 3, 136, 28),
+                capturing == Capture.Toggle ? "Đang chờ..." : "Đổi phím"))
+                StartCapture(Capture.Toggle);
+            y += 42;
+
+            GUI.enabled = QuickRestart.Ready;
+            bool enabled = GUI.Toggle(new Rect(14, y, right - 24, 26),
+                Plugin.QuickRestartEnabled.Value && QuickRestart.Ready,
+                "  Chơi lại màn ngay bằng một phím");
+            GUI.enabled = true;
+            if (QuickRestart.Ready && enabled != Plugin.QuickRestartEnabled.Value)
+                Run(delegate
+                {
+                    Plugin.QuickRestartEnabled.Value = enabled;
+                    return enabled
+                        ? "Đã bật chơi lại nhanh. Nhấn " + Plugin.QuickRestartKey.Value + " khi đang chơi một màn."
+                        : "Đã tắt chơi lại nhanh. Phím đó không còn tác dụng.";
+                });
+            y += 32;
+
+            GUI.Label(new Rect(32, y, right - 42, 26), "Phím chơi lại: " + Plugin.QuickRestartKey.Value);
+            GUI.enabled = QuickRestart.Ready;
+            if (GUI.Button(new Rect(right, y - 3, 136, 28),
+                capturing == Capture.Restart ? "Đang chờ..." : "Đổi phím"))
+                StartCapture(Capture.Restart);
+            GUI.enabled = true;
+            y += 44;
+
+            if (capturing != Capture.None)
+            {
+                GUI.Label(new Rect(14, y, window.width - 28, 48),
+                    "Hãy nhấn phím mới. Giữ thêm Ctrl, Shift hoặc Alt nếu muốn dùng tổ hợp. Nhấn Esc để hủy.");
+                return;
+            }
+
+            if (!QuickRestart.Ready)
+            {
+                GUI.Label(new Rect(14, y, window.width - 28, 64),
+                    "Không bật được chức năng chơi lại nhanh: bản game này không còn " +
+                    "InGamePauseMenu.OnRestartConfirmed. Các chức năng khác vẫn hoạt động bình thường.");
+                return;
+            }
+
+            GUI.Label(new Rect(14, y, window.width - 28, 112),
+                "Nhấn phím trên khi đang chơi một màn và màn đó chơi lại ngay, đúng như Tạm dừng -> " +
+                "Chơi lại -> Đồng ý, nhưng không phải bấm qua menu và câu hỏi xác nhận.\n\n" +
+                "Ở menu chính, phòng chờ, bản đồ chiến dịch và trong lúc đang tải thì phím này không " +
+                "làm gì: chơi lại giữa lúc đổi scene là nguyên nhân làm cả phòng treo ở màn hình đen.");
+            y += 120;
+
+            float cooling = QuickRestart.Cooling(Time.realtimeSinceStartup);
+            GUI.Label(new Rect(14, y, window.width - 28, 64),
+                "Hai lần nhấn cách nhau dưới " + QuickRestart.Cooldown.ToString("0") +
+                " giây cũng bị bỏ qua, vì chơi lại khi lần trước chưa xong có thể làm mất phòng." +
+                (cooling > 0f ? " Còn chờ " + cooling.ToString("0.0") + " giây." : "") +
+                "\nKhi bảng này đang mở thì phím tạm ngưng - hãy đóng bảng rồi nhấn. Chỉ chủ phòng cần mod này: " +
+                "chơi lại là quyết định của chủ phòng và cả phòng chơi lại cùng nhau.");
+            y += 72;
+
+            GUI.enabled = Plugin.QuickRestartEnabled.Value && cooling <= 0f;
+            if (GUI.Button(new Rect(14, y, 200, 30), "Chơi lại màn ngay"))
+                Run(delegate { return QuickRestart.Restart(Time.realtimeSinceStartup); });
+            GUI.enabled = true;
+            GUI.Label(new Rect(224, y + 2, window.width - 238, 26),
+                inLevel ? "Đang ở trong một màn." : "Không ở trong màn nào.");
+        }
+
+        private void StartCapture(Capture which)
+        {
+            capturing = which;
+            status = which == Capture.Toggle
+                ? "Đang chờ phím mới cho bộ công cụ..."
+                : "Đang chờ phím mới cho chơi lại nhanh...";
+        }
+
+        /// <summary>
+        /// Turns the key event being processed into a new binding. Modifiers on their own are not
+        /// a binding, so they are swallowed and the panel keeps waiting for a real key.
+        /// </summary>
+        private void CaptureKey()
+        {
+            KeyCode key = Event.current.keyCode;
+            bool control = Event.current.control, shift = Event.current.shift, alt = Event.current.alt;
+            Event.current.Use(); // Keep the keypress out of the game menu behind the panel.
+
+            if (key == KeyCode.None || Array.IndexOf(ModifierKeys, key) >= 0) return;
+
+            Capture which = capturing;
+            capturing = Capture.None;
+            if (key == KeyCode.Escape) { status = "Đã hủy đổi phím."; return; }
+
+            if (which == Capture.Toggle)
+            {
+                Run(delegate
+                {
+                    Plugin.ToggleKey.Value = key;
+                    // Esc already closes the panel, and Update reads this key every frame.
+                    return "Đã đổi phím mở bộ công cụ thành " + key + "." + Clash(key);
+                });
+                return;
+            }
+
+            var modifiers = new List<KeyCode>();
+            if (control) modifiers.Add(KeyCode.LeftControl);
+            if (shift) modifiers.Add(KeyCode.LeftShift);
+            if (alt) modifiers.Add(KeyCode.LeftAlt);
+            KeyboardShortcut shortcut = new KeyboardShortcut(key, modifiers.ToArray());
+            Run(delegate
+            {
+                Plugin.QuickRestartKey.Value = shortcut;
+                return "Đã đổi phím chơi lại thành " + shortcut + "." +
+                    (modifiers.Count == 0 ? Clash(key) : "");
+            });
+        }
+
+        /// <summary>Warns when the two bindings would both answer the same key.</summary>
+        private static string Clash(KeyCode key)
+        {
+            bool sameKey = Plugin.ToggleKey.Value == key &&
+                Plugin.QuickRestartKey.Value.MainKey == key &&
+                !HasModifiers(Plugin.QuickRestartKey.Value);
+            return sameKey
+                ? " Lưu ý: phím này đang dùng cho cả bộ công cụ và chơi lại nhanh - hãy đổi một trong hai."
+                : "";
+        }
+
+        /// <summary>BepInEx exposes Modifiers as an IEnumerable, so count it by walking it.</summary>
+        private static bool HasModifiers(KeyboardShortcut shortcut)
+        {
+            foreach (KeyCode held in shortcut.Modifiers) return held != KeyCode.None;
+            return false;
         }
 
         private void DrawParty(RemoteParty party, float y, float width, bool canManage)

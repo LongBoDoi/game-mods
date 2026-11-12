@@ -124,7 +124,7 @@ public static class GameUtils
     public static Team17.Online.TestPlatform Platform = new Team17.Online.TestPlatform();
     public static T RequestManagerInterface<T>() where T : class { return Platform as T; }
 }
-namespace LobbyTools
+namespace OC2Tweaks
 {
     internal sealed class TestLog { internal void LogInfo(string text) {} }
     internal static class Plugin

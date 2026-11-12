@@ -6,7 +6,7 @@ rem Removing BepInEx disables every mod in the game; it asks first, and keeps ot
 rem and all saved settings unless you pass -PurgeBepInEx.
 rem
 rem   Uninstall.cmd                               menu, until you choose Q
-rem   Uninstall.cmd -Only QuickKeyRestart         just that mod, once
+rem   Uninstall.cmd -Only OC2Tweaks               just that mod, once
 rem   Uninstall.cmd -Only OC2DIYLevel             just the level pack
 rem   Uninstall.cmd -All                          everything, once
 rem   Uninstall.cmd -Only BepInEx -PurgeBepInEx   also delete every plugin and setting

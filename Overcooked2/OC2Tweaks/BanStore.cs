@@ -4,7 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 
-namespace LobbyTools
+namespace OC2Tweaks
 {
     internal sealed class BanRecord
     {
@@ -22,6 +22,8 @@ namespace LobbyTools
     // Independent of Unity so persistence and failure handling can be verified offline.
     internal sealed class BanStore
     {
+        // The on-disk format marker, not the mod name: loading matches it exactly, so
+        // renaming it would make every existing ban list fail to parse. Left as written.
         private const string Header = "OC2LobbyTools bans v1";
         private readonly string path;
         private readonly object gate = new object();

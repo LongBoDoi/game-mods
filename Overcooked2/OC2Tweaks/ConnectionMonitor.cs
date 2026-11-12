@@ -6,7 +6,7 @@ using Team17.Online;
 using Team17.Online.Multiplayer;
 using Team17.Online.Multiplayer.Connection;
 
-namespace LobbyTools
+namespace OC2Tweaks
 {
     internal struct ConnectionSample
     {

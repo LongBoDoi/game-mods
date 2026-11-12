@@ -8,7 +8,7 @@ My mods for various games, one folder per game. Each game has its own GitHub rel
 | [Kebab Chefs! - Restaurant Simulator](KebabChefs/) | PlayerTweaks, LoadTweaks | BepInEx 6 (IL2CPP) | [KebabChefs](../../releases?q=KebabChefs) |
 | [Lemon Cake](LemonCake/) | LemonCoop (split-screen co-op, save backup + upgrade repair, achievements) | UE4SS 3.0.1 (Lua) + patch pak | [LemonCake](../../releases?q=LemonCake) |
 | [Mortal Kombat 11](MK11/) | MK11Tweaks | Ultimate ASI Loader (C++) | [MK11](../../releases?q=MK11) |
-| [Overcooked! 2](Overcooked2/) | LobbyTools (lobby panel: ping, force host, kick, saved bans), QuickKeyRestart (one key restarts the level) | BepInEx 5 (Mono, x86) | [Overcooked2](../../releases?q=Overcooked2) |
+| [Overcooked! 2](Overcooked2/) | OC2Tweaks (panel: ping, force host, kick, bans; plus a one-key level restart), RandomLevel (random DIY levels, Continue goes straight to the next) | BepInEx 5 (Mono, x86) | [Overcooked2](../../releases?q=Overcooked2) |
 | [Stardew Valley](StardewValley/) | MonitorCoop (local co-op on a monitor each, laid out like your monitors), AutoFishCoop (Auto Fishing settings per local player, with controller shortcuts and a menu each) | SMAPI 4 | [StardewValley](../../releases?q=StardewValley) |
 
 ## Installing

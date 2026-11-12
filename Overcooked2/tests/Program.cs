@@ -1,6 +1,6 @@
 using System;
 using System.IO;
-using LobbyTools;
+using OC2Tweaks;
 using Team17.Online;
 
 internal static class Program
@@ -27,7 +27,7 @@ internal static class Program
 
     private static void Main()
     {
-        directory = Path.Combine(Path.GetTempPath(), "LobbyTools-tests-" + Guid.NewGuid().ToString("N"));
+        directory = Path.Combine(Path.GetTempPath(), "OC2Tweaks-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
