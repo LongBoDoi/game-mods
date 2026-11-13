@@ -8,6 +8,7 @@
       OC2Tweaks        F6 panel: ping, force host, kick, saved bans, and an F5 instant
                        restart you can switch off or rebind in its Phim tat tab.
       RandomLevel      random DIY levels; Continue goes straight to the next random level.
+      RelayKitchen     custom level Bếp Tiếp Sức / Night Market Relay (needs OC2DIYLevel).
       BepInEx          the mod loader itself (BepInEx 5 x86), installed or upgraded in place.
 
     - Finds the game through Steam (or use -GameDir "D:\path\to\Overcooked! 2").
@@ -19,11 +20,16 @@
     The mod files are taken from this script's folder (release zip) or from ..\dist (repo checkout,
     after build.cmd). A BepInEx zip placed next to this script is used instead of downloading.
 
+    Run with no arguments and it asks Install or Uninstall first, then asks what you want,
+    does it, and asks again until you choose Q. Pass -All/-Only/-Yes and it does that one thing
+    and exits, so scripted use never loops.
+
     Examples:
-      Install.ps1                                  ask, keep asking until you quit
-      Install.ps1 -All                             everything, once, no questions
-      Install.ps1 -Only OC2Tweaks                  just that mod, once
-      Install.ps1 -Only BepInEx                    just install/upgrade the loader
+      Install.ps1                                  ask mode, then keep asking until you quit
+      Install.ps1 -All                             install everything, once, no questions
+      Install.ps1 -Only OC2Tweaks                  install just that mod, once
+      Install.ps1 -Only RelayKitchen               install just the custom level (OC2DIYLevel must be installed)
+      Install.ps1 -Only BepInEx                    install or upgrade just the loader
       Install.ps1 -Only BepInEx -BepInExVersion 5.4.23.2    pin a version
       Install.ps1 -Uninstall                       ask what to remove, until you quit
       Install.ps1 -Uninstall -All                  remove all mods and the loader, once
@@ -68,6 +74,11 @@ $Targets = @(
     [pscustomobject]@{ Key = 'OC2DIYLevel'; Kind = 'Pack'
         Blurb = 'custom level pack + helper plugins (not bundled: ~400 MB)'
         Id = $null; LegacyId = $null }
+    [pscustomobject]@{ Key = 'RelayKitchen'; Kind = 'Level'
+        Blurb = 'custom level: Bếp Tiếp Sức / Night Market Relay (needs OC2DIYLevel)'
+        Id = 'manhl_relay_kitchen'
+        Files = @('info_manhl_relay', 's_manhl_relay_kitchen_1', 'layout.png', 'build-report.json')
+        LegacyId = $null }
     [pscustomobject]@{ Key = 'BepInEx'; Kind = 'Loader'
         Blurb = 'the mod loader itself (BepInEx 5 x86)'
         Id = $null; LegacyId = $null }
@@ -179,6 +190,26 @@ function Find-BepInExZip {
         $found = Get-ChildItem -LiteralPath $dir -Filter 'BepInEx_win_x86_*.zip' -ErrorAction SilentlyContinue |
             Sort-Object Name -Descending | Select-Object -First 1
         if ($found) { return $found.FullName }
+    }
+    return $null
+}
+
+# Release zip: RelayKitchen\ next to the installer. Repo checkout: ..\RelayKitchen\ in-place
+# or ..\RelayKitchen\build\<id>\ after build_level.py.
+function Find-RelayKitchenPayload {
+    $levelId = 'manhl_relay_kitchen'
+    foreach ($candidate in @(
+        (Join-Path $here 'RelayKitchen'),
+        (Join-Path $here '..\RelayKitchen'),
+        (Join-Path $here "..\RelayKitchen\build\$levelId"),
+        (Join-Path $here '..\dist\RelayKitchen')
+    )) {
+        try {
+            if (-not (Test-Path -LiteralPath $candidate)) { continue }
+            if (Test-Path -LiteralPath (Join-Path $candidate 'info_manhl_relay')) {
+                return (Resolve-Path -LiteralPath $candidate).Path
+            }
+        } catch {}
     }
     return $null
 }
@@ -315,6 +346,15 @@ function Get-InstalledDll($target) {
     $path = Join-Path (Get-PluginDir $target.Key) "$($target.Key).dll"
     if (Test-Path -LiteralPath $path) { return $path }
     return $null
+}
+
+function Get-LevelDir($target) {
+    $levelsRoot = [IO.Path]::GetFullPath((Join-Path $pluginRoot "OC2DIYLevel\levels"))
+    $dir = [IO.Path]::GetFullPath((Join-Path $levelsRoot $target.Id))
+    if (-not $dir.StartsWith($levelsRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        Fail "The level path for '$($target.Key)' would land outside OC2DIYLevel\levels."
+    }
+    return $dir
 }
 
 # --- What each target looks like right now ----------------------------------
@@ -487,6 +527,11 @@ function Get-Status($target) {
         if ($levels) { return "installed, $levels level sets" }
         return "installed, $($entries.Count) entries"
     }
+    if ($target.Kind -eq 'Level') {
+        $levelDir = Get-LevelDir $target
+        if ($target.Files -and (Test-Path -LiteralPath (Join-Path $levelDir $target.Files[0]))) { return 'installed' }
+        return 'not installed'
+    }
     $dll = Get-InstalledDll $target
     if (-not $dll) { return 'not installed' }
     $version = (Get-Item -LiteralPath $dll).VersionInfo.FileVersion
@@ -578,6 +623,13 @@ function Select-Interactive($candidates, $verb) {
 }
 
 # --- Doing it ---------------------------------------------------------------
+function Remove-Level($target) {
+    $levelDir = Get-LevelDir $target
+    if (-not (Test-Path -LiteralPath $levelDir)) { Write-Note "$($target.Key) is not installed."; return }
+    Remove-Item -LiteralPath $levelDir -Recurse -Force
+    Write-Note "$($target.Key) removed."
+}
+
 function Invoke-Remove($selected) {
     foreach ($target in @($selected | Where-Object { $_.Kind -eq 'Mod' })) {
         $pluginDir = Get-PluginDir $target.Key
@@ -596,6 +648,8 @@ function Invoke-Remove($selected) {
     }
 
     if ($selected | Where-Object { $_.Kind -eq 'Pack' }) { Remove-DiyPack }
+
+    foreach ($target in @($selected | Where-Object { $_.Kind -eq 'Level' })) { Remove-Level $target }
 
     if (-not ($selected | Where-Object { $_.Kind -eq 'Loader' })) { return }
 
@@ -787,6 +841,55 @@ function Convert-MergedMod {
         }
     }
 }
+function Install-Level($target) {
+    $source = Find-RelayKitchenPayload
+    if (-not $source) {
+        Write-Warn "$($target.Key): level files not found next to this installer or in ..\RelayKitchen\build after build_level.py."
+        return $false
+    }
+    Write-Note "Level payload: $source"
+
+    $diy = Join-Path $pluginRoot 'OC2DIYLevel'
+    foreach ($name in 'OC2DIYLevel.dll', 'common01', 'common02', 'common03') {
+        if (-not (Test-Path -LiteralPath (Join-Path $diy $name))) {
+            Write-Warn "Skipped $($target.Key): install OC2DIYLevel first (missing $name)."
+            return $false
+        }
+    }
+
+    foreach ($name in $target.Files) {
+        if (-not (Test-Path -LiteralPath (Join-Path $source $name))) {
+            Write-Warn "$($target.Key): $name not found in $source; run build_level.py first."
+            return $false
+        }
+    }
+
+    $reportPath = Join-Path $source 'build-report.json'
+    $report = Get-Content -LiteralPath $reportPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($name in ($target.Files | Where-Object { $_ -ne 'build-report.json' })) {
+        $expected = $report.outputs.$name
+        if (-not $expected -or (Get-FileHash -LiteralPath (Join-Path $source $name) -Algorithm SHA256).Hash -ne $expected) {
+            Write-Warn "$($target.Key): checksum mismatch on $name; rebuild the level first."
+            return $false
+        }
+    }
+    foreach ($name in 'common01', 'common02', 'common03') {
+        if ((Get-FileHash -LiteralPath (Join-Path $diy $name) -Algorithm SHA256).Hash -ne $report.inputs.$name) {
+            Write-Warn "$($target.Key): built for a different OC2DIYLevel version ($name checksum mismatch); rebuild the level."
+            return $false
+        }
+    }
+
+    $levelDir = Get-LevelDir $target
+    New-Item -ItemType Directory -Force -Path $levelDir | Out-Null
+    foreach ($name in $target.Files) {
+        Copy-Item -LiteralPath (Join-Path $source $name) -Destination (Join-Path $levelDir $name) -Force
+        Unblock-Copied (Join-Path $levelDir $name)
+    }
+    Write-Note "Installed $($target.Key) into $levelDir"
+    return $true
+}
+
 function Invoke-Install($selected) {
     $payloads = @()
     foreach ($target in @($selected | Where-Object { $_.Kind -eq 'Mod' })) {
@@ -799,8 +902,9 @@ function Invoke-Install($selected) {
     }
     $loaderSelected = [bool]($selected | Where-Object { $_.Kind -eq 'Loader' })
     $packSelected   = [bool]($selected | Where-Object { $_.Kind -eq 'Pack' })
+    $levelTargets   = @($selected | Where-Object { $_.Kind -eq 'Level' })
 
-    if (-not $payloads.Count -and -not $loaderSelected -and -not $packSelected) {
+    if (-not $payloads.Count -and -not $loaderSelected -and -not $packSelected -and -not $levelTargets.Count) {
         Write-Warn "No mod DLLs found. Keep them next to this installer, or run each mod's build.cmd first."
         return $false
     }
@@ -818,6 +922,14 @@ function Invoke-Install($selected) {
         Write-Step "Installing $PackName..."
         $packInstalled = Install-DiyPack
     }
+
+    # Level targets need OC2DIYLevel; re-check after the pack install in case both were selected.
+    $levelTargets = @($levelTargets | Where-Object {
+        if (-not (Test-Path -LiteralPath (Join-Path $pluginRoot 'OC2DIYLevel\OC2DIYLevel.dll'))) {
+            Write-Warn "Skipped $($_.Key): install OC2DIYLevel first (choose it from the menu, or use -Only OC2DIYLevel -DiyPackDir <folder>)."
+            $false
+        } else { $true }
+    })
 
     # This add-on cannot load without the third-party plugin. Re-check after installing the pack,
     # since both may have been selected in the same round.
@@ -863,8 +975,15 @@ function Invoke-Install($selected) {
         }
     }
 
+    $levelsInstalled = @()
+    foreach ($target in $levelTargets) {
+        Write-Step "Installing $($target.Key)..."
+        if (Install-Level $target) { $levelsInstalled += $target.Key }
+    }
+
     $installedNames = @($payloads | ForEach-Object { $_.Target.Key })
     if ($packInstalled) { $installedNames += $PackName }
+    $installedNames += $levelsInstalled
 
     Write-Host ''
     if ($installedNames.Count) {
@@ -882,16 +1001,38 @@ function Invoke-Install($selected) {
     if ($installedNames -contains $PackName) {
         Write-Note "$PackName : custom levels. Everyone in the match needs the same pack."
     }
+    if ($installedNames -contains 'RelayKitchen') {
+        Write-Note 'RelayKitchen: More Levels → GameMods Originals → Bếp Tiếp Sức — Chợ Đêm / Night Market Relay.'
+        Write-Note '              Everyone in the match needs the same map and OC2DIYLevel pack.'
+    }
     return $true
 }
 
 # --- The menu, round after round --------------------------------------------
 # Flags mean "do this one thing": looping on them would never end.
 $oneShot = [bool]($All -or $Only -or $Yes)
-$verb    = if ($Uninstall) { 'remove' } else { 'install' }
 $didWork = $false
 $script:noConsole = $false
 $script:choseAll  = $false
+
+# Interactive: when no mode flag was passed, ask install or uninstall first.
+if (-not $oneShot -and -not $Uninstall) {
+    Write-Host ''
+    Write-Host 'What would you like to do?' -ForegroundColor Cyan
+    Write-Host '  I) Install or upgrade mods'
+    Write-Host '  U) Uninstall mods'
+    Write-Host ''
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        $modeAnswer = Read-Host 'Choose [I]'
+        if ($null -eq $modeAnswer) { $script:noConsole = $true; break }
+        $modeAnswer = "$modeAnswer".Trim()
+        if (-not $modeAnswer -or $modeAnswer -in @('i', 'I')) { break }
+        if ($modeAnswer -in @('u', 'U')) { $Uninstall = $true; break }
+        Write-Warn "Enter I to install or U to uninstall."
+    }
+}
+
+$verb = if ($Uninstall) { 'remove' } else { 'install' }
 
 while ($true) {
     Update-LoaderState
@@ -905,6 +1046,7 @@ while ($true) {
             switch ($target.Kind) {
                 'Loader' { $script:loaderInstalled }
                 'Pack'   { @(Get-PackInstalledEntries).Count -gt 0 }
+                'Level'  { $target.Files -and (Test-Path -LiteralPath (Join-Path (Get-LevelDir $target) $target.Files[0])) }
                 default  { $null -ne (Get-InstalledDll $target) }
             }
         })
