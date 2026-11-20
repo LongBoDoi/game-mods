@@ -87,6 +87,11 @@ namespace Team17.Online
             if (AfterRemoval != null) AfterRemoval(user);
         }
     }
+    public static class ClientUserSystem
+    {
+        public static User.MachineID s_LocalMachineId = User.MachineID.One;
+        public static FastList<User> m_Users = new FastList<User>();
+    }
     public interface IOnlineMultiplayerSessionCoordinator
     {
         bool IsHost();
@@ -115,7 +120,9 @@ public sealed class TestConnectionStatus : IConnectionModeSwitchStatus
 public static class ConnectionModeSwitcher
 {
     private static Team17.Online.Multiplayer.Server m_LocalServer;
+    private static Team17.Online.Multiplayer.Client m_LocalClient;
     public static void SetServer(Team17.Online.Multiplayer.Server server) { m_LocalServer = server; }
+    public static void SetClient(Team17.Online.Multiplayer.Client client) { m_LocalClient = client; }
     public static TestConnectionStatus Status = new TestConnectionStatus();
     public static IConnectionModeSwitchStatus GetStatus() { return Status; }
 }
@@ -149,6 +156,12 @@ namespace Team17.Online.Multiplayer
             var remote = connection as Connection.RemoteConnection;
             if (remote != null) remote.Session = session;
         }
+    }
+
+    public class Client
+    {
+        private Connection.NetworkConnection m_ServerConnection;
+        public void SetServerConnection(Connection.NetworkConnection connection) { m_ServerConnection = connection; }
     }
 }
 namespace Team17.Online.Multiplayer.Connection

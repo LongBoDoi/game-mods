@@ -1,9 +1,10 @@
 # OC2Tweaks — lobby management and quick restart for Overcooked! 2
 
-An in-game panel (**F6**, in Vietnamese) for the lobby you host: every remote player's ping, kick,
-ban and unban, force host for public matchmaking, and a one-key level restart you can switch off or
-rebind without leaving the game. Settings and the ban list are saved automatically. Only the host
-needs the mod.
+An in-game panel (**F6**, in Vietnamese) for the lobby: every player's ping — including your own — plus
+kick, ban and unban, force host for public matchmaking, and a one-key level restart you can switch off
+or rebind without leaving the game. Settings and the ban list are saved automatically. Only the host
+needs the mod; a client sees the roster and their own ping, and can watch the host's moderation from
+the same panel.
 
 This was two plugins until 2.0.0 — **LobbyTools** and **QuickKeyRestart**. One plugin means one
 config file, one place to see both hotkeys, and somewhere in game to turn the restart key off. The
@@ -16,7 +17,7 @@ Drag the title bar to move it.
 
 | Tab (in the panel) | What it does |
 |---|---|
-| **Người chơi** (players) | Players from other machines, refreshed every 0.25 s: name, ping in ms, and how many people share that connection. Steam IDs are not shown. |
+| **Người chơi** (players) | Everyone in the lobby, refreshed every 0.25 s: name, ping in ms, and how many people share that connection. Your own row is labelled **Bạn** and is always first. Steam IDs are not shown. |
 | **Đuổi** (kick) | Select a player, press **Đuổi**, then **Xác nhận đuổi**. They can rejoin. |
 | **Cấm** (ban) | Select a player, press **Cấm**, then **Xác nhận cấm**. The mod saves their Steam ID and kicks them; if that account shows up in a lobby you host again, it is kicked automatically. |
 | **Đã cấm** (banned) | The saved list; **Bỏ cấm** lets an account join again. Editable while you are not in a lobby. |
@@ -148,11 +149,14 @@ after Host Force Theme and respects `__runOriginal`, so no lobby is created twic
 specific lobby still works. The mod does not depend on Host Force Theme.
 
 Ping data comes from the host's connection table keyed by player session ID, so figures are never
-attributed to the wrong player. To keep measuring, `BaseConnection.GetLatencyTestPaused` is patched
-to return `false` only for remote connections present in the current host's connection table. Probe
-scheduling and reply handling stay on the game's own path, the original pause flag is never changed,
-and unpatching restores stock behaviour. When the connection mode changes or you are no longer the
-host, the patch does not override the pause behaviour.
+attributed to the wrong player. The host's own ping is a zero-millisecond loopback sample. A client
+reads its own latency from its connection to the host; it has no way to measure anyone else's round
+trip, so those rows say **đang đo...** while the roster itself still shows. To keep measuring,
+`BaseConnection.GetLatencyTestPaused` is patched to return `false` only for the connections this
+machine actually holds: every remote connection while hosting, and the single connection to the host
+when joined. Probe scheduling and reply handling stay on the game's own path, the original pause flag
+is never changed, and unpatching restores stock behaviour. When the connection mode changes or you
+are no longer in a session, the patch does not override the pause behaviour.
 
 Quick restart invokes the game's own `InGamePauseMenu.OnRestartConfirmed()` — the handler the
 "restart?" dialog calls when you say yes — which is why there is no dialog to click through. Two
@@ -178,8 +182,10 @@ powershell -NoProfile -File ..\tests\CheckMerge.ps1
 
 They cover saving the ban list, host permission, re-kicking a banned account, the hosting flow, the
 ping unit conversion, missing and invalid data, measurement surviving a level load, patch scope,
-stale figures while waiting for a reply, preferring the channel with a fresh reply, the Vietnamese
-responses, and that a high ping never kicks anyone. `CheckRuntime.ps1` checks the built DLL's API
+stale figures while waiting for a reply, preferring the channel with a fresh reply, the local
+player's own ping on the host (zero loopback) and on a client (measured to the host), remote rows
+that have no measurement source on a client, the Vietnamese responses, and that a high ping never
+kicks anyone. `CheckRuntime.ps1` checks the built DLL's API
 calls against the game's real assemblies, including the names reached by reflection that no compiler
 sees: the force-host methods, the connection telemetry fields, the ping patch target, and
 `InGamePauseMenu.OnRestartConfirmed()`. `CheckMerge.ps1` covers the upgrade above. Display,
@@ -193,14 +199,16 @@ The ban-file check uses `IOException` because the game's runtime has no
 1. Close the game, install the mod, start it and check `BepInEx\LogOutput.log` for load or patch
    errors.
 2. Host a friend lobby and invite another Steam account. Press F6 and check the Vietnamese text
-   renders with its diacritics, plus the player names, shared-connection counts and ping. No Steam
-   IDs in the panel.
+   renders with its diacritics, plus the player names, shared-connection counts and ping. Your own
+   row is labelled **Bạn** and reads **Độ trễ: 0 ms** (the host talks to itself over loopback). No
+   Steam IDs in the panel.
 3. Kick and confirm: the other player leaves, you stay host, and they can rejoin.
 4. Ban and confirm: the account is saved and kicked. Close the panel, then invite them again or
    re-matchmake — they must be kicked automatically.
 5. Restart the game and host again: the ban still holds. Unban, and check they can stay.
 6. Enter a level or the campaign map: the list and kick/ban still work. Join someone else's lobby:
-   no kicking, banning or automatic kicks there.
+   the roster shows your own **Bạn** row with a real ping to the host, the other rows say
+   **đang đo...**, and there is no kicking, banning or automatic kicks there.
 7. Clicking the panel does not trigger the menu behind it, and closing it restores the cursor.
 8. Test a remote group of two people on one machine: kicking that group leaves other connections
    alone.

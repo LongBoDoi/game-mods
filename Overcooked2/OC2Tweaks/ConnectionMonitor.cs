@@ -22,7 +22,9 @@ namespace OC2Tweaks
     internal static class ConnectionMonitor
     {
         private static readonly FieldInfo LocalServer = AccessTools.Field(typeof(ConnectionModeSwitcher), "m_LocalServer");
+        private static readonly FieldInfo LocalClient = AccessTools.Field(typeof(ConnectionModeSwitcher), "m_LocalClient");
         private static readonly FieldInfo Connections = AccessTools.Field(typeof(Server), "m_RemoteClientConnections");
+        private static readonly FieldInfo ClientConnectionField = AccessTools.Field(typeof(Team17.Online.Multiplayer.Client), "m_ServerConnection");
         private static readonly FieldInfo Reliable = AccessTools.Field(typeof(RemoteConnection), "m_ReliableLatencyMeasure");
         private static readonly FieldInfo Unreliable = AccessTools.Field(typeof(RemoteConnection), "m_UnreliableLatencyMeasure");
         private static readonly FieldInfo History = AccessTools.Field(typeof(LatencyMeasure), "m_OneWayLatencyHistory");
@@ -32,7 +34,7 @@ namespace OC2Tweaks
 
         internal static void Validate()
         {
-            foreach (FieldInfo field in new[] { LocalServer, Connections, Reliable, Unreliable, History, ReplyTime })
+            foreach (FieldInfo field in new[] { LocalServer, LocalClient, Connections, ClientConnectionField, Reliable, Unreliable, History, ReplyTime })
                 if (field == null) throw new MissingFieldException("Không thể đọc dữ liệu độ trễ từ trò chơi.");
         }
 
@@ -44,36 +46,70 @@ namespace OC2Tweaks
 
         internal static bool KeepMeasuring(BaseConnection connection)
         {
-            string reason;
-            if (!Plugin.ConnectionMonitorReady || !(connection is RemoteConnection) ||
-                !Moderation.HostCanManage(out reason)) return false;
-            var server = LocalServer.GetValue(null) as Server;
-            var connections = server == null ? null : Connections.GetValue(server) as
-                Dictionary<IOnlineMultiplayerSessionUserId, NetworkConnection>;
-            var session = connection.GetRemoteSessionUserId();
-            NetworkConnection current;
-            return session != null && connections != null && connections.TryGetValue(session, out current) &&
-                ReferenceEquals(current, connection);
+            if (!Plugin.ConnectionMonitorReady || !(connection is RemoteConnection) || !SessionStatus.IsInSession()) return false;
+            IConnectionModeSwitchStatus status = ConnectionModeSwitcher.GetStatus();
+            if (status == null || status.GetProgress() != eConnectionModeSwitchProgress.Complete) return false;
+
+            if (SessionStatus.IsHost())
+            {
+                var server = LocalServer.GetValue(null) as Server;
+                var connections = server == null ? null : Connections.GetValue(server) as
+                    Dictionary<IOnlineMultiplayerSessionUserId, NetworkConnection>;
+                var session = connection.GetRemoteSessionUserId();
+                NetworkConnection current;
+                return session != null && connections != null && connections.TryGetValue(session, out current) &&
+                    ReferenceEquals(current, connection);
+            }
+
+            var client = LocalClient.GetValue(null) as Team17.Online.Multiplayer.Client;
+            var clientConn = client == null ? null : ClientConnectionField.GetValue(client) as NetworkConnection;
+            return clientConn != null && ReferenceEquals(clientConn, connection);
         }
 
         internal static void Tick(float now)
         {
-            string reason;
-            if (!Plugin.ConnectionMonitorReady || !Moderation.HostCanManage(out reason))
+            if (!Plugin.ConnectionMonitorReady || !SessionStatus.IsInSession())
             { players.Clear(); return; }
+            IConnectionModeSwitchStatus status = ConnectionModeSwitcher.GetStatus();
+            if (status == null || status.GetProgress() != eConnectionModeSwitchProgress.Complete)
+            { players.Clear(); return; }
+
             var server = LocalServer.GetValue(null) as Server;
             var connections = server == null ? null : Connections.GetValue(server) as
                 Dictionary<IOnlineMultiplayerSessionUserId, NetworkConnection>;
+            var client = LocalClient.GetValue(null) as Team17.Online.Multiplayer.Client;
+            var clientConn = client == null ? null : ClientConnectionField.GetValue(client) as RemoteConnection;
+            bool host = SessionStatus.IsHost();
+
             var present = new List<IOnlineMultiplayerSessionUserId>();
-            foreach (RemoteParty party in Moderation.Parties())
+            foreach (DisplayParty party in Moderation.DisplayParties())
             {
+                if (party.Session == null) continue;
                 present.Add(party.Session);
                 PlayerConnection player;
                 if (!players.TryGetValue(party.Session, out player))
                 { player = new PlayerConnection(); players.Add(party.Session, player); }
-                NetworkConnection connection;
-                player.Sample = connections != null && connections.TryGetValue(party.Session, out connection) ?
-                    Read(connection as RemoteConnection, now) : new ConnectionSample();
+
+                if (party.IsLocal)
+                {
+                    if (host)
+                    {
+                        // The host talks to itself over loopback: no network round trip at all.
+                        player.Sample = new ConnectionSample { Available = true, Measured = true, PingMs = 0f, LastReplyTime = now };
+                    }
+                    else
+                    {
+                        player.Sample = Read(clientConn, now);
+                    }
+                }
+                else
+                {
+                    // Only the host holds every remote client's connection; a client can see the
+                    // roster but has no way to measure anyone else's latency.
+                    NetworkConnection connection;
+                    player.Sample = host && connections != null && connections.TryGetValue(party.Session, out connection) ?
+                        Read(connection as RemoteConnection, now) : new ConnectionSample();
+                }
             }
             foreach (var session in new List<IOnlineMultiplayerSessionUserId>(players.Keys))
                 if (!present.Contains(session)) players.Remove(session);

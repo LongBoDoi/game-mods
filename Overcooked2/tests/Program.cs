@@ -35,6 +35,7 @@ internal static class Program
             ModerationPolicy();
             ForceHostPolicy();
             ConnectionMonitorIntegration();
+            ClientLocalPingIntegration();
             Console.WriteLine("PASS: " + checks + " checks (Vietnamese feedback, display-only ping, saved-ID kicks, force hosting and persistence).");
         }
         finally
@@ -187,6 +188,80 @@ internal static class Program
         Check(!Moderation.HostCanManage(out reason) && reason == "Chỉ chủ phòng hiện tại mới có thể đuổi hoặc cấm người chơi.",
             "Client permission feedback must be Vietnamese.");
     }
+
+    /// <summary>
+    /// A joined client must see its own ping next to the roster; the host sees zero (loopback)
+    /// while clients measure the connection to the host. Remote pings stay host-measured.
+    /// </summary>
+    private static void ClientLocalPingIntegration()
+    {
+        ResetRoster();
+        Plugin.Bans = NewStore("client-ping-bans.tsv");
+
+        // Host: the local machine is a row in the display list, first, with zero loopback ping.
+        ConnectionModeSwitcher.SetServer(new Team17.Online.Multiplayer.Server());
+        ConnectionModeSwitcher.SetClient(null);
+        ConnectionMonitor.Tick(0);
+        DisplayParty[] displayed = Moderation.DisplayParties();
+        Check(displayed.Length == 3, "Host display list must include the local machine and both remote parties.");
+        Check(displayed[0].IsLocal, "Host display list must put the local machine first.");
+        ConnectionSample local = ConnectionMonitor.Get(displayed[0].Session).Sample;
+        Check(local.Available && local.Measured && Math.Abs(local.PingMs) < 0.01f,
+            "Host's own ping must be a zero-millisecond loopback sample.");
+        Check(ConnectionMonitor.Display(displayed[0].Session, 0) == "Độ trễ: 0 ms",
+            "Host's own ping must display as zero milliseconds in Vietnamese.");
+        Check(!displayed[0].Name.Contains("(bạn)") && !displayed[0].Name.Contains("Bạn"),
+            "The display party must carry the local flag rather than embedding it in the name.");
+
+        // Client: the local machine measures its connection to the host; remote rows have no source.
+        var client = new Team17.Online.Multiplayer.Client();
+        var toHost = new Team17.Online.Multiplayer.Connection.RemoteConnection();
+        toHost.Set(new[] { 0.1f }, new[] { 0.2f }, 0);
+        client.SetServerConnection(toHost);
+        ConnectionModeSwitcher.SetServer(null);
+        ConnectionModeSwitcher.SetClient(client);
+        GameUtils.Platform.Host = false;
+        ClientUserSystem.m_Users._items = new[]
+        {
+            new User { IsLocal = true, Machine = User.MachineID.One, GameState = GameState.MainMenu,
+                SessionId = Session(76561198000000001, "Me") },
+            new User { Machine = User.MachineID.Two, GameState = GameState.MainMenu,
+                SessionId = Session(76561198000000002, "Host chef") },
+            new User { Machine = User.MachineID.Three, GameState = GameState.MainMenu,
+                SessionId = Session(76561198000000003, "Another chef") }
+        };
+        ConnectionMonitor.Tick(0);
+        displayed = Moderation.DisplayParties();
+        Check(displayed.Length == 3, "Client display list must include the local machine and the remote roster.");
+        Check(displayed[0].IsLocal && !displayed[1].IsLocal && !displayed[2].IsLocal,
+            "Client display list must flag only the local machine as local.");
+        Check(ConnectionMonitor.Display(displayed[0].Session, 0) == "Độ trễ: 400 ms",
+            "Client's own ping must measure the connection to the host as round-trip milliseconds.");
+        Check(ConnectionMonitor.Display(displayed[1].Session, 0) == "Độ trễ: đang đo...",
+            "A client has no way to measure other players; those rows must show the measuring fallback.");
+
+        // Client's connection must also keep running probes, exactly like the host's remote ones.
+        toHost.Paused = true;
+        bool paused = true;
+        Check(!PersistentPing.Prefix(toHost, ref paused) && !paused && toHost.Paused,
+            "Client's host connection must keep probing without changing the original pause flag.");
+        var unrelated = new Team17.Online.Multiplayer.Connection.RemoteConnection { Session = displayed[1].Session, Paused = true };
+        paused = true;
+        Check(PersistentPing.Prefix(unrelated, ref paused) && paused,
+            "A client must not keep another player's unrelated connection probing.");
+
+        // Leaving the session clears client measurements like it does a host's.
+        GameUtils.Platform.InSession = false;
+        ConnectionMonitor.Tick(0);
+        Check(ConnectionMonitor.Get(displayed[0].Session) == null && ConnectionMonitor.Get(displayed[1].Session) == null,
+            "Leaving the session must clear the client's measurements.");
+
+        // Display-only roster must never offer moderation targets to a client.
+        GameUtils.Platform.InSession = true;
+        Check(Moderation.Parties().Length == 0, "Client must have no moderation targets even with a display roster.");
+        Check(Moderation.Remove(displayed[1], false) == "Chỉ chủ phòng hiện tại mới có thể đuổi hoặc cấm người chơi.",
+            "Display-only roster must not bypass the host-only moderation gate.");
+    }
     private static void Persistence()
     {
         const string id = "76561198000000001";
@@ -239,9 +314,17 @@ internal static class Program
         GameUtils.Platform.Host = true;
         GameUtils.Platform.InSession = true;
         ConnectionModeSwitcher.Status.Progress = eConnectionModeSwitchProgress.Complete;
+        ConnectionModeSwitcher.SetClient(null);
+        ClientUserSystem.m_Users._items = new User[0];
         ServerUserSystem.Removed.Clear();
         ServerUserSystem.AfterRemoval = null;
-        var host = new User { IsLocal = true, Machine = User.MachineID.One, GameState = GameState.MainMenu };
+        // The host's own user is a session member in the game; its session key is how the
+        // display list identifies the local machine when it renders everyone's ping.
+        var host = new User
+        {
+            IsLocal = true, Machine = User.MachineID.One, GameState = GameState.MainMenu,
+            SessionId = Session(76561198000000001, "Host chef")
+        };
         var primary = new User
         {
             Machine = User.MachineID.Two, GameState = GameState.MainMenu,

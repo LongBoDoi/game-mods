@@ -32,6 +32,21 @@ namespace OC2Tweaks
         internal int Count;
     }
 
+    /// <summary>
+    /// One row in the panel's player list. Unlike <see cref="RemoteParty"/>, this also covers the
+    /// local machine, so the panel can show the host or client's own ping next to everyone else's.
+    /// It is display-only: moderation never uses it.
+    /// </summary>
+    internal sealed class DisplayParty
+    {
+        internal User Primary;
+        internal IOnlineMultiplayerSessionUserId Session;
+        internal string SteamId;
+        internal string Name;
+        internal int Count;
+        internal bool IsLocal;
+    }
+
     internal static class Moderation
     {
         internal static string SteamId(IOnlineMultiplayerSessionUserId session)
@@ -82,6 +97,54 @@ namespace OC2Tweaks
             return result.ToArray();
         }
 
+        /// <summary>
+        /// The panel's player list: every machine in the lobby, including the local one, whether we
+        /// are hosting or joined someone else's room. Unlike <see cref="Parties"/> this works without
+        /// host rights, so a client can still see who is in the room and their own latency.
+        /// </summary>
+        internal static DisplayParty[] DisplayParties()
+        {
+            if (!SessionStatus.IsInSession()) return new DisplayParty[0];
+            IConnectionModeSwitchStatus status = ConnectionModeSwitcher.GetStatus();
+            if (status == null || status.GetProgress() != eConnectionModeSwitchProgress.Complete)
+                return new DisplayParty[0];
+
+            // The host keeps the authoritative roster on ServerUserSystem; a client keeps its own
+            // copy on ClientUserSystem. Pick the one that matches this machine's role.
+            bool host = SessionStatus.IsHost();
+            FastList<User> users = host ? ServerUserSystem.m_Users : ClientUserSystem.m_Users;
+            if (users == null || users.Count == 0) return new DisplayParty[0];
+            User.MachineID localMachine = host ? ServerUserSystem.s_LocalMachineId : ClientUserSystem.s_LocalMachineId;
+
+            var result = new List<DisplayParty>();
+            for (int i = 0; i < users.Count; i++)
+            {
+                User user = users._items[i];
+                if (user == null || user.SessionId == null) continue;
+                bool isLocal = user.IsLocal || user.Machine == localMachine || user.SessionId.IsLocal;
+                bool duplicate = false;
+                foreach (DisplayParty other in result)
+                    if (other.Primary.Machine == user.Machine) { duplicate = true; break; }
+                if (duplicate) continue;
+                int count = 0;
+                for (int j = 0; j < users.Count; j++)
+                    if (users._items[j] != null && users._items[j].Machine == user.Machine) count++;
+                result.Add(new DisplayParty
+                {
+                    Primary = user, Session = user.SessionId, SteamId = SteamId(user.SessionId),
+                    Name = user.SessionId.DisplayName ?? user.DisplayName ?? "Người chơi", Count = count,
+                    IsLocal = isLocal
+                });
+            }
+            // The local machine is the row people look for; keep it first.
+            result.Sort(delegate(DisplayParty a, DisplayParty b)
+            {
+                if (a.IsLocal != b.IsLocal) return a.IsLocal ? -1 : 1;
+                return 0;
+            });
+            return result.ToArray();
+        }
+
         internal static string Remove(RemoteParty selected, bool ban)
         {
             string reason;
@@ -117,6 +180,17 @@ namespace OC2Tweaks
                 " (" + (current.SteamId ?? "không rõ tài khoản") + "), nhóm " + current.Count + " người.");
             return ban ? "Đã lưu tài khoản và đuổi người chơi. Nếu gặp lại, họ sẽ tự động bị đuổi." :
                 "Đã đuổi người chơi. Họ vẫn có thể tham gia lại.";
+        }
+
+        // The panel keeps a display row for everyone, but only a remote party can be acted on.
+        // Convert before delegating so the moderation path never sees the local machine.
+        internal static string Remove(DisplayParty selected, bool ban)
+        {
+            return Remove(new RemoteParty
+            {
+                Primary = selected.Primary, Session = selected.Session,
+                SteamId = selected.SteamId, Name = selected.Name, Count = selected.Count
+            }, ban);
         }
 
         // Runs from the persistent UI object's Update even while the panel is closed.

@@ -82,6 +82,9 @@ $Targets = @(
     [pscustomobject]@{ Key = 'BepInEx'; Kind = 'Loader'
         Blurb = 'the mod loader itself (BepInEx 5 x86)'
         Id = $null; LegacyId = $null }
+    [pscustomobject]@{ Key = 'ChefRoles'; Kind = 'Mod'
+        Blurb = 'pick a role each level: Cook cooks faster, Server runs and serves faster, or no role'
+        Id = 'com.manhl.overcooked2.chefroles'; LegacyId = $null }
 )
 
 <#

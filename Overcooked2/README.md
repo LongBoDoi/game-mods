@@ -4,6 +4,7 @@
 |---|---|
 | [OC2Tweaks](OC2Tweaks/) | In-game panel (**F6**, Vietnamese) for the lobby you host: every remote player's **ping** in ms, **kick**, **ban** (saved, and re-kicked automatically next time), and **force host** so public Arcade/Versus matchmaking creates your lobby instead of joining someone else's. Plus **F5** to restart the level you're playing straight away — no pause menu, no "are you sure?" — switchable and rebindable from the panel's **Phím tắt** tab |
 | [RandomLevel](RandomLevel/) | **More Levels → Chơi ngẫu nhiên — tất cả màn** starts a shuffled rotation of installed DIY levels. **F8** skips the current round; **Continue** loads the next random level directly; **Restart** keeps the current level; **F7** at results returns to the main menu. Requires OC2DIYLevel |
+| [ChefRoles](ChefRoles/) | After each kitchen loads, every local player picks a role on a screen made from the game's own pause-menu panel: **Cook** cooks faster but serves slower, **Server** runs and serves faster but cooks and chops slower, or **no role** (game default). **F9** skips the screen |
 
 **Install:** download `Overcooked2-v*.zip` from the release, extract it anywhere, and double-click `Install.cmd` with the game closed. It finds the game through Steam and then **stays open**, asking what you want, doing it, and asking again with the list refreshed — so you can install one mod, upgrade BepInEx and check the result in one sitting. It closes when you choose **Q**.
 
@@ -73,6 +74,10 @@ and sushi recipes, two opposing conveyor lanes, two crossings, native floor mate
 and preparation, cooking, washing and serving on both banks.
 See [RelayKitchen/README.md](RelayKitchen/README.md) for the layout,
 build and install instructions, attribution, and current playtest status.
+
+## ChefRoles
+
+Right after the loading screen (and after any intro cutscene), before **Ready… Go!**, the kitchen stays frozen and a **CHOOSE YOUR ROLE** panel appears with one bar per local player. **Left/Right** changes your role, **Select** locks it in, **Back** unlocks it; the level starts when everyone is ready, after 30 seconds, or on **F9**. Each player's last pick is pre-selected on the next level. Online, roles work fully for the host's own chefs; see [ChefRoles/README.md](ChefRoles/README.md) for exactly what applies to joining players, the numbers and how to tune them.
 
 ## OC2Tweaks
 

@@ -106,8 +106,9 @@ try {
         }
 
         $telemetry = @{
-            'ConnectionModeSwitcher' = @('m_LocalServer')
+            'ConnectionModeSwitcher' = @('m_LocalServer', 'm_LocalClient')
             'Team17.Online.Multiplayer.Server' = @('m_RemoteClientConnections')
+            'Team17.Online.Multiplayer.Client' = @('m_ServerConnection')
             'Team17.Online.Multiplayer.Connection.RemoteConnection' = @('m_ReliableLatencyMeasure', 'm_UnreliableLatencyMeasure')
             'Team17.Online.Multiplayer.Connection.LatencyMeasure' = @('m_OneWayLatencyHistory', 'm_fTimeTimeReceived')
         }

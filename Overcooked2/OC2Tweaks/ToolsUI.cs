@@ -33,7 +33,7 @@ namespace OC2Tweaks
         private GUISkin skin;
         private Font vietnameseFont;
         private Texture2D fill;
-        private RemoteParty pending;
+        private DisplayParty pending;
         private bool pendingBan;
         private string status = "";
         private float nextRefresh;
@@ -43,7 +43,7 @@ namespace OC2Tweaks
         // several times a frame, so the Phim tat tab reads this instead of asking directly.
         private float nextLevelCheck;
         private bool inLevel;
-        private RemoteParty[] parties = new RemoteParty[0];
+        private DisplayParty[] parties = new DisplayParty[0];
 
         private static readonly KeyCode[] ModifierKeys =
         {
@@ -92,8 +92,8 @@ namespace OC2Tweaks
             if (IsOpen && Time.realtimeSinceStartup >= nextRefresh)
             {
                 nextRefresh = Time.realtimeSinceStartup + 0.25f;
-                try { parties = Moderation.Parties(); }
-                catch (Exception error) { status = "Không thể tải danh sách người chơi: " + error.Message; parties = new RemoteParty[0]; }
+                try { parties = Moderation.DisplayParties(); }
+                catch (Exception error) { status = "Không thể tải danh sách người chơi: " + error.Message; parties = new DisplayParty[0]; }
             }
             if (IsOpen && tab == Tab.Hotkeys && Time.realtimeSinceStartup >= nextLevelCheck)
             {
@@ -255,7 +255,7 @@ namespace OC2Tweaks
             try
             {
                 if (count == 0) GUI.Label(new Rect(0, 4, width, 42),
-                    bansTab ? "Chưa có người chơi nào bị cấm." : "Chưa có người chơi từ máy khác tham gia phòng của bạn.");
+                    bansTab ? "Chưa có người chơi nào bị cấm." : "Chưa có người chơi nào trong phòng.");
                 for (int i = 0; i < count; i++)
                 {
                     float y = i * 82;
@@ -275,7 +275,7 @@ namespace OC2Tweaks
                 GUI.enabled = canManage;
                 if (GUI.Button(new Rect(14, y + 62, 160, 28), pendingBan ? "Xác nhận cấm" : "Xác nhận đuổi"))
                 {
-                    RemoteParty target = pending;
+                    DisplayParty target = pending;
                     bool ban = pendingBan;
                     pending = null;
                     Run(delegate { return Moderation.Remove(target, ban); });
@@ -452,11 +452,18 @@ namespace OC2Tweaks
             return false;
         }
 
-        private void DrawParty(RemoteParty party, float y, float width, bool canManage)
+        private void DrawParty(DisplayParty party, float y, float width, bool canManage)
         {
             GUI.Label(new Rect(0, y, width - 160, 30), SafeName(party.Name) +
+                (party.IsLocal ? " (bạn)" : "") +
                 (party.Count > 1 ? " (nhóm " + party.Count + " người)" : ""));
             GUI.Label(new Rect(0, y + 31, width - 160, 36), ConnectionMonitor.Display(party.Session, Time.realtimeSinceStartup));
+            if (party.IsLocal)
+            {
+                // The local machine cannot be kicked or banned; the row only confirms who you are.
+                GUI.Label(new Rect(width - 154, y + 4, 148, 30), "Bạn");
+                return;
+            }
             GUI.enabled = canManage;
             if (GUI.Button(new Rect(width - 154, y + 4, 70, 30), "Đuổi"))
             { pending = party; pendingBan = false; }
