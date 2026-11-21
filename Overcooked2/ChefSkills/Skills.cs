@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using BepInEx.Configuration;
 using Team17.Online.Multiplayer.Messaging;
@@ -93,18 +94,75 @@ namespace ChefSkills
                     new AcceptableValueRange<int>(0, 50)));
         }
 
+        // Online, the host's numbers replace this machine's own, so every machine computes the
+        // same speed for the same chef (null: use this machine's config).
+        private static int s_hostMaxLevel;
+        private static int[] s_hostPercent;
+
         internal static int MaxLevel
         {
-            get { return _maxLevel != null ? Mathf.Clamp(_maxLevel.Value, 1, 5) : 3; }
+            get
+            {
+                if (s_hostPercent != null) return s_hostMaxLevel;
+                return _maxLevel != null ? Mathf.Clamp(_maxLevel.Value, 1, 5) : 3;
+            }
+        }
+
+        private static int PercentOf(Skill skill)
+        {
+            if (s_hostPercent != null) return s_hostPercent[(int)skill];
+            ConfigEntry<int> entry = Percent[(int)skill];
+            return entry != null ? Mathf.Clamp(entry.Value, 0, 50) : 0;
         }
 
         /// <summary>1 = game default, 1.36 = 36% faster, 0.76 = 24% slower.</summary>
         internal static float Multiplier(Skill skill, int level)
         {
             if (level == 0) return 1f;
-            ConfigEntry<int> entry = Percent[(int)skill];
-            int percent = entry != null ? Mathf.Clamp(entry.Value, 0, 50) : 0;
-            return Mathf.Clamp(1f + percent * level / 100f, MinMultiplier, MaxMultiplier);
+            return Mathf.Clamp(1f + PercentOf(skill) * level / 100f, MinMultiplier, MaxMultiplier);
+        }
+
+        /// <summary>This machine's own numbers, as the host publishes them: "max|p.p.p...".</summary>
+        internal static string FormatOwnRules()
+        {
+            var text = new StringBuilder();
+            text.Append((_maxLevel != null ? Mathf.Clamp(_maxLevel.Value, 1, 5) : 3).ToString(CultureInfo.InvariantCulture)).Append('|');
+            for (int i = 0; i < Count; i++)
+            {
+                if (i > 0) text.Append('.');
+                ConfigEntry<int> entry = Percent[i];
+                text.Append((entry != null ? Mathf.Clamp(entry.Value, 0, 50) : 0).ToString(CultureInfo.InvariantCulture));
+            }
+            return text.ToString();
+        }
+
+        /// <summary>
+        /// Uses the host's numbers (from <see cref="FormatOwnRules"/> on the host) instead of this
+        /// machine's own; null or unreadable goes back to this machine's own config.
+        /// </summary>
+        internal static void UseHostRules(string rules)
+        {
+            int max;
+            int[] percent = null;
+            if (!string.IsNullOrEmpty(rules))
+            {
+                string[] parts = rules.Split('|');
+                string[] values = parts.Length == 2 ? parts[1].Split('.') : null;
+                if (values != null && values.Length == Count &&
+                    int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out max))
+                {
+                    percent = new int[Count];
+                    for (int i = 0; i < Count && percent != null; i++)
+                    {
+                        int value;
+                        if (int.TryParse(values[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+                            percent[i] = Mathf.Clamp(value, 0, 50);
+                        else percent = null;
+                    }
+                    s_hostMaxLevel = Mathf.Clamp(max, 1, 5);
+                }
+            }
+            s_hostPercent = percent;
         }
 
         /// <summary>The change in percent a level makes, e.g. +36 or -24.</summary>
@@ -148,8 +206,8 @@ namespace ChefSkills
         }
 
         /// <summary>
-        /// Another machine's build under this machine's rules: each level clamped to MaxLevel, and
-        /// all 0 if it spends more points than it frees.
+        /// A build under the rules in use (online, the host's): each level clamped to MaxLevel,
+        /// and all 0 if it spends more points than it frees.
         /// </summary>
         internal static int[] Enforce(int[] levels)
         {
@@ -180,7 +238,10 @@ namespace ChefSkills
     /// <summary>
     /// Skill levels of the players on this machine for the current level, keyed by
     /// PlayerIDProvider.GetID(). Chefs of players on other machines are looked up through
-    /// <see cref="SkillSync"/> by their network entity ID (host only).
+    /// <see cref="SkillSync"/> by their network entity ID, on every machine: several effects are
+    /// simulated on each machine separately (chopping and washing progress, and movement, which
+    /// the host simulates for every chef while each player's own machine predicts it), so every
+    /// machine must apply the same levels to the same chef.
     /// </summary>
     public sealed class SkillManager
     {
@@ -193,7 +254,9 @@ namespace ChefSkills
 
         public void Set(PlayerInputLookup.Player player, int[] levels)
         {
-            _levels[player] = (int[])levels.Clone();
+            // Under the rules every machine uses (online, the host's), exactly as the other
+            // machines apply this build to this player's chefs.
+            _levels[player] = SkillStats.Enforce(levels);
             _lastPicked[player] = (int[])levels.Clone();
         }
 
@@ -208,12 +271,8 @@ namespace ChefSkills
             _levels.Clear();
         }
 
-        /// <summary>
-        /// The level of a skill for the chef that owns this GameObject. <paramref name="localOnly"/>:
-        /// for effects simulated on the controlling machine (movement), where another machine's
-        /// chef must never be changed here.
-        /// </summary>
-        public int LevelOf(GameObject chef, Skill skill, bool localOnly)
+        /// <summary>The level of a skill for the chef that owns this GameObject (0 if it isn't a chef).</summary>
+        public int LevelOf(GameObject chef, Skill skill)
         {
             if (chef == null) return 0;
             PlayerIDProvider provider = chef.GetComponent<PlayerIDProvider>();
@@ -223,14 +282,33 @@ namespace ChefSkills
                 int[] levels;
                 return _levels.TryGetValue(provider.GetID(), out levels) ? levels[(int)skill] : 0;
             }
-            return localOnly ? 0 : SkillSync.RemoteLevel(EntityId(chef), skill);
+            return SkillSync.RemoteLevel(EntityId(chef), skill);
         }
 
         /// <summary>Multiplier for a skill of the chef that owns this GameObject (1 when disabled).</summary>
-        public float Multiplier(GameObject chef, Skill skill, bool localOnly = false)
+        public float Multiplier(GameObject chef, Skill skill)
         {
             if (!Plugin.Enabled.Value) return 1f;
-            return SkillStats.Multiplier(skill, LevelOf(chef, skill, localOnly));
+            return SkillStats.Multiplier(skill, LevelOf(chef, skill));
+        }
+
+        /// <summary>
+        /// The average multiplier of the chefs working something together (a sink two chefs wash
+        /// at), or of <paramref name="fallback"/> when the list is empty.
+        /// </summary>
+        public float AverageMultiplier(List<GameObject> chefs, GameObject fallback, Skill skill)
+        {
+            if (!Plugin.Enabled.Value) return 1f;
+            if (chefs == null || chefs.Count == 0) return Multiplier(fallback, skill);
+            float sum = 0f;
+            int count = 0;
+            for (int i = 0; i < chefs.Count; i++)
+            {
+                if (chefs[i] == null) continue;
+                sum += Multiplier(chefs[i], skill);
+                count++;
+            }
+            return count > 0 ? sum / count : Multiplier(fallback, skill);
         }
 
         /// <summary>

@@ -121,15 +121,23 @@ try {
         }
         if ($found -eq 0) { $failed += "$($type.Name) has [HarmonyPatch] but no patch methods" }
     }
-    if ($patchClasses -lt 10) {
-        $failed += "Expected 10 patch classes (intro, chop, cook, mix, placement, serve, wash, throw, firefight, movement), found $patchClasses"
+    if ($patchClasses -lt 16) {
+        $failed += "Expected 16 patch classes (intro, chop, client chop, cook, mix, placement, serve, wash, client wash, throw, firefight, movement, dash report, dash latch, dash latch read, dash bump), found $patchClasses"
     }
 
     # --- private members reached by name -----------------------------------------------------
     $byName = @{
         'PlateReturnController'            = @('m_plateReturnControllerDesc')
-        'ClientPlayerControlsImpl_Default' = @('m_controls')
-        'ServerWashingStation'             = @('m_cleaningTimer', 'm_interactor')
+        'ClientPlayerControlsImpl_Default' = @('m_controls', 'm_dashTimer', 'm_impactTimer')
+        'ClientInputTransmitter'           = @('m_Pad')
+        'ClientInputTransmitter/Pad'       = @('m_Dash')
+        'ServerInputReceiver'              = @('m_DashNetworkButton')
+        'NetworkLogicalButton'             = @('m_IsDown')
+        'LogicalButtonBase'                = @('m_pressClaimed')
+        'ServerWashingStation'             = @('m_cleaningTimer', 'm_interactor', 'm_interactable')
+        'ClientWashingStation'             = @('m_cleaningTimer', 'm_interactable', 'm_progressUI', 'm_washingStation')
+        'ServerInteractable'               = @('m_interacters')
+        'ClientInteractable'               = @('m_interacters')
         'ServerAttachmentThrower'          = @('m_thrower')
         'ServerFireExtinguishSpray'        = @('m_FireExtinguishSpray')
         'Team17.Online.SteamOnlineMultiplayerSessionCoordinator' = @('m_lobbyId')

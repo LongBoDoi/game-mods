@@ -13,8 +13,11 @@ namespace ChefSkills
         // Pot/pan/mixing bowl (GameObject instance ID) -> the chef who last filled or placed it.
         internal static readonly Dictionary<int, GameObject> ContainerOwners = new Dictionary<int, GameObject>();
 
-        // Workable item instance ID -> fractional chop strokes carried over between chops.
+        // Workable item instance ID -> fractional chop strokes carried over between chops: one
+        // table for the host's real progress and one for the progress bar every machine draws.
+        // Both see the same chops, so they stay in step.
         internal static readonly Dictionary<int, float> ChopCredit = new Dictionary<int, float>();
+        internal static readonly Dictionary<int, float> ClientChopCredit = new Dictionary<int, float>();
 
         // The chef whose placement is being handled right now on the server (null otherwise).
         internal static GameObject CurrentPlacer;
@@ -23,7 +26,22 @@ namespace ChefSkills
         {
             ContainerOwners.Clear();
             ChopCredit.Clear();
+            ClientChopCredit.Clear();
             CurrentPlacer = null;
+        }
+
+        /// <summary>
+        /// How many chop strokes this chop is worth: the chopper's multiplier added to what was
+        /// left over from the item's last chop, e.g. 1.36 counts 1, then 1, then 2...
+        /// </summary>
+        internal static int Strokes(Dictionary<int, float> credits, int item, float multiplier)
+        {
+            float credit;
+            credits.TryGetValue(item, out credit);
+            credit += multiplier;
+            int strokes = (int)credit;
+            credits[item] = credit - strokes;
+            return strokes;
         }
 
         internal static GameObject OwnerOf(GameObject container)
@@ -60,7 +78,10 @@ namespace ChefSkills
         }
     }
 
-    /// <summary>CHOPPING: a fractional stroke counter per item, so 1.36x chops count 1 or 2.</summary>
+    /// <summary>
+    /// CHOPPING on the host, which decides when the item is chopped: a fractional stroke counter
+    /// per item, so 1.36x chops count 1 or 2.
+    /// </summary>
     [HarmonyPatch(typeof(ServerWorkableItem), "DoWork", new Type[] { typeof(ServerAttachStation), typeof(GameObject) })]
     internal static class ChopPatch
     {
@@ -72,12 +93,42 @@ namespace ChefSkills
             float multiplier = Plugin.Skills.Multiplier(_worker, Skill.Chopping);
             if (Mathf.Approximately(multiplier, 1f)) return true;
 
-            int key = __instance.GetInstanceID();
-            float credit;
-            LevelState.ChopCredit.TryGetValue(key, out credit);
-            credit += multiplier;
-            int strokes = (int)credit;
-            LevelState.ChopCredit[key] = credit - strokes;
+            int strokes = LevelState.Strokes(LevelState.ChopCredit, __instance.GetInstanceID(), multiplier);
+
+            _reentered = true;
+            try
+            {
+                for (int i = 0; i < strokes; i++)
+                {
+                    if (__instance == null || __instance.HasFinished()) break;
+                    __instance.DoWork(_station, _worker);
+                }
+            }
+            finally
+            {
+                _reentered = false;
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// CHOPPING on every machine's progress bar. Each machine (the host included) counts the
+    /// chops it sees and fills the bar itself, and the host only says when the item is done, so
+    /// without this the bar ran at normal speed while the item finished sooner or later.
+    /// </summary>
+    [HarmonyPatch(typeof(ClientWorkableItem), "DoWork", new Type[] { typeof(ClientAttachStation), typeof(GameObject) })]
+    internal static class ClientChopPatch
+    {
+        private static bool _reentered;
+
+        private static bool Prefix(ClientWorkableItem __instance, ClientAttachStation _station, GameObject _worker)
+        {
+            if (_reentered) return true;
+            float multiplier = Plugin.Skills.Multiplier(_worker, Skill.Chopping);
+            if (Mathf.Approximately(multiplier, 1f)) return true;
+
+            int strokes = LevelState.Strokes(LevelState.ClientChopCredit, __instance.GetInstanceID(), multiplier);
 
             _reentered = true;
             try
@@ -207,12 +258,17 @@ namespace ChefSkills
         }
     }
 
-    /// <summary>WASHING: the sink's cleaning timer advances at the washing chef's rate.</summary>
+    /// <summary>
+    /// WASHING on the host, which decides when a plate is clean: the sink's cleaning timer
+    /// advances at the washing chefs' rate (their average, when two wash together).
+    /// </summary>
     [HarmonyPatch(typeof(ServerWashingStation), "UpdateSynchronising")]
     internal static class WashPatch
     {
         private static readonly FieldInfo TimerField = AccessTools.Field(typeof(ServerWashingStation), "m_cleaningTimer");
         private static readonly FieldInfo WasherField = AccessTools.Field(typeof(ServerWashingStation), "m_interactor");
+        private static readonly FieldInfo InteractableField = AccessTools.Field(typeof(ServerWashingStation), "m_interactable");
+        private static readonly FieldInfo WashersField = AccessTools.Field(typeof(ServerInteractable), "m_interacters");
 
         private static void Prefix(ServerWashingStation __instance, out float __state)
         {
@@ -221,13 +277,54 @@ namespace ChefSkills
 
         private static void Postfix(ServerWashingStation __instance, float __state)
         {
-            if (TimerField == null || WasherField == null) return;
+            if (TimerField == null) return;
             float after = (float)TimerField.GetValue(__instance);
             // Only a frame that washed (not one that finished a plate and reset the timer).
             if (after <= __state) return;
-            float multiplier = Plugin.Skills.Multiplier(WasherField.GetValue(__instance) as GameObject, Skill.Washing);
+            object sink = InteractableField != null ? InteractableField.GetValue(__instance) : null;
+            List<GameObject> washers = sink != null && WashersField != null ? WashersField.GetValue(sink) as List<GameObject> : null;
+            GameObject last = WasherField != null ? WasherField.GetValue(__instance) as GameObject : null;
+            float multiplier = Plugin.Skills.AverageMultiplier(washers, last, Skill.Washing);
             if (Mathf.Approximately(multiplier, 1f)) return;
             TimerField.SetValue(__instance, __state + (after - __state) * multiplier);
+        }
+    }
+
+    /// <summary>
+    /// WASHING on every machine's progress bar. Each machine runs the sink's timer itself
+    /// between the host's messages, so it has to run at the same rate as the host's.
+    /// </summary>
+    [HarmonyPatch(typeof(ClientWashingStation), "UpdateSynchronising")]
+    internal static class ClientWashPatch
+    {
+        private static readonly FieldInfo TimerField = AccessTools.Field(typeof(ClientWashingStation), "m_cleaningTimer");
+        private static readonly FieldInfo InteractableField = AccessTools.Field(typeof(ClientWashingStation), "m_interactable");
+        private static readonly FieldInfo WashersField = AccessTools.Field(typeof(ClientInteractable), "m_interacters");
+        private static readonly FieldInfo UiField = AccessTools.Field(typeof(ClientWashingStation), "m_progressUI");
+        private static readonly FieldInfo StationField = AccessTools.Field(typeof(ClientWashingStation), "m_washingStation");
+
+        private static void Prefix(ClientWashingStation __instance, out float __state)
+        {
+            __state = TimerField != null ? (float)TimerField.GetValue(__instance) : 0f;
+        }
+
+        private static void Postfix(ClientWashingStation __instance, float __state)
+        {
+            if (TimerField == null || InteractableField == null || WashersField == null) return;
+            float after = (float)TimerField.GetValue(__instance);
+            if (after <= __state) return;
+            object sink = InteractableField.GetValue(__instance);
+            List<GameObject> washers = sink != null ? WashersField.GetValue(sink) as List<GameObject> : null;
+            float multiplier = Plugin.Skills.AverageMultiplier(washers, null, Skill.Washing);
+            if (Mathf.Approximately(multiplier, 1f)) return;
+            float timer = __state + (after - __state) * multiplier;
+            TimerField.SetValue(__instance, timer);
+
+            // The game already drew this frame's bar from the unscaled timer; redraw it.
+            var ui = UiField != null ? UiField.GetValue(__instance) as ProgressUIController : null;
+            var station = StationField != null ? StationField.GetValue(__instance) as WashingStation : null;
+            if (ui != null && station != null && station.m_cleanPlateTime > 0f)
+                ui.SetProgress(Mathf.Clamp01(timer / station.m_cleanPlateTime));
         }
     }
 
@@ -289,29 +386,66 @@ namespace ChefSkills
     }
 
     /// <summary>
-    /// RUNNING and DASHING: movement is simulated on the machine that controls the chef, so these
-    /// work for every player who has the mod, including online clients, and never touch another
-    /// machine's chef.
+    /// RUNNING and DASHING. Online, the host simulates every chef's movement from its player's
+    /// inputs and is the authority on where it is, while the player's own machine predicts the
+    /// same movement and gets corrected towards the host's position. So both have to move the
+    /// chef at the same speed: this applies to every chef on every machine, using that chef's
+    /// player's levels. (Applying it only on the player's own machine made the host keep pulling
+    /// a faster chef back.)
+    ///
+    /// It also keeps dashes in step (see <see cref="DashSync"/>): on a player's own machine it
+    /// notes each dash its chef starts, and on the host a chef from another machine dashes
+    /// whenever that machine says it did, without the host's own recharge or bump checks.
     /// </summary>
     [HarmonyPatch(typeof(ClientPlayerControlsImpl_Default), "Update_Movement")]
     internal static class MovementPatch
     {
         private static readonly FieldInfo ControlsField =
             AccessTools.Field(typeof(ClientPlayerControlsImpl_Default), "m_controls");
+        private static readonly FieldInfo DashTimerField =
+            AccessTools.Field(typeof(ClientPlayerControlsImpl_Default), "m_dashTimer");
+        private static readonly FieldInfo ImpactTimerField =
+            AccessTools.Field(typeof(ClientPlayerControlsImpl_Default), "m_impactTimer");
 
         // What the prefix changed, put back by the finalizer (even if the game's method throws, so
         // the speeds can never compound). Movement updates one chef at a time on the main thread.
         private static PlayerControls.MovementData _changed;
         private static float _run, _dashSpeed, _dashCooldown, _maxSpeed;
 
-        private static void Prefix(ClientPlayerControlsImpl_Default __instance)
+        // The chef being moved is on this machine (so its dashes are reported to the host).
+        private static GameObject _local;
+
+        private static void Prefix(ClientPlayerControlsImpl_Default __instance, out float __state)
         {
+            __state = DashTimerField != null ? (float)DashTimerField.GetValue(__instance) : 0f;
+            _local = null;
             if (ControlsField == null) return;
             PlayerControls controls = ControlsField.GetValue(__instance) as PlayerControls;
             if (controls == null || controls.Movement == null) return;
-            float run = Plugin.Skills.Multiplier(controls.gameObject, Skill.Running, true);
-            float dash = Plugin.Skills.Multiplier(controls.gameObject, Skill.Dashing, true);
-            if (Mathf.Approximately(run, 1f) && Mathf.Approximately(dash, 1f)) return;
+            GameObject chef = controls.gameObject;
+
+            bool followDashes = false;
+            if (DashSync.Active)
+            {
+                PlayerIDProvider provider = chef.GetComponent<PlayerIDProvider>();
+                bool local = provider != null && provider.IsLocallyControlled();
+                // Only the host has a ServerInputReceiver on its chefs.
+                bool host = chef.GetComponent<ServerInputReceiver>() != null;
+                if (local && !host)
+                {
+                    DashSync.Moved(chef);
+                    _local = chef;
+                }
+                else if (!local && host)
+                {
+                    // Host, moving another machine's chef: that machine already decided.
+                    followDashes = true;
+                }
+            }
+
+            float run = Plugin.Skills.Multiplier(chef, Skill.Running);
+            float dash = Plugin.Skills.Multiplier(chef, Skill.Dashing);
+            if (!followDashes && Mathf.Approximately(run, 1f) && Mathf.Approximately(dash, 1f)) return;
 
             PlayerControls.MovementData movement = controls.Movement;
             _changed = movement;
@@ -324,6 +458,24 @@ namespace ChefSkills
             movement.DashCooldown /= dash;
             // The game caps speed; lift the cap by as much as the chef got faster.
             movement.MaxSpeed *= Mathf.Max(1f, Mathf.Max(run, dash));
+
+            if (followDashes)
+            {
+                movement.DashCooldown = 0f;
+                // A bump only the host knows about mustn't stop a dash the player's machine made.
+                ILogicalButton button = controls.ControlScheme != null ? controls.ControlScheme.m_dashButton : null;
+                if (ImpactTimerField != null && button != null && button.HasUnclaimedPressEvent() &&
+                    (float)ImpactTimerField.GetValue(__instance) >= 0f)
+                    ImpactTimerField.SetValue(__instance, -1f);
+            }
+        }
+
+        private static void Postfix(ClientPlayerControlsImpl_Default __instance, float __state)
+        {
+            if (_local == null || DashTimerField == null) return;
+            // The dash timer only ever goes up when a dash starts.
+            if ((float)DashTimerField.GetValue(__instance) > __state) DashSync.Dashed(_local);
+            _local = null;
         }
 
         [HarmonyFinalizer]
@@ -335,6 +487,7 @@ namespace ChefSkills
             _changed.DashCooldown = _dashCooldown;
             _changed.MaxSpeed = _maxSpeed;
             _changed = null;
+            _local = null;
         }
     }
 }
