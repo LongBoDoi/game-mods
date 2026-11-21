@@ -14,7 +14,7 @@ namespace ChefSkills
     /// dash, throw and firefighting speed for that player's chef for the rest of the level (see
     /// Patches.cs).
     /// </summary>
-    [BepInPlugin(Id, "Chef Skills", "2.0.0")]
+    [BepInPlugin(Id, "Chef Skills", "2.1.0")]
     [BepInProcess("Overcooked2.exe")]
     public sealed class Plugin : BaseUnityPlugin
     {

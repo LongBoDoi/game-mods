@@ -47,7 +47,7 @@ Everything is in `BepInEx\config\com.manhl.overcooked2.chefskills.cfg`:
 - `[General]`: `Enabled`, and `MaxLevel` (1–5, default 3), the highest and lowest level any skill can go.
 - `[Skill.<name>]`: `PercentPerLevel` (0–50), what one level is worth. 0 turns a skill's effect off. A skill never drops below 10% of normal speed, whatever the numbers.
 
-The screen's pips and percentages are built from those numbers. Chef Roles' old `com.manhl.overcooked2.chefroles.cfg` isn't used any more; it's safe to delete.
+The screen's pips and percentages are built from those numbers. Online, everyone uses the host's numbers (see below). Chef Roles' old `com.manhl.overcooked2.chefroles.cfg` isn't used any more; it's safe to delete.
 
 ## Online
 
@@ -64,14 +64,17 @@ Everyone's screen shows every player in the game, not just the ones on that PC:
 
 Nobody's level starts until every player with Chef Skills has locked in. If someone is away, the host can **hold Skip** to start the level for everyone with no skill changes. A client holding Skip only skips their own players (they count as ready). Until the host's game has opened the screen, a client's tag says **WAITING FOR HOST**. Once the host's level has started, a client who is locked in can't unlock again.
 
-Skills apply to joining players too, not just the host's chefs:
+Skills apply to joining players too, not just the host's chefs, and **every PC applies every player's build**. The host decides what really happens, but the game also runs parts of it on each PC, and those have to run at the same speed or the PCs disagree:
 
 | Skills | Where they run |
 |---|---|
-| Running, dashing | on each player's own PC |
-| Cooking, slow burn, chopping, washing, serving, throwing, firefighting | on the host |
+| Running, dashing | on the host, which moves every chef from its player's buttons, **and** on the player's own PC, which moves its chef straight away and is then corrected to where the host has it. Both use the player's build, so a faster chef isn't pulled back |
+| Chopping, washing | on the host, which decides when the item is chopped or the plate is clean, **and** on every PC, which fills the progress bar itself. Both use the chopping or washing chef's build, so the bar fills exactly when the item finishes |
+| Cooking, slow burn, serving, throwing, firefighting | on the host only; the other PCs show what the host sends |
 
-This needs no network message of its own. Each PC writes its players' skill levels, lock-in state and their chefs' network entity IDs into its own Steam lobby member data, a small key/value store Steam keeps for each lobby member and sends to the others. The game doesn't use it, so players without the mod are unaffected. The host also writes a round number into the lobby each time its screen opens, so what a PC wrote during the previous level never counts as ready. The game gives each chef the same entity ID on every PC, so the host matches each remote chef to the player who picked its build. It keeps reading those builds during the level, and applies them under **its own** rules: its `MaxLevel` and `PercentPerLevel` numbers, and a build that spends more points than it frees counts as no changes.
+This needs no network message of its own. Each PC writes its players' skill levels, lock-in state and their chefs' network entity IDs into its own Steam lobby member data, a small key/value store Steam keeps for each lobby member and sends to the others. The game doesn't use it, so players without the mod are unaffected. The host also writes a round number into the lobby each time its screen opens, so what a PC wrote during the previous level never counts as ready. The game gives each chef the same entity ID on every PC, so every PC matches each other player's chef to the build they picked, once they have locked it in. Every PC keeps reading those builds during the level.
+
+All PCs use **the host's numbers**: the host writes its `MaxLevel` and `PercentPerLevel` settings into the lobby, and everyone else's screen and skills use them in place of their own config. So a build means the same speed on every PC, and a build that spends more points than it frees counts as no changes everywhere. A PC running an older Chef Skills counts as not having the mod.
 
 ## Build
 
@@ -93,13 +96,14 @@ Not yet verified in the game. Check these on the first run:
 2. Load any campaign or arcade level. The **CHOOSE YOUR SKILLS** dialog appears after loading, with one card per player (hat in your chef's colour), nine skill rows and a control bar with button icons.
 3. Up/Down moves the highlight and the line under the skills explains it. Right on a fresh card raises the skill and the card says **1 POINT OVER** in red; Select then refuses and flashes it. Left on another skill pays for it (**BALANCED**), and Select locks in. Left on its own frees a point (**1 POINT TO SPEND**), which also blocks Select until spent. Waiting a minute without locking in does not start the level.
 4. With **Running** and **Dashing** raised, the chef visibly runs faster and dashes further and more often. With **Cooking** +3, a pot you filled finishes sooner than one filled by a chef at 0. With **Slow burn** −3, finished food burns noticeably sooner.
-5. **Chopping**, **Washing** (the plate pops sooner, even if the sink's progress bar looks normal), **Serving**, **Throwing** and **Firefighting** each change what they say, raised and lowered.
+5. **Chopping**, **Washing** (the bar fills faster or slower, and the plate pops as it fills), **Serving**, **Throwing** and **Firefighting** each change what they say, raised and lowered.
 6. The next level starts with your last build pre-selected. Holding Skip (B on a controller) fills the bar under **HOLD: SKIP** and closes the screen after a second, with no skill changes for that level. A quick tap of B only undoes a lock-in.
 7. Pausing and quitting or restarting during and after the screen works normally.
 8. Online, with Chef Skills on both PCs: each screen shows both players' cards. The other player's pips change as they press Left/Right and the card turns **READY!** when they lock in. The level starts on both PCs only after both have locked in, and the log shows `Đồng bộ chọn kỹ năng: lượt N` with the same N on both.
-9. Online, the client raises **Chopping** to +3: on the host's game the client's chef chops visibly faster. The same for **Cooking** in a pot the client filled.
-10. Online, play a second level in a row and restart one: the screen waits for everyone again each time.
-11. Online, the host's legend says **HOLD: SKIP FOR ALL**, and holding it closes the screen on both PCs. A client's hold closes only the client's screen, and the host's screen shows that client as **READY!**.
-12. Online, with a player who doesn't have the mod (try either the host or a client without it): no skill screen opens on any PC, the level starts straight into **Ready… Go!**, every chef runs and works at normal speed, and the modded PCs' logs say `Không phải ai trong phòng cũng cài Chef Skills`.
+9. Online, the client raises **Chopping** to +3: on the host's game the client's chef chops visibly faster, and on **both** PCs the chopping bar is full exactly when the item turns into the chopped one. The same for **Washing** (the bar fills as the clean plate appears, on both PCs, also with two chefs at one sink) and **Cooking** in a pot the client filled.
+10. Online, the client raises **Running** and **Dashing** to +3: the client's chef runs and dashes faster on both PCs, without being pulled back or stuttering, also while dashing repeatedly. With a different `PercentPerLevel` in the client's config, the client's screen shows the host's percentages.
+11. Online, play a second level in a row and restart one: the screen waits for everyone again each time.
+12. Online, the host's legend says **HOLD: SKIP FOR ALL**, and holding it closes the screen on both PCs. A client's hold closes only the client's screen, and the host's screen shows that client as **READY!**.
+13. Online, with a player who doesn't have the mod (try either the host or a client without it): no skill screen opens on any PC, the level starts straight into **Ready… Go!**, every chef runs and works at normal speed, and the modded PCs' logs say `Không phải ai trong phòng cũng cài Chef Skills`.
 
 If the game's dialog art hasn't loaded within 5 seconds, the log says `Chưa tải được hình giao diện của game…` and the screen falls back to plain coloured panels, with the same controls. If the screen fails outright, the log says `Màn chọn kỹ năng bị lỗi…` and the level starts normally with no skill changes.

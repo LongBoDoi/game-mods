@@ -5,10 +5,7 @@
     the list refreshed, until you choose Q. Pass -All/-Only/-Yes and it does that one thing and
     exits instead, so scripted use never loops.
 
-      OC2Tweaks        Settings > OC2 TWEAKS: ping, force host, kick, saved bans, corner
-                       ping overlay, and an F5 instant restart you can switch off or rebind.
-      RandomLevel      random DIY levels; Continue goes straight to the next random level.
-      RelayKitchen     custom level Bếp Tiếp Sức / Night Market Relay (needs OC2DIYLevel).
+      ChefSkills       trade skill levels before each kitchen: 9 skills, raise some by lowering others.
       BepInEx          the mod loader itself (BepInEx 5 x86), installed or upgraded in place.
 
     - Finds the game through Steam (or use -GameDir "D:\path\to\Overcooked! 2").
@@ -27,8 +24,7 @@
     Examples:
       Install.ps1                                  ask mode, then keep asking until you quit
       Install.ps1 -All                             install everything, once, no questions
-      Install.ps1 -Only OC2Tweaks                  install just that mod, once
-      Install.ps1 -Only RelayKitchen               install just the custom level (OC2DIYLevel must be installed)
+      Install.ps1 -Only ChefSkills                 install just that mod, once
       Install.ps1 -Only BepInEx                    install or upgrade just the loader
       Install.ps1 -Only BepInEx -BepInExVersion 5.4.23.2    pin a version
       Install.ps1 -Uninstall                       ask what to remove, until you quit
@@ -62,29 +58,16 @@ $GameFolderName = 'Overcooked! 2'
 # Used when GitHub cannot be reached and no zip was bundled.
 $BepInExFallback = '5.4.23.2'
 
-# LegacyId: a config this mod used to write under a different plugin GUID. It is renamed on install
-# so settings made before the mod moved into this repo are not silently abandoned.
 $Targets = @(
-    [pscustomobject]@{ Key = 'OC2Tweaks'; Kind = 'Mod'
-        Blurb = 'Settings > OC2 TWEAKS: ping, kick, bans, force host, F5 restart'
-        Id = 'com.manhl.overcooked2.tweaks'; LegacyId = 'com.manhl.overcooked2.lobbytools' }
-    [pscustomobject]@{ Key = 'RandomLevel'; Kind = 'Mod'
-        Blurb = 'random DIY levels; F8 skips, Continue plays the next level'
-        Id = 'com.manhl.overcooked2.randomlevel'; LegacyId = $null }
     [pscustomobject]@{ Key = 'OC2DIYLevel'; Kind = 'Pack'
         Blurb = 'custom level pack + helper plugins (not bundled: ~400 MB)'
-        Id = $null; LegacyId = $null }
-    [pscustomobject]@{ Key = 'RelayKitchen'; Kind = 'Level'
-        Blurb = 'custom level: Bếp Tiếp Sức / Night Market Relay (needs OC2DIYLevel)'
-        Id = 'manhl_relay_kitchen'
-        Files = @('info_manhl_relay', 's_manhl_relay_kitchen_1', 'layout.png', 'build-report.json')
-        LegacyId = $null }
+        Id = $null }
     [pscustomobject]@{ Key = 'BepInEx'; Kind = 'Loader'
         Blurb = 'the mod loader itself (BepInEx 5 x86)'
-        Id = $null; LegacyId = $null }
+        Id = $null }
     [pscustomobject]@{ Key = 'ChefSkills'; Kind = 'Mod'
         Blurb = 'trade skill levels each level: 9 skills, raise some by lowering others'
-        Id = 'com.manhl.overcooked2.chefskills'; LegacyId = $null }
+        Id = 'com.manhl.overcooked2.chefskills' }
 )
 
 # Mods that were renamed: installing or removing the new one also takes out the old plugin, so the
@@ -111,17 +94,11 @@ function Remove-RenamedMod($key) {
     next to this installer, or one you paste in when asked.
 
     Its README tells you to delete the whole BepInEx\plugins folder before copying it in. That
-    would take OC2Tweaks and RandomLevel with it, so instead only the pack's own entries are
+    would take ChefSkills with it, so instead only the pack's own entries are
     cleared before copying - which is what actually prevents the stale-level conflicts it warns
     about. What got copied is recorded in a manifest so removing the pack takes exactly those
     entries back out and nothing else.
 #>
-# Plugin folders that OC2Tweaks replaces, and the configs it takes settings over from.
-$MergedInto      = 'OC2Tweaks'
-$MergedFolders   = @('LobbyTools', 'QuickKeyRestart')
-$MergedRestartId = @('com.manhl.overcooked2.quickkeyrestart', 'com.yourname.quickkeyrestart')
-$MergedBansId    = 'com.manhl.overcooked2.lobbytools'
-
 $PackName = 'OC2DIYLevel'
 $PackManifestName = 'com.manhl.overcooked2.diypack.manifest'
 # Fallback for a pack that was copied in by hand, before any manifest existed.
@@ -210,26 +187,6 @@ function Find-BepInExZip {
         $found = Get-ChildItem -LiteralPath $dir -Filter 'BepInEx_win_x86_*.zip' -ErrorAction SilentlyContinue |
             Sort-Object Name -Descending | Select-Object -First 1
         if ($found) { return $found.FullName }
-    }
-    return $null
-}
-
-# Release zip: RelayKitchen\ next to the installer. Repo checkout: ..\RelayKitchen\ in-place
-# or ..\RelayKitchen\build\<id>\ after build_level.py.
-function Find-RelayKitchenPayload {
-    $levelId = 'manhl_relay_kitchen'
-    foreach ($candidate in @(
-        (Join-Path $here 'RelayKitchen'),
-        (Join-Path $here '..\RelayKitchen'),
-        (Join-Path $here "..\RelayKitchen\build\$levelId"),
-        (Join-Path $here '..\dist\RelayKitchen')
-    )) {
-        try {
-            if (-not (Test-Path -LiteralPath $candidate)) { continue }
-            if (Test-Path -LiteralPath (Join-Path $candidate 'info_manhl_relay')) {
-                return (Resolve-Path -LiteralPath $candidate).Path
-            }
-        } catch {}
     }
     return $null
 }
@@ -368,15 +325,6 @@ function Get-InstalledDll($target) {
     return $null
 }
 
-function Get-LevelDir($target) {
-    $levelsRoot = [IO.Path]::GetFullPath((Join-Path $pluginRoot "OC2DIYLevel\levels"))
-    $dir = [IO.Path]::GetFullPath((Join-Path $levelsRoot $target.Id))
-    if (-not $dir.StartsWith($levelsRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
-        Fail "The level path for '$($target.Key)' would land outside OC2DIYLevel\levels."
-    }
-    return $dir
-}
-
 # --- What each target looks like right now ----------------------------------
 # Re-read at the top of every round so the menu reflects what just happened.
 function Update-LoaderState {
@@ -512,7 +460,7 @@ function Remove-DiyPack {
     $size = 0
     try {
         $size = [math]::Round((Get-ChildItem -LiteralPath $pluginRoot -Recurse -File -Force -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -notmatch '\\(OC2Tweaks|RandomLevel|LobbyTools|QuickKeyRestart)\\' } |
+            Where-Object { $_.FullName -notmatch '\\(ChefSkills|ChefRoles)\\' } |
             Measure-Object Length -Sum).Sum / 1MB)
     } catch {}
     $go = $Yes
@@ -546,11 +494,6 @@ function Get-Status($target) {
             -ErrorAction SilentlyContinue).Count
         if ($levels) { return "installed, $levels level sets" }
         return "installed, $($entries.Count) entries"
-    }
-    if ($target.Kind -eq 'Level') {
-        $levelDir = Get-LevelDir $target
-        if ($target.Files -and (Test-Path -LiteralPath (Join-Path $levelDir $target.Files[0]))) { return 'installed' }
-        return 'not installed'
     }
     $dll = Get-InstalledDll $target
     if (-not $dll) { return 'not installed' }
@@ -643,13 +586,6 @@ function Select-Interactive($candidates, $verb) {
 }
 
 # --- Doing it ---------------------------------------------------------------
-function Remove-Level($target) {
-    $levelDir = Get-LevelDir $target
-    if (-not (Test-Path -LiteralPath $levelDir)) { Write-Note "$($target.Key) is not installed."; return }
-    Remove-Item -LiteralPath $levelDir -Recurse -Force
-    Write-Note "$($target.Key) removed."
-}
-
 function Invoke-Remove($selected) {
     foreach ($target in @($selected | Where-Object { $_.Kind -eq 'Mod' })) {
         $pluginDir = Get-PluginDir $target.Key
@@ -669,8 +605,6 @@ function Invoke-Remove($selected) {
     }
 
     if ($selected | Where-Object { $_.Kind -eq 'Pack' }) { Remove-DiyPack }
-
-    foreach ($target in @($selected | Where-Object { $_.Kind -eq 'Level' })) { Remove-Level $target }
 
     if (-not ($selected | Where-Object { $_.Kind -eq 'Loader' })) { return }
 
@@ -797,120 +731,6 @@ function Install-BepInEx {
     Write-Note "BepInEx is now $script:loaderVersion."
 }
 
-<#
-    Carries a LobbyTools + QuickKeyRestart setup over to OC2Tweaks, which replaced both.
-
-    Three things have to move, or installing the merged mod looks like a clean install and
-    quietly loses what the user had set:
-      - the ban list, which is named after the plugin GUID like the config is;
-      - the restart key, which lived in a config of its own and now belongs to a section of
-        OC2Tweaks' config (the key alone is written, and BepInEx fills in the rest on load);
-      - the old plugin folders, which otherwise keep loading beside OC2Tweaks: two F6 panels,
-        two handlers on the restart key, and two mods writing one ban file.
-
-    Everything it reads is left on disk apart from the plugin DLLs, so nothing here loses a
-    setting if it guesses wrong.
-#>
-function Convert-MergedMod {
-    $newId = 'com.manhl.overcooked2.tweaks'
-
-    # The ban list: same name as the config, different extension.
-    $oldBans = Join-Path $configDir "$MergedBansId.bans.tsv"
-    $newBans = Join-Path $configDir "$newId.bans.tsv"
-    if ((Test-Path -LiteralPath $oldBans) -and -not (Test-Path -LiteralPath $newBans)) {
-        Move-Item -LiteralPath $oldBans -Destination $newBans
-        Write-Note 'Kept your ban list from LobbyTools.'
-    }
-
-    # The restart key, out of whichever of QuickKeyRestart's configs is there.
-    $newConfig = Join-Path $configDir "$newId.cfg"
-    $already = $false
-    if (Test-Path -LiteralPath $newConfig) {
-        $already = [IO.File]::ReadAllText($newConfig) -match '(?m)^\s*RestartKey\s*='
-    }
-    if (-not $already) {
-        foreach ($oldId in $MergedRestartId) {
-            $oldConfig = Join-Path $configDir "$oldId.cfg"
-            if (-not (Test-Path -LiteralPath $oldConfig)) { continue }
-            $match = [regex]::Match([IO.File]::ReadAllText($oldConfig), '(?m)^\s*RestartKey\s*=\s*(.+?)\s*$')
-            if (-not $match.Success) { continue }
-            # Follow the endings already in the file rather than forcing CRLF, so an edited or
-            # hand-written config does not come back with mixed endings. BepInEx writes CRLF.
-            $existing = if (Test-Path -LiteralPath $newConfig) { [IO.File]::ReadAllText($newConfig) } else { '' }
-            $eol = if ($existing -match '[^\r]\n') { "`n" } else { "`r`n" }
-
-            # A bare "Section/Key = value" is all BepInEx needs to read a setting back; it
-            # rewrites the file with the descriptions and defaults the next time the game runs.
-            $section = "[QuickRestart]$eol" + "RestartKey = $($match.Groups[1].Value)"
-            $body = if ($existing) { $existing.TrimEnd() + $eol + $eol + $section } else { $section }
-            [IO.File]::WriteAllText($newConfig, $body + $eol, (New-Object Text.UTF8Encoding($false)))
-            Write-Note "Kept your restart key ($($match.Groups[1].Value)) from QuickKeyRestart."
-            break
-        }
-    }
-
-    # The superseded plugins themselves.
-    foreach ($folder in $MergedFolders) {
-        $dir = Get-PluginDir $folder
-        if (-not (Test-Path -LiteralPath $dir)) { continue }
-        try {
-            Remove-Item -LiteralPath $dir -Recurse -Force
-            Write-Note "Removed the old $folder plugin, now part of $MergedInto."
-        } catch {
-            Write-Warn "Could not remove the old $folder plugin at $dir : $($_.Exception.Message)"
-            Write-Warn "Delete that folder by hand, or it keeps loading alongside $MergedInto."
-        }
-    }
-}
-function Install-Level($target) {
-    $source = Find-RelayKitchenPayload
-    if (-not $source) {
-        Write-Warn "$($target.Key): level files not found next to this installer or in ..\RelayKitchen\build after build_level.py."
-        return $false
-    }
-    Write-Note "Level payload: $source"
-
-    $diy = Join-Path $pluginRoot 'OC2DIYLevel'
-    foreach ($name in 'OC2DIYLevel.dll', 'common01', 'common02', 'common03') {
-        if (-not (Test-Path -LiteralPath (Join-Path $diy $name))) {
-            Write-Warn "Skipped $($target.Key): install OC2DIYLevel first (missing $name)."
-            return $false
-        }
-    }
-
-    foreach ($name in $target.Files) {
-        if (-not (Test-Path -LiteralPath (Join-Path $source $name))) {
-            Write-Warn "$($target.Key): $name not found in $source; run build_level.py first."
-            return $false
-        }
-    }
-
-    $reportPath = Join-Path $source 'build-report.json'
-    $report = Get-Content -LiteralPath $reportPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    foreach ($name in ($target.Files | Where-Object { $_ -ne 'build-report.json' })) {
-        $expected = $report.outputs.$name
-        if (-not $expected -or (Get-FileHash -LiteralPath (Join-Path $source $name) -Algorithm SHA256).Hash -ne $expected) {
-            Write-Warn "$($target.Key): checksum mismatch on $name; rebuild the level first."
-            return $false
-        }
-    }
-    foreach ($name in 'common01', 'common02', 'common03') {
-        if ((Get-FileHash -LiteralPath (Join-Path $diy $name) -Algorithm SHA256).Hash -ne $report.inputs.$name) {
-            Write-Warn "$($target.Key): built for a different OC2DIYLevel version ($name checksum mismatch); rebuild the level."
-            return $false
-        }
-    }
-
-    $levelDir = Get-LevelDir $target
-    New-Item -ItemType Directory -Force -Path $levelDir | Out-Null
-    foreach ($name in $target.Files) {
-        Copy-Item -LiteralPath (Join-Path $source $name) -Destination (Join-Path $levelDir $name) -Force
-        Unblock-Copied (Join-Path $levelDir $name)
-    }
-    Write-Note "Installed $($target.Key) into $levelDir"
-    return $true
-}
-
 function Invoke-Install($selected) {
     $payloads = @()
     foreach ($target in @($selected | Where-Object { $_.Kind -eq 'Mod' })) {
@@ -923,9 +743,8 @@ function Invoke-Install($selected) {
     }
     $loaderSelected = [bool]($selected | Where-Object { $_.Kind -eq 'Loader' })
     $packSelected   = [bool]($selected | Where-Object { $_.Kind -eq 'Pack' })
-    $levelTargets   = @($selected | Where-Object { $_.Kind -eq 'Level' })
 
-    if (-not $payloads.Count -and -not $loaderSelected -and -not $packSelected -and -not $levelTargets.Count) {
+    if (-not $payloads.Count -and -not $loaderSelected -and -not $packSelected) {
         Write-Warn "No mod DLLs found. Keep them next to this installer, or run each mod's build.cmd first."
         return $false
     }
@@ -944,23 +763,6 @@ function Invoke-Install($selected) {
         $packInstalled = Install-DiyPack
     }
 
-    # Level targets need OC2DIYLevel; re-check after the pack install in case both were selected.
-    $levelTargets = @($levelTargets | Where-Object {
-        if (-not (Test-Path -LiteralPath (Join-Path $pluginRoot 'OC2DIYLevel\OC2DIYLevel.dll'))) {
-            Write-Warn "Skipped $($_.Key): install OC2DIYLevel first (choose it from the menu, or use -Only OC2DIYLevel -DiyPackDir <folder>)."
-            $false
-        } else { $true }
-    })
-
-    # This add-on cannot load without the third-party plugin. Re-check after installing the pack,
-    # since both may have been selected in the same round.
-    $payloads = @($payloads | Where-Object {
-        if ($_.Target.Key -eq 'RandomLevel' -and -not (Test-Path -LiteralPath (Join-Path $pluginRoot 'OC2DIYLevel\OC2DIYLevel.dll'))) {
-            Write-Warn 'Skipped RandomLevel: install OC2DIYLevel first (choose it from the menu, or use -Only OC2DIYLevel -DiyPackDir <folder>).'
-            $false
-        } else { $true }
-    })
-
     foreach ($payload in $payloads) {
         $target    = $payload.Target
         $pluginDir = Get-PluginDir $target.Key
@@ -970,42 +772,10 @@ function Invoke-Install($selected) {
         Copy-Item -LiteralPath $payload.Dll -Destination $destination -Force
         Unblock-Copied $destination
         Remove-RenamedMod $target.Key
-
-        # The mod's GUID changed when it moved into this repo. BepInEx names the config after the
-        # GUID, so carry the old file over rather than leaving the user's key binding behind.
-        if ($target.LegacyId) {
-            $legacy  = Join-Path $configDir "$($target.LegacyId).cfg"
-            $current = Join-Path $configDir "$($target.Id).cfg"
-            if ((Test-Path -LiteralPath $legacy) -and -not (Test-Path -LiteralPath $current)) {
-                Move-Item -LiteralPath $legacy -Destination $current
-                Write-Note "Kept your existing settings (was $($target.LegacyId).cfg)."
-            }
-        }
-    }
-
-    if ($payloads | Where-Object { $_.Target.Key -eq $MergedInto }) {
-        Convert-MergedMod
-        # Pre-release builds wrote a [Connection filter] section the mod no longer reads; drop it
-        # without touching the hotkeys, the force-host choice or the ban list.
-        $tweaksConfig = Join-Path $configDir 'com.manhl.overcooked2.tweaks.cfg'
-        if (Test-Path -LiteralPath $tweaksConfig) {
-            $originalConfig = [IO.File]::ReadAllText($tweaksConfig)
-            $updatedConfig = [regex]::Replace($originalConfig, '(?ms)^\[Connection filter\][^\r\n]*\r?\n.*?(?=^\[|\z)', '')
-            if ($updatedConfig -ne $originalConfig) {
-                [IO.File]::WriteAllText($tweaksConfig, $updatedConfig, (New-Object Text.UTF8Encoding($false)))
-            }
-        }
-    }
-
-    $levelsInstalled = @()
-    foreach ($target in $levelTargets) {
-        Write-Step "Installing $($target.Key)..."
-        if (Install-Level $target) { $levelsInstalled += $target.Key }
     }
 
     $installedNames = @($payloads | ForEach-Object { $_.Target.Key })
     if ($packInstalled) { $installedNames += $PackName }
-    $installedNames += $levelsInstalled
 
     Write-Host ''
     if ($installedNames.Count) {
@@ -1013,19 +783,8 @@ function Invoke-Install($selected) {
     } else {
         Write-Host "BepInEx $script:loaderVersion is in place. Nothing else was installed." -ForegroundColor Green
     }
-    if ($installedNames -contains $MergedInto) {
-        Write-Note 'OC2Tweaks: open Settings > OC2 TWEAKS on the main menu (in Vietnamese). F5 while playing restarts the level, F9 toggles the corner ping overlay.'
-        Write-Note '           Its Phim tat tab switches the restart key off or rebinds either key. Host only.'
-    }
-    if ($installedNames -contains 'RandomLevel') {
-        Write-Note 'RandomLevel: More Levels -> Choi ngau nhien. F8 = skip round, Continue = next random level, Restart = same level, F7 = main menu at results. Host only.'
-    }
     if ($installedNames -contains $PackName) {
         Write-Note "$PackName : custom levels. Everyone in the match needs the same pack."
-    }
-    if ($installedNames -contains 'RelayKitchen') {
-        Write-Note 'RelayKitchen: More Levels → GameMods Originals → Bếp Tiếp Sức — Chợ Đêm / Night Market Relay.'
-        Write-Note '              Everyone in the match needs the same map and OC2DIYLevel pack.'
     }
     return $true
 }
@@ -1068,7 +827,6 @@ while ($true) {
             switch ($target.Kind) {
                 'Loader' { $script:loaderInstalled }
                 'Pack'   { @(Get-PackInstalledEntries).Count -gt 0 }
-                'Level'  { $target.Files -and (Test-Path -LiteralPath (Join-Path (Get-LevelDir $target) $target.Files[0])) }
                 default  { $null -ne (Get-InstalledDll $target) }
             }
         })
