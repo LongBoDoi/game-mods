@@ -85,6 +85,9 @@ $Targets = @(
     [pscustomobject]@{ Key = 'ChefSkills'; Kind = 'Mod'
         Blurb = 'trade skill levels each level: 9 skills, raise some by lowering others'
         Id = 'com.manhl.overcooked2.chefskills'; LegacyId = $null }
+    [pscustomobject]@{ Key = 'EmoteSync'; Kind = 'Mod'
+        Blurb = 'Arcade MOD (HostTools) emote texts follow each player, synced online'
+        Id = 'com.manhl.overcooked2.emotesync'; LegacyId = $null }
 )
 
 # Mods that were renamed: installing or removing the new one also takes out the old plugin, so the
