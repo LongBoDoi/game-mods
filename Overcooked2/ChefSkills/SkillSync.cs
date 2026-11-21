@@ -12,12 +12,8 @@ namespace ChefSkills
 {
     /// <summary>
     /// Shares skill-select progress between the machines in an online game, so every screen shows
-    /// every player's skills and closes only when all of them are locked in, and so every machine
-    /// applies every player's skills to their chefs. That has to happen everywhere, not only on
-    /// the host: the host decides what actually happens, but each machine also simulates chopping
-    /// and washing progress and its own players' movement, and those must run at the host's
-    /// speed or the bars lie and the chef gets pulled back. For the same reason every machine
-    /// uses the host's numbers (MaxLevel, PercentPerLevel), which the host writes into the lobby.
+    /// every player's skills and closes only when all of them are locked in, and so the host can
+    /// apply joining players' skills to their chefs.
     ///
     /// It needs no network message of its own: each machine writes its players' skill levels,
     /// ready flags and chef entity IDs into its own Steam lobby member data (a key/value store
@@ -29,10 +25,8 @@ namespace ChefSkills
     /// level is played without skills on every machine (see <see cref="PlayersWithoutMod"/>), so
     /// a chef never behaves differently from what a player without the mod expects.
     ///
-    /// Value written per machine (version 3; a machine on an older Chef Skills counts as not
-    /// having it, since it would apply skills differently):
-    /// "3|round|phase|slot,ready,colour,level.level...,chefId.chefId;..."
-    /// The host also writes "chefskills.rules" = "maxLevel|percent.percent..." into the lobby.
+    /// Value written per machine (version 2):
+    /// "2|round|phase|slot,ready,colour,level.level...,chefId.chefId;..."
     /// </summary>
     internal sealed class SkillSync
     {
@@ -69,8 +63,7 @@ namespace ChefSkills
 
         private const string MemberKey = "chefskills";
         private const string RoundKey = "chefskills.round";
-        private const string RulesKey = "chefskills.rules";
-        private const string Version = "3";
+        private const string Version = "2";
         private const float TickSeconds = 0.5f;
         private const int LevelLimit = 5;
 
@@ -88,19 +81,7 @@ namespace ChefSkills
         // This level is being played without skills because someone in the lobby lacks the mod.
         private static bool s_ignored;
 
-        // The round that belongs to the level being played now (0 until this machine has taken
-        // part in one), so builds from the previous level never apply to this level's chefs,
-        // whose entity IDs may be reused.
-        private static int s_levelRound;
-
-        // This machine is the host and skipped this level's round for everyone.
-        private static bool s_hostSkipped;
-
-        // What the host last wrote as its rules.
-        private static string s_writtenRules;
-
-        // Chef entity ID -> the skill levels its player picked on their own machine, for every
-        // chef on another machine (kept on every machine, see the class comment).
+        // Host only: chef entity ID -> the skill levels its player picked on their own machine.
         private static readonly Dictionary<uint, int[]> s_remote = new Dictionary<uint, int[]>();
 
         /// <summary>The last round this machine took part in, in this lobby (0 in a new lobby).</summary>
@@ -113,24 +94,11 @@ namespace ChefSkills
         {
             s_roundLobby = lobby;
             s_lastRound = round;
-            s_levelRound = round;
         }
 
         /// <summary>
-        /// A new level is loading: forget the last level's builds, until this level's round (if
-        /// any) is joined.
-        /// </summary>
-        internal static void NewLevel()
-        {
-            s_levelRound = 0;
-            s_ignored = false;
-            s_hostSkipped = false;
-            s_remote.Clear();
-        }
-
-        /// <summary>
-        /// The level another machine's player picked for a skill, by their chef's entity ID (0
-        /// when unknown: no mod, skipped, not locked in, or playing offline).
+        /// On the host, the level another machine's player picked for a skill, by their chef's
+        /// entity ID (0 when unknown: no mod, skipped, or not the host).
         /// </summary>
         internal static int RemoteLevel(uint chef, Skill skill)
         {
@@ -200,7 +168,6 @@ namespace ChefSkills
                 if (coordinator.IsHost())
                 {
                     s_owesDone = false;
-                    s_hostSkipped = true;
                     int round = Math.Max(ReadRound(lobby), LastRound(lobby)) + 1;
                     Remember(lobby, round);
                     SteamMatchmaking.SetLobbyData(lobby, RoundKey, round.ToString(CultureInfo.InvariantCulture));
@@ -252,14 +219,11 @@ namespace ChefSkills
                 s_owesDone = false;
                 s_owedEntries = null;
                 s_ignored = false;
-                s_hostSkipped = false;
-                s_remote.Clear();
-                // The screen's limits and percentages are the host's from the start.
-                SyncRules(lobby, host);
                 if (host)
                 {
                     sync.Round = Math.Max(ReadRound(lobby), LastRound(lobby)) + 1;
                     Remember(lobby, sync.Round);
+                    s_remote.Clear();
                     SteamMatchmaking.SetLobbyData(lobby, RoundKey, sync.Round.ToString(CultureInfo.InvariantCulture));
                     Plugin.Log.LogInfo("Đồng bộ chọn kỹ năng: lượt " + sync.Round + " (chủ phòng).");
                 }
@@ -396,8 +360,11 @@ namespace ChefSkills
             }
             else Write();
             if (MissingMod) s_ignored = true;
-            if (_phase == Phase.Skip) s_hostSkipped = true;
-            RefreshRemote(_lobby);
+            if (_host)
+            {
+                if (_phase == Phase.Skip) s_remote.Clear();
+                else RefreshRemote(_lobby);
+            }
         }
 
         private void Write()
@@ -411,10 +378,9 @@ namespace ChefSkills
 
         /// <summary>
         /// Called every frame by the plugin. While this machine is in an online lobby it makes sure
-        /// the lobby knows this machine has Chef Skills (so the others wait for its players), keeps
-        /// the host's rules in the lobby (host) or in use here (others), pays a "done" owed from a
-        /// screen that closed before the host's round started, and keeps the table of the other
-        /// machines' players' skills up to date.
+        /// the lobby knows this machine has Chef Skills (so the others wait for its players), pays
+        /// a "done" owed from a screen that closed before the host's round started, and on the
+        /// host keeps the table of joining players' skills up to date.
         /// </summary>
         internal static void Tick()
         {
@@ -428,8 +394,6 @@ namespace ChefSkills
                 {
                     s_owesDone = false;
                     s_remote.Clear();
-                    s_writtenRules = null;
-                    SkillStats.UseHostRules(null);
                     return;
                 }
                 CSteamID self = SteamUser.GetSteamID();
@@ -441,23 +405,28 @@ namespace ChefSkills
                     s_remote.Clear();
                     return;
                 }
-                if (string.IsNullOrEmpty(mine) || !mine.StartsWith(Version + "|", StringComparison.Ordinal))
+                if (string.IsNullOrEmpty(mine))
                     SteamMatchmaking.SetLobbyMemberData(lobby, MemberKey, Format(0, Phase.Idle, null));
 
-                bool host = coordinator.IsHost();
-                SyncRules(lobby, host);
-                if (!host && s_owesDone)
+                if (coordinator.IsHost())
                 {
-                    int round = ReadRound(lobby);
-                    if (round > 0 && round != LastRound(lobby))
+                    RefreshRemote(lobby);
+                }
+                else
+                {
+                    s_remote.Clear();
+                    if (s_owesDone)
                     {
-                        Remember(lobby, round);
-                        s_owesDone = false;
-                        SteamMatchmaking.SetLobbyMemberData(lobby, MemberKey, Format(round, Phase.Done, s_owedEntries));
-                        s_owedEntries = null;
+                        int round = ReadRound(lobby);
+                        if (round > 0 && round != LastRound(lobby))
+                        {
+                            Remember(lobby, round);
+                            s_owesDone = false;
+                            SteamMatchmaking.SetLobbyMemberData(lobby, MemberKey, Format(round, Phase.Done, s_owedEntries));
+                            s_owedEntries = null;
+                        }
                     }
                 }
-                RefreshRemote(lobby);
             }
             catch (Exception error)
             {
@@ -466,49 +435,17 @@ namespace ChefSkills
         }
 
         /// <summary>
-        /// The host writes its MaxLevel and PercentPerLevel numbers into the lobby; everyone else
-        /// uses them in place of their own, so the same build means the same speed everywhere.
-        /// </summary>
-        private static void SyncRules(CSteamID lobby, bool host)
-        {
-            if (host)
-            {
-                SkillStats.UseHostRules(null);
-                string rules = SkillStats.FormatOwnRules();
-                if (rules != s_writtenRules || SteamMatchmaking.GetLobbyData(lobby, RulesKey) != rules)
-                {
-                    SteamMatchmaking.SetLobbyData(lobby, RulesKey, rules);
-                    s_writtenRules = rules;
-                }
-            }
-            else
-            {
-                s_writtenRules = null;
-                SkillStats.UseHostRules(SteamMatchmaking.GetLobbyData(lobby, RulesKey));
-            }
-        }
-
-        /// <summary>
-        /// Rebuilds chef entity ID -> skill levels from what the other machines published for this
-        /// level's round, the same way on every machine. Only a locked-in (or finished) build
-        /// counts, because that is when its own machine starts using it. It is read live rather
-        /// than once, so a player who unlocks and changes their build after the level started ends
-        /// up with the build their own screen shows. If the host skipped the round, nobody's build
-        /// counts.
+        /// Host: rebuilds chef entity ID -> skill levels from what the other machines published for
+        /// the current round. It is read live rather than once, so a player who changes their build
+        /// after the host's screen closed still ends up with the build their own screen shows.
         /// </summary>
         private static void RefreshRemote(CSteamID lobby)
         {
             s_remote.Clear();
-            if (s_ignored || s_hostSkipped) return;
-            int round = s_roundLobby == lobby ? s_levelRound : 0;
+            if (s_ignored) return;
+            int round = LastRound(lobby);
             if (round <= 0) return;
             CSteamID self = SteamUser.GetSteamID();
-            CSteamID owner = SteamMatchmaking.GetLobbyOwner(lobby);
-            if (owner != self)
-            {
-                Published host = Read(lobby, owner);
-                if (host != null && host.Round == round && host.Phase == Phase.Skip) return;
-            }
             int members = SteamMatchmaking.GetNumLobbyMembers(lobby);
             for (int m = 0; m < members; m++)
             {
@@ -516,10 +453,9 @@ namespace ChefSkills
                 if (member == self) continue;
                 Published data = Read(lobby, member);
                 if (data == null || data.Round != round || data.Phase == Phase.Idle) continue;
-                bool finished = data.Phase == Phase.Done || data.Phase == Phase.Skip;
                 foreach (Entry entry in data.Entries)
                 {
-                    if (entry.Chefs == null || !(finished || entry.Ready)) continue;
+                    if (entry.Chefs == null) continue;
                     // The host's rules apply: its MaxLevel, and no build spending more than it freed.
                     int[] levels = SkillStats.Enforce(entry.Levels);
                     foreach (uint chef in entry.Chefs)

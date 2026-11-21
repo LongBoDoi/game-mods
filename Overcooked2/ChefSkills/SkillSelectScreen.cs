@@ -43,7 +43,6 @@ namespace ChefSkills
         {
             Plugin.Skills.Clear();
             LevelState.Reset();
-            SkillSync.NewLevel();
 
             if (Plugin.Enabled.Value)
             {
