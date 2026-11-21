@@ -42,7 +42,7 @@ echo Building ChefSkills.dll...
   /r:"%MANAGED%\UnityEngine.PhysicsModule.dll" ^
   /r:"%CORE%\BepInEx.dll" ^
   /r:"%CORE%\0Harmony.dll" ^
-  "%~dp0*.cs"
+  "%~dp0*.cs" "%~dp0Specials\*.cs" "%~dp0Specials\Modules\*.cs"
 if errorlevel 1 (
     echo.
     echo Build FAILED.

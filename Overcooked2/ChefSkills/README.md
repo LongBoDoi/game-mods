@@ -2,6 +2,8 @@
 
 At the start of every level, each player shapes their chef by trading levels between nine skills. Raising a skill costs a point, and points only come from lowering another skill: you can raise past what you've freed while you work out a build, but you can only lock it in when it adds up to exactly zero. A chef who changes nothing plays the normal game.
 
+Since 4.0.0, each player also picks **special skills**: one active (used with the EMOTE button), two passives and an optional quirk. A quirk is a drawback that frees skill points. There are 112 of them, from Blink and Pack Mule to Hot Hands, Rally Cry and Heavy Boots. See **[SPECIAL_SKILLS.md](SPECIAL_SKILLS.md)** for the full list and the rules.
+
 Chef Skills 2.0.0 replaces **Chef Roles** 1.0.0, which offered three fixed roles (Cook, Server, no role). The installer removes the old `ChefRoles` plugin when it installs this one.
 
 ## The screen
@@ -13,16 +15,17 @@ The screen opens right after the loading screen, and after any intro cutscene, b
   - the chef hat in that player's chef colour
   - **BALANCED**, how many points are still to spend, or (in red) how many you are over
   - all nine skills, each with level pips (red below 0, green above) and what that level changes, e.g. **+24%**
-  - on your own cards, the skill you're changing highlighted between your coloured chef-select arrows, with a line explaining it
+  - the special picks under them: **ACTIVE**, **PASSIVE**, **PASSIVE** and **QUIRK** (a quirk shows the points it frees, e.g. **HEAVY BOOTS +2**)
+  - on your own cards, the row you're changing highlighted between your coloured chef-select arrows, with a line explaining it
   - a green **READY!** badge once that player has locked in
 - the game's control bar along the bottom, with the real button icons for Player 1's keyboard or controller
 
 | Control | Effect |
 |---|---|
-| **Up / Down** | pick a skill |
-| **Left** | lower it one level, freeing a point |
-| **Right** | raise it one level, spending a point. You can go over what you have freed (the card says **1 POINT OVER**); lower something else to pay for it before locking in |
-| **Select** | lock in your build, only when it adds up to exactly zero (the card says **BALANCED**) |
+| **Up / Down** | pick a skill or special row |
+| **Left** | lower the skill one level, freeing a point; on a special row, the previous choice |
+| **Right** | raise the skill one level, spending a point. You can go over what you have freed (the card says **1 POINT OVER**); lower something else to pay for it before locking in. On a special row, the next choice |
+| **Select** | lock in your build, only when it adds up to exactly zero (the card says **BALANCED**) and no "one per kitchen" special you picked is already taken |
 | **Back** | unlock it to change again |
 | **hold Skip** for 1 second | skip, the same way you skip a cutscene: the players on this machine play this level with no skill changes. The host's skip ends the screen for everyone. Skip is the game's own button (B on a controller, so a quick tap is still Back; the game's Skip key on a keyboard), and the bar shows its icon with a fill while you hold it |
 
@@ -76,7 +79,9 @@ This needs no network message of its own. Each PC writes its players' skill leve
 
 **Dashes are decided by the player's own PC.** In the unmodded game, the host and the player's PC each decide whether a dash press starts a dash: a press made while the dash is still recharging is used up, the host also refuses while the chef is being bumped (which the player's PC never sees), and a quick tap whose press and release reach the host together never reaches it at all. Whenever they disagree, the chef dashes on one PC and not the other, and the player's chef is snapped back a few metres. With Chef Skills on every PC, the player's PC sends the host one short press for each dash its chef actually made, and the host starts that dash without its own recharge or bump checks and without missing a tap. While the chef's normal controls are off (in a cannon, steering a vehicle), the dash button is sent as it is. A stronger **Dashing** makes the dash go further but doesn't knock other chefs harder, since a knock only happens on the host and the knocked player's PC has to snap their chef to match.
 
-All PCs use **the host's numbers**: the host writes its `MaxLevel` and `PercentPerLevel` settings into the lobby, and everyone else's screen and skills use them in place of their own config. So a build means the same speed on every PC, and a build that spends more points than it frees counts as no changes everywhere. A PC running a different Chef Skills version counts as not having the mod.
+All PCs use **the host's numbers**: the host writes its `MaxLevel` and `PercentPerLevel` settings into the lobby, and everyone else's screen and skills use them in place of their own config. So a build means the same speed on every PC, and a build that spends more points than it frees counts as no changes everywhere. The host's `[Specials]` switches apply the same way. A PC running a different Chef Skills version counts as not having the mod.
+
+**Special skills online.** Each PC writes its players' picks into the same lobby member data as the levels. Anything that has to arrive at once, like an active being used or a speed buff starting, goes over Chef Skills' own Steam P2P channel (7), routed through the host the way the game routes its own messages. Pressing EMOTE asks the host, which checks the cooldown and that there is something to use it on, does it, and tells every PC so all of them show the same cooldowns and apply the same buffs. See [SPECIAL_SKILLS.md](SPECIAL_SKILLS.md).
 
 ## Build
 
@@ -105,6 +110,13 @@ Not yet verified in the game. Check these on the first run:
 9. Online, the client raises **Chopping** to +3: on the host's game the client's chef chops visibly faster, and on **both** PCs the chopping bar is full exactly when the item turns into the chopped one. The same for **Washing** (the bar fills as the clean plate appears, on both PCs, also with two chefs at one sink) and **Cooking** in a pot the client filled.
 10. Online, the client raises **Running** and **Dashing** to +3: the client's chef runs and dashes faster on both PCs, without being pulled back or stuttering, also while dashing repeatedly. With a different `PercentPerLevel` in the client's config, the client's screen shows the host's percentages.
 10a. Online, as the client, mash dash (also right as it recharges, with quick taps, and while another chef is bumping you): every dash you see on your PC also happens on the host's screen, and your chef is never snapped back after one. Dashing into the host's chef with **Dashing** +3 knocks it no harder than at 0. Getting into a cannon and pressing dash still gets you back out of it.
+10b. Special skills, offline first and then online as the client:
+   - The four special rows step through their choices with Left/Right, skipping clashing picks (for example Heavy Boots with Sprinter).
+   - A quirk adds its points to the card.
+   - The label over your chef shows the active and its cooldown.
+   - Try one special from each module: Blink (Teleport), Sprinter (Movement), Pack Mule (Carrying), Homing Throw (Throwing), Power Chop (Stations), Fire Blast (Cooking), Charmer (Orders) and Rally Cry (Team buffs). Check each does what [SPECIAL_SKILLS.md](SPECIAL_SKILLS.md) says on both PCs, with no snapping back.
+   - With nobody picking any specials, the level plays exactly as before.
+   - `LogOutput.log` lists `Kỹ năng đặc biệt: 8 nhóm` and no `Không áp dụng được` warnings.
 11. Online, play a second level in a row and restart one: the screen waits for everyone again each time.
 12. Online, the host's legend says **HOLD: SKIP FOR ALL**, and holding it closes the screen on both PCs. A client's hold closes only the client's screen, and the host's screen shows that client as **READY!**.
 13. Online, with a player who doesn't have the mod (try either the host or a client without it): no skill screen opens on any PC, the level starts straight into **Ready… Go!**, every chef runs and works at normal speed, and the modded PCs' logs say `Không phải ai trong phòng cũng cài Chef Skills`.

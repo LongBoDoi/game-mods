@@ -443,9 +443,14 @@ namespace ChefSkills
                 }
             }
 
-            float run = Plugin.Skills.Multiplier(chef, Skill.Running);
-            float dash = Plugin.Skills.Multiplier(chef, Skill.Dashing);
-            if (!followDashes && Mathf.Approximately(run, 1f) && Mathf.Approximately(dash, 1f)) return;
+            // Special skills and their buffs change movement the same way on every machine.
+            float run = Plugin.Skills.Multiplier(chef, Skill.Running) * SpecialRuntime.RunMultiplier(chef);
+            float dashSkill = Plugin.Skills.Multiplier(chef, Skill.Dashing);
+            float dash = dashSkill * SpecialRuntime.DashMultiplier(chef);
+            float recharge = SpecialRuntime.DashCooldownMultiplier(chef);
+            bool canDash = SpecialRuntime.CanDash(chef);
+            if (!followDashes && Mathf.Approximately(run, 1f) && Mathf.Approximately(dash, 1f) &&
+                Mathf.Approximately(recharge, 1f) && canDash) return;
 
             PlayerControls.MovementData movement = controls.Movement;
             _changed = movement;
@@ -455,7 +460,10 @@ namespace ChefSkills
             _maxSpeed = movement.MaxSpeed;
             movement.RunSpeed *= run;
             movement.DashSpeed *= dash;
-            movement.DashCooldown /= dash;
+            // Only the DASHING skill shortens the recharge; specials that dash further don't.
+            movement.DashCooldown = movement.DashCooldown / dashSkill * recharge;
+            // A dash the specials forbid (Heavy Boots, frozen): it never recharges in time.
+            if (!canDash) movement.DashCooldown = 1e6f;
             // The game caps speed; lift the cap by as much as the chef got faster.
             movement.MaxSpeed *= Mathf.Max(1f, Mathf.Max(run, dash));
 

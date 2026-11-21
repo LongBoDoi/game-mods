@@ -133,6 +133,8 @@ namespace ChefSkills
                 ConfigEntry<int> entry = Percent[i];
                 text.Append((entry != null ? Mathf.Clamp(entry.Value, 0, 50) : 0).ToString(CultureInfo.InvariantCulture));
             }
+            // The special-skill switches (see SpecialCatalog.OwnFlags).
+            text.Append('|').Append(SpecialCatalog.OwnFlags().ToString(CultureInfo.InvariantCulture));
             return text.ToString();
         }
 
@@ -144,10 +146,15 @@ namespace ChefSkills
         {
             int max;
             int[] percent = null;
+            int? flags = null;
             if (!string.IsNullOrEmpty(rules))
             {
                 string[] parts = rules.Split('|');
-                string[] values = parts.Length == 2 ? parts[1].Split('.') : null;
+                string[] values = parts.Length >= 2 ? parts[1].Split('.') : null;
+                int flagValue;
+                if (parts.Length >= 3 &&
+                    int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out flagValue))
+                    flags = flagValue;
                 if (values != null && values.Length == Count &&
                     int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out max))
                 {
@@ -163,6 +170,7 @@ namespace ChefSkills
                 }
             }
             s_hostPercent = percent;
+            SpecialCatalog.UseHostFlags(percent != null ? flags : null);
         }
 
         /// <summary>The change in percent a level makes, e.g. +36 or -24.</summary>
@@ -188,11 +196,18 @@ namespace ChefSkills
             return -sum;
         }
 
+        /// <summary>Free points counting what the loadout's quirk frees.</summary>
+        internal static int FreePoints(int[] levels, int[] loadout)
+        {
+            return FreePoints(levels) + SpecialCatalog.Refund(loadout);
+        }
+
         /// <summary>
         /// A build that is valid under the current settings: every level within MaxLevel and no
-        /// more points spent than freed. Anything else (say MaxLevel was lowered) starts over at 0.
+        /// more points spent than freed (counting <paramref name="refund"/> from a quirk).
+        /// Anything else (say MaxLevel was lowered) starts over at 0.
         /// </summary>
-        internal static int[] Sanitise(int[] levels)
+        internal static int[] Sanitise(int[] levels, int refund)
         {
             int[] result = Empty();
             if (levels == null) return result;
@@ -202,21 +217,21 @@ namespace ChefSkills
                 if (levels[i] > max || levels[i] < -max) return Empty();
                 result[i] = levels[i];
             }
-            return FreePoints(result) < 0 ? Empty() : result;
+            return FreePoints(result) + refund < 0 ? Empty() : result;
         }
 
         /// <summary>
         /// A build under the rules in use (online, the host's): each level clamped to MaxLevel,
-        /// and all 0 if it spends more points than it frees.
+        /// and all 0 if it spends more points than it frees (counting a quirk's refund).
         /// </summary>
-        internal static int[] Enforce(int[] levels)
+        internal static int[] Enforce(int[] levels, int refund)
         {
             int[] result = Empty();
             if (levels == null) return result;
             int max = MaxLevel;
             for (int i = 0; i < result.Length && i < levels.Length; i++)
                 result[i] = Mathf.Clamp(levels[i], -max, max);
-            return FreePoints(result) < 0 ? Empty() : result;
+            return FreePoints(result) + refund < 0 ? Empty() : result;
         }
 
         /// <summary>"COOKING +2, RUNNING -2" for the log; "no changes" for an all-zero build.</summary>
@@ -252,23 +267,40 @@ namespace ChefSkills
         private readonly Dictionary<PlayerInputLookup.Player, int[]> _lastPicked =
             new Dictionary<PlayerInputLookup.Player, int[]>();
 
-        public void Set(PlayerInputLookup.Player player, int[] levels)
+        // Special skills (see SpecialCatalog): this level's, and the last picked.
+        private readonly Dictionary<PlayerInputLookup.Player, int[]> _specials =
+            new Dictionary<PlayerInputLookup.Player, int[]>();
+        private readonly Dictionary<PlayerInputLookup.Player, int[]> _lastSpecials =
+            new Dictionary<PlayerInputLookup.Player, int[]>();
+
+        public void Set(PlayerInputLookup.Player player, int[] levels, int[] specials)
         {
             // Under the rules every machine uses (online, the host's), exactly as the other
             // machines apply this build to this player's chefs.
-            _levels[player] = SkillStats.Enforce(levels);
+            int[] loadout = SpecialCatalog.Enforce(specials);
+            _specials[player] = loadout;
+            _levels[player] = SkillStats.Enforce(levels, SpecialCatalog.Refund(loadout));
             _lastPicked[player] = (int[])levels.Clone();
+            _lastSpecials[player] = specials != null ? (int[])specials.Clone() : SpecialCatalog.Empty();
+        }
+
+        public int[] LastPickedSpecials(PlayerInputLookup.Player player)
+        {
+            int[] specials;
+            return SpecialCatalog.Enforce(_lastSpecials.TryGetValue(player, out specials) ? specials : null);
         }
 
         public int[] LastPicked(PlayerInputLookup.Player player)
         {
             int[] levels;
-            return SkillStats.Sanitise(_lastPicked.TryGetValue(player, out levels) ? levels : null);
+            return SkillStats.Sanitise(_lastPicked.TryGetValue(player, out levels) ? levels : null,
+                SpecialCatalog.Refund(LastPickedSpecials(player)));
         }
 
         public void Clear()
         {
             _levels.Clear();
+            _specials.Clear();
         }
 
         /// <summary>The level of a skill for the chef that owns this GameObject (0 if it isn't a chef).</summary>
@@ -277,12 +309,42 @@ namespace ChefSkills
             if (chef == null) return 0;
             PlayerIDProvider provider = chef.GetComponent<PlayerIDProvider>();
             if (provider == null) return 0;
+            int level;
             if (provider.IsLocallyControlled())
             {
                 int[] levels;
-                return _levels.TryGetValue(provider.GetID(), out levels) ? levels[(int)skill] : 0;
+                level = _levels.TryGetValue(provider.GetID(), out levels) ? levels[(int)skill] : 0;
             }
-            return SkillSync.RemoteLevel(EntityId(chef), skill);
+            else level = SkillSync.RemoteLevel(EntityId(chef), skill);
+            // Timed buffs from specials (Frenzy, Glass Cannon...), the same on every machine.
+            return level + SpecialRuntime.LevelBonus(chef, skill);
+        }
+
+        /// <summary>
+        /// The special-skill loadout (see <see cref="SpecialSlot"/>) of the chef that owns this
+        /// GameObject; all none if it isn't a chef or has none.
+        /// </summary>
+        public int[] SpecialsOf(GameObject chef)
+        {
+            if (chef == null || !Plugin.Enabled.Value) return null;
+            PlayerIDProvider provider = chef.GetComponent<PlayerIDProvider>();
+            if (provider == null) return null;
+            if (provider.IsLocallyControlled())
+            {
+                int[] specials;
+                return _specials.TryGetValue(provider.GetID(), out specials) ? specials : null;
+            }
+            return SkillSync.RemoteSpecials(EntityId(chef));
+        }
+
+        /// <summary>Does the chef that owns this GameObject have this special (or quirk)?</summary>
+        public bool Has(GameObject chef, Special special)
+        {
+            int[] specials = SpecialsOf(chef);
+            if (specials == null) return false;
+            for (int i = 0; i < specials.Length; i++)
+                if (specials[i] == (int)special) return true;
+            return false;
         }
 
         /// <summary>Multiplier for a skill of the chef that owns this GameObject (1 when disabled).</summary>

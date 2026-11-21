@@ -29,10 +29,10 @@ namespace ChefSkills
     /// level is played without skills on every machine (see <see cref="PlayersWithoutMod"/>), so
     /// a chef never behaves differently from what a player without the mod expects.
     ///
-    /// Value written per machine (version 4; a machine on another Chef Skills version counts as
+    /// Value written per machine (version 5; a machine on another Chef Skills version counts as
     /// not having it, since it would apply skills or dashes differently):
-    /// "4|round|phase|slot,ready,colour,level.level...,chefId.chefId;..."
-    /// The host also writes "chefskills.rules" = "maxLevel|percent.percent..." into the lobby.
+    /// "5|round|phase|slot,ready,colour,level.level...,chefId.chefId,active.passive.passive.quirk;..."
+    /// The host also writes "chefskills.rules" = "maxLevel|percent.percent...|specialFlags" into the lobby.
     /// </summary>
     internal sealed class SkillSync
     {
@@ -48,6 +48,8 @@ namespace ChefSkills
             public int Colour;
             public int[] Levels;
             public uint[] Chefs;
+            /// <summary>Special-skill loadout, see <see cref="SpecialSlot"/>.</summary>
+            public int[] Specials;
         }
 
         /// <summary>One card for a player on another machine.</summary>
@@ -58,6 +60,7 @@ namespace ChefSkills
             public CardState State;
             public int[] Levels;
             public int Colour;
+            public int[] Specials;
         }
 
         private sealed class Published
@@ -71,8 +74,9 @@ namespace ChefSkills
         private const string RoundKey = "chefskills.round";
         private const string RulesKey = "chefskills.rules";
         // 4: dashes are reported by the player's machine and followed by the host (DashSync),
-        // which only works when both sides do it.
-        private const string Version = "4";
+        // which only works when both sides do it. 5: special skills (a loadout per player, and
+        // the SpecialNet channel every machine has to read).
+        private const string Version = "5";
         private const float TickSeconds = 0.5f;
         private const int LevelLimit = 5;
 
@@ -105,6 +109,9 @@ namespace ChefSkills
         // chef on another machine (kept on every machine, see the class comment).
         private static readonly Dictionary<uint, int[]> s_remote = new Dictionary<uint, int[]>();
 
+        // Chef entity ID -> its player's special-skill loadout, for the same chefs.
+        private static readonly Dictionary<uint, int[]> s_remoteSpecials = new Dictionary<uint, int[]>();
+
         /// <summary>The last round this machine took part in, in this lobby (0 in a new lobby).</summary>
         private static int LastRound(CSteamID lobby)
         {
@@ -128,6 +135,7 @@ namespace ChefSkills
             s_ignored = false;
             s_hostSkipped = false;
             s_remote.Clear();
+            s_remoteSpecials.Clear();
         }
 
         /// <summary>
@@ -149,6 +157,23 @@ namespace ChefSkills
             int[] levels;
             if (chef == 0 || !s_remote.TryGetValue(chef, out levels)) return 0;
             return levels[(int)skill];
+        }
+
+        /// <summary>Another machine's chef's special-skill loadout (null when unknown).</summary>
+        internal static int[] RemoteSpecials(uint chef)
+        {
+            int[] specials;
+            return chef != 0 && s_remoteSpecials.TryGetValue(chef, out specials) ? specials : null;
+        }
+
+        /// <summary>In an online lobby (false offline): which one, and whether this machine hosts it.</summary>
+        internal static bool TryGetLobby(out CSteamID lobby, out bool host)
+        {
+            host = false;
+            SteamOnlineMultiplayerSessionCoordinator coordinator;
+            if (!TryLobby(out coordinator, out lobby)) return false;
+            host = coordinator.IsHost();
+            return true;
         }
 
         private readonly CSteamID _lobby;
@@ -204,6 +229,7 @@ namespace ChefSkills
         {
             s_ignored = true;
             s_remote.Clear();
+            s_remoteSpecials.Clear();
             try
             {
                 SteamOnlineMultiplayerSessionCoordinator coordinator;
@@ -266,6 +292,7 @@ namespace ChefSkills
                 s_ignored = false;
                 s_hostSkipped = false;
                 s_remote.Clear();
+                s_remoteSpecials.Clear();
                 // The screen's limits and percentages are the host's from the start.
                 SyncRules(lobby, host);
                 if (host)
@@ -378,7 +405,11 @@ namespace ChefSkills
                         Entry entry = data.Entries[i];
                         bool ready = finished || entry.Ready;
                         allReady &= ready;
-                        cards.Add(Card(key, i, names, ready ? CardState.Ready : CardState.Choosing, entry.Levels, entry.Colour));
+                        {
+                            RemoteCard card = Card(key, i, names, ready ? CardState.Ready : CardState.Choosing, entry.Levels, entry.Colour);
+                            card.Specials = entry.Specials ?? SpecialCatalog.Empty();
+                            cards.Add(card);
+                        }
                     }
                 }
             }
@@ -440,6 +471,7 @@ namespace ChefSkills
                 {
                     s_owesDone = false;
                     s_remote.Clear();
+                    s_remoteSpecials.Clear();
                     s_levelRound = 0;
                     s_writtenRules = null;
                     SkillStats.UseHostRules(null);
@@ -452,6 +484,7 @@ namespace ChefSkills
                 {
                     if (!string.IsNullOrEmpty(mine)) SteamMatchmaking.SetLobbyMemberData(lobby, MemberKey, "");
                     s_remote.Clear();
+                    s_remoteSpecials.Clear();
                     return;
                 }
                 if (string.IsNullOrEmpty(mine) || !mine.StartsWith(Version + "|", StringComparison.Ordinal))
@@ -512,6 +545,7 @@ namespace ChefSkills
         private static void RefreshRemote(CSteamID lobby)
         {
             s_remote.Clear();
+            s_remoteSpecials.Clear();
             if (s_ignored || s_hostSkipped) return;
             int round = s_roundLobby == lobby ? s_levelRound : 0;
             if (round <= 0) return;
@@ -534,9 +568,15 @@ namespace ChefSkills
                 {
                     if (entry.Chefs == null || !(finished || entry.Ready)) continue;
                     // The host's rules apply: its MaxLevel, and no build spending more than it freed.
-                    int[] levels = SkillStats.Enforce(entry.Levels);
+                    // Its specials under the host's rules, and the points its quirk frees.
+                    int[] specials = SpecialCatalog.Enforce(entry.Specials);
+                    int[] levels = SkillStats.Enforce(entry.Levels, SpecialCatalog.Refund(specials));
                     foreach (uint chef in entry.Chefs)
-                        if (chef != 0) s_remote[chef] = levels;
+                    {
+                        if (chef == 0) continue;
+                        s_remote[chef] = levels;
+                        s_remoteSpecials[chef] = specials;
+                    }
                 }
             }
         }
@@ -587,7 +627,7 @@ namespace ChefSkills
             return new RemoteCard
             {
                 Key = machine + ":" + index, Name = name, State = state,
-                Levels = levels ?? SkillStats.Empty(), Colour = colour
+                Levels = levels ?? SkillStats.Empty(), Colour = colour, Specials = SpecialCatalog.Empty()
             };
         }
 
@@ -623,6 +663,7 @@ namespace ChefSkills
                         if (c > 0) text.Append('.');
                         text.Append(e.Chefs[c].ToString(CultureInfo.InvariantCulture));
                     }
+                    text.Append(',').Append(SpecialCatalog.Format(e.Specials));
                 }
             }
             return text.ToString();
@@ -669,7 +710,8 @@ namespace ChefSkills
 
                 data.Entries.Add(new Entry
                 {
-                    Slot = slot, Ready = fields[1] == "1", Colour = colour, Levels = levels, Chefs = chefs.ToArray()
+                    Slot = slot, Ready = fields[1] == "1", Colour = colour, Levels = levels, Chefs = chefs.ToArray(),
+                    Specials = SpecialCatalog.Parse(fields.Length > 5 ? fields[5] : null)
                 });
             }
             return data;

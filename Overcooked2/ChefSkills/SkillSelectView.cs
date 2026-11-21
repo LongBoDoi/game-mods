@@ -33,6 +33,31 @@ namespace ChefSkills
             /// <summary>When this player last tried something the rules don't allow.</summary>
             public float DeniedAt;
             public SkillSync.CardState State;
+            /// <summary>Special-skill loadout (see <see cref="SpecialSlot"/>); null = none.</summary>
+            public int[] Specials;
+            /// <summary>Why the last lock-in was refused, shown in place of the description for a moment.</summary>
+            public string DeniedReason;
+        }
+
+        /// <summary>One special-skill pick on a card: the slot's name and what is picked.</summary>
+        private sealed class SpecialRow
+        {
+            public RectTransform Root;
+            public Image Highlight;
+            public Text Value;
+            public int Shown = -1;
+            public float PunchAt = -10f;
+        }
+
+        /// <summary>Rows on a card: the nine skills, then the special picks when specials are on.</summary>
+        internal static int RowCount
+        {
+            get { return SkillStats.Count + (SpecialCatalog.Enabled ? SpecialCatalog.SlotCount : 0); }
+        }
+
+        private static float RowY(int index)
+        {
+            return RowTop - RowStep * index - (index >= SkillStats.Count ? SpecialGap : 0f);
         }
 
         private sealed class Row
@@ -58,6 +83,7 @@ namespace ChefSkills
             public Color Tint;
             public CanvasGroup RowsGroup;
             public Row[] Rows;
+            public SpecialRow[] Specials;
             public Image Left;
             public Image Right;
             public Text Points;
@@ -75,7 +101,7 @@ namespace ChefSkills
 
         // Layout, in 1920x1080 reference units.
         private const float CardWidth = 380f;
-        private const float CardHeight = 680f;
+        private const float CardHeight = 760f;
         private const float CardGap = 40f;
         // The game draws its large dialog art inset from the image's box: about 7.9% of the height
         // is empty above the panel's top rim and 8.6% below its bottom rim (measured in game), and
@@ -102,13 +128,19 @@ namespace ChefSkills
         private const float PlateExtra = 170f;
 
         // Inside a card, relative to its centre.
-        private const float HatY = 278f;
-        private const float NameY = 214f;
-        private const float PointsY = 174f;
-        private const float RowTop = 128f;
-        private const float RowStep = 37f;
+        private const float HatY = 318f;
+        private const float NameY = 254f;
+        private const float PointsY = 216f;
+        private const float RowTop = 178f;
+        private const float RowStep = 28f;
+        // Space between the nine skills and the special-skill rows under them.
+        private const float SpecialGap = 10f;
+        // A special row: its pick fills the pips and effect columns, between the arrows.
+        private const float SpecialValueX = 62f;
+        private const float SpecialValueWidth = 140f;
+        private const float SpecialArrowRightX = 147f;
         private const float DescriptionY = -222f;
-        private const float HintY = -282f;
+        private const float HintY = -318f;
         // Rows fill the card art's dark interior (304 wide, measured in game) evenly, 8 in from
         // each side: name -144..-34, arrow, pips -12..84, arrow, effect 104..144.
         private const float RowWidth = 300f;
@@ -117,7 +149,7 @@ namespace ChefSkills
         private const float PipsX = 36f;
         private const float PipsWidth = 96f;
         private const float PipGap = 3f;
-        private const float PipHeight = 18f;
+        private const float PipHeight = 16f;
         private const float ArrowLeftX = -23f;
         private const float ArrowRightX = 95f;
         private const float PercentX = 124f;
@@ -305,7 +337,7 @@ namespace ChefSkills
             foreach (CardInfo info in infos)
                 signature.Append(info.Key).Append(info.IsLocal ? "+" : "-")
                     .Append(info.Colour != null ? info.Colour.GetInstanceID() : 0).Append('/');
-            signature.Append(SkillStats.MaxLevel);
+            signature.Append(SkillStats.MaxLevel).Append(SpecialCatalog.Enabled ? "S" : "");
             string value = signature.ToString();
             if (value == _signature) return;
             _signature = value;
@@ -354,6 +386,8 @@ namespace ChefSkills
             card.RowsGroup.blocksRaycasts = false;
             card.Rows = new Row[SkillStats.Count];
             for (int i = 0; i < card.Rows.Length; i++) card.Rows[i] = BuildRow(rows, i, card.Tint);
+            card.Specials = new SpecialRow[SpecialCatalog.Enabled ? SpecialCatalog.SlotCount : 0];
+            for (int i = 0; i < card.Specials.Length; i++) card.Specials[i] = BuildSpecialRow(rows, i, card.Tint);
 
             // Only this machine's players get arrows: they're the ones who can change a level here.
             if (info.IsLocal)
@@ -388,7 +422,7 @@ namespace ChefSkills
         private Row BuildRow(RectTransform parent, int index, Color tint)
         {
             var row = new Row();
-            float y = RowTop - RowStep * index;
+            float y = RowY(index);
             row.Root = Child("Skill" + index, parent, new Vector2(0f, y), new Vector2(RowWidth, RowStep - 3f));
 
             Color highlight = tint;
@@ -397,7 +431,7 @@ namespace ChefSkills
             row.Highlight.enabled = false;
 
             RectTransform name = Child("Name", row.Root, new Vector2(NameX, 0f), new Vector2(NameWidth, RowStep - 5f));
-            AddShadow(AddText(name, _art.Header, 23, TitleColour, TextAnchor.MiddleLeft, SkillStats.Names[index], true).gameObject);
+            AddShadow(AddText(name, _art.Header, 21, TitleColour, TextAnchor.MiddleLeft, SkillStats.Names[index], true).gameObject);
 
             int max = SkillStats.MaxLevel;
             float pip = (PipsWidth - 2f * PipGap - (2 * max - 2) * PipGap) / (2 * max);
@@ -416,9 +450,64 @@ namespace ChefSkills
                 new Color(1f, 1f, 1f, 0.6f));
 
             RectTransform percent = Child("Effect", row.Root, new Vector2(PercentX, 0f), new Vector2(PercentWidth, RowStep - 5f));
-            row.Percent = AddText(percent, _art.Body, 21, NeutralColour, TextAnchor.MiddleRight, "", true);
+            row.Percent = AddText(percent, _art.Body, 20, NeutralColour, TextAnchor.MiddleRight, "", true);
             AddShadow(row.Percent.gameObject);
             return row;
+        }
+
+        private SpecialRow BuildSpecialRow(RectTransform parent, int slot, Color tint)
+        {
+            var row = new SpecialRow();
+            row.Root = Child("Special" + slot, parent, new Vector2(0f, RowY(SkillStats.Count + slot)),
+                new Vector2(RowWidth, RowStep - 3f));
+
+            Color highlight = tint;
+            highlight.a = 0.35f;
+            row.Highlight = AddImage(Stretch(Child("Highlight", row.Root)), null, highlight);
+            row.Highlight.enabled = false;
+
+            RectTransform name = Child("Name", row.Root, new Vector2(NameX, 0f), new Vector2(NameWidth, RowStep - 5f));
+            AddShadow(AddText(name, _art.Header, 21, PointsColour, TextAnchor.MiddleLeft,
+                SpecialCatalog.SlotNames[slot], true).gameObject);
+
+            RectTransform value = Child("Pick", row.Root, new Vector2(SpecialValueX, 0f),
+                new Vector2(SpecialValueWidth, RowStep - 5f));
+            row.Value = AddText(value, _art.Header, 21, TitleColour, TextAnchor.MiddleCenter, "", true);
+            AddShadow(row.Value.gameObject);
+            return row;
+        }
+
+        private static void ShowSpecial(SpecialRow row, int slot, int pick, bool animate, float now)
+        {
+            if (row.Shown == pick) return;
+            if (animate) row.PunchAt = now;
+            row.Shown = pick;
+            SpecialInfo info = SpecialCatalog.Info((Special)pick);
+            if (info == null)
+            {
+                row.Value.text = "-";
+                row.Value.color = new Color(0.6f, 0.66f, 0.75f, 1f);
+                return;
+            }
+            row.Value.text = info.Kind == SpecialKind.Quirk ? info.Name + " +" + info.Refund : info.Name;
+            row.Value.color = info.Kind == SpecialKind.Quirk ? NerfColour
+                : info.Kind == SpecialKind.Active ? PointsColour : BuffColour;
+        }
+
+        /// <summary>The line under the rows: what the highlighted skill or pick does.</summary>
+        private static string DescriptionFor(int selected, int[] specials)
+        {
+            if (selected < 0) return "";
+            if (selected < SkillStats.Count) return SkillStats.Descriptions[selected];
+            int slot = selected - SkillStats.Count;
+            Special pick = specials != null && slot < specials.Length ? (Special)specials[slot] : Special.None;
+            SpecialInfo info = SpecialCatalog.Info(pick);
+            if (info == null) return SpecialCatalog.SlotHelp[slot];
+            string text = info.Description;
+            if (info.Kind == SpecialKind.Active)
+                text += info.Cooldown >= 999f ? " (once per level)" : " (" + Mathf.RoundToInt(info.Cooldown) + " s)";
+            if (info.TeamWide) text += ". One per kitchen";
+            return text;
         }
 
         private Image Arrow(RectTransform parent, string side, int colourIndex, float x)
@@ -426,7 +515,7 @@ namespace ChefSkills
             Sprite sprite = _art.Get("UI_ChefSelectArrows" + side + "_" + GameArt.ArrowColours[colourIndex]);
             if (sprite == null)
                 sprite = _art.Get(side == "L" ? "t_ui_arrow_left_standard_01" : "t_ui_arrow_right_standard_01");
-            RectTransform rect = Child("Arrow" + side, parent, new Vector2(x, RowTop), new Vector2(18f, 32f));
+            RectTransform rect = Child("Arrow" + side, parent, new Vector2(x, RowTop), new Vector2(16f, 26f));
             Image image = AddImage(rect, sprite, GameArt.ArrowTints[colourIndex]);
             image.preserveAspect = true;
             return image;
@@ -448,7 +537,7 @@ namespace ChefSkills
             Spacer(row.transform, 28f);
             AddDirection(row.transform, PlayerInputLookup.LogicalButtonID.UILeft, player, "LEFT", 0f);
             AddDirection(row.transform, PlayerInputLookup.LogicalButtonID.UIRight, player, "RIGHT", 180f);
-            AddLabel(row.transform, _art.Header, 28, TitleColour, "LOWER / RAISE");
+            AddLabel(row.transform, _art.Header, 28, TitleColour, "CHANGE");
             Spacer(row.transform, 28f);
             AddIcon(row.transform, GameArt.ButtonIcon(PlayerInputLookup.LogicalButtonID.UISelectNotStart, player), 42f, "SELECT", _art);
             AddLabel(row.transform, _art.Header, 28, TitleColour, "LOCK IN");
@@ -527,12 +616,24 @@ namespace ChefSkills
                     card.Rows[s].Highlight.enabled = s == selected;
                     card.Rows[s].Root.localScale = Punch(now - card.Rows[s].PunchAt, 0.06f);
                 }
+                for (int s = 0; s < card.Specials.Length; s++)
+                {
+                    int pick = known && info.Specials != null && s < info.Specials.Length ? info.Specials[s] : 0;
+                    ShowSpecial(card.Specials[s], s, pick, card.Initialised, now);
+                    card.Specials[s].Highlight.enabled = SkillStats.Count + s == selected;
+                    card.Specials[s].Root.localScale = Punch(now - card.Specials[s].PunchAt, 0.06f);
+                }
                 card.RowsGroup.alpha = known ? 1f : 0.35f;
 
-                if (!card.Initialised || card.ShownSelected != selected)
+                // What the highlighted row does (it changes as the pick under it changes), or for
+                // a moment why the lock-in was refused.
+                float deniedAge = now - info.DeniedAt;
+                string about = !string.IsNullOrEmpty(info.DeniedReason) && deniedAge >= 0f && deniedAge < 2f
+                    ? info.DeniedReason : DescriptionFor(selected, info.Specials);
+                if (!card.Initialised || card.ShownSelected != selected || card.Description.text != about)
                 {
                     card.ShownSelected = selected;
-                    card.Description.text = selected >= 0 ? SkillStats.Descriptions[selected] : "";
+                    card.Description.text = about;
                 }
 
                 if (!card.Initialised || card.ShownState != state)
@@ -606,16 +707,27 @@ namespace ChefSkills
             card.Left.enabled = show;
             card.Right.enabled = show;
             if (!show) return;
-            int max = SkillStats.MaxLevel;
-            int level = info.Levels[selected];
-            float y = RowTop - RowStep * selected;
-            // They nudge outwards like the game's chef-select arrows, and fade where there's no
-            // further to go: the bottom level, or the top one / no point to spend.
+            float y = RowY(selected);
+            // They nudge outwards like the game's chef-select arrows.
             float nudge = 3f * Mathf.Abs(Mathf.Sin(now * 4f));
-            card.Left.rectTransform.anchoredPosition = new Vector2(ArrowLeftX - nudge, y);
-            card.Right.rectTransform.anchoredPosition = new Vector2(ArrowRightX + nudge, y);
-            card.Left.color = new Color(1f, 1f, 1f, level > -max ? 1f : 0.3f);
-            card.Right.color = new Color(1f, 1f, 1f, level < max ? 1f : 0.3f);
+            if (selected >= SkillStats.Count)
+            {
+                // A special pick: Left/Right step through the choices, round and round.
+                card.Left.rectTransform.anchoredPosition = new Vector2(ArrowLeftX - nudge, y);
+                card.Right.rectTransform.anchoredPosition = new Vector2(SpecialArrowRightX + nudge, y);
+                card.Left.color = Color.white;
+                card.Right.color = Color.white;
+            }
+            else
+            {
+                int max = SkillStats.MaxLevel;
+                int level = info.Levels[selected];
+                // They fade where there's no further to go: the bottom level, or the top one.
+                card.Left.rectTransform.anchoredPosition = new Vector2(ArrowLeftX - nudge, y);
+                card.Right.rectTransform.anchoredPosition = new Vector2(ArrowRightX + nudge, y);
+                card.Left.color = new Color(1f, 1f, 1f, level > -max ? 1f : 0.3f);
+                card.Right.color = new Color(1f, 1f, 1f, level < max ? 1f : 0.3f);
+            }
             if (card.Left.sprite == null) card.Left.color = WithAlpha(card.Tint, card.Left.color.a);
             if (card.Right.sprite == null) card.Right.color = WithAlpha(card.Tint, card.Right.color.a);
         }

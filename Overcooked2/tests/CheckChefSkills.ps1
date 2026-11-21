@@ -150,8 +150,54 @@ try {
         }
     }
 
+    # --- every AccessTools.Field/Property/Method(typeof(T), "name") in the IL ---------------------
+    # The pattern the compiler emits: ldtoken T; call Type.GetTypeFromHandle; ldstr "name"; call AccessTools.X
+    $lookups = 0
+    foreach ($type in $assembly.MainModule.GetTypes()) {
+        foreach ($method in $type.Methods) {
+            if (-not $method.HasBody) { continue }
+            $code = @($method.Body.Instructions)
+            for ($i = 0; $i -lt $code.Count; $i++) {
+                $call = $code[$i]
+                if ($call.OpCode.Code -ne [Mono.Cecil.Cil.Code]::Call) { continue }
+                $callee = $call.Operand
+                if ($callee.DeclaringType.FullName -ne 'HarmonyLib.AccessTools') { continue }
+                $kind = $callee.Name
+                if (@('Field', 'Property', 'Method', 'DeclaredField', 'DeclaredProperty', 'DeclaredMethod') -notcontains $kind) { continue }
+                # Find the ldstr and ldtoken just before the call.
+                $name = $null; $token = $null
+                for ($j = $i - 1; $j -ge [Math]::Max(0, $i - 12); $j--) {
+                    $op = $code[$j].OpCode
+                    if (-not $name -and $op.Code -eq [Mono.Cecil.Cil.Code]::Ldstr) { $name = $code[$j].Operand }
+                    if ($op.Code -eq [Mono.Cecil.Cil.Code]::Ldtoken) { $token = $code[$j].Operand; break }
+                    # Anything that ends the previous statement or computes the type another way:
+                    # the lookup isn't of the typeof(T), "name" form, so it can't be checked here.
+                    $isTypeOf = $op.Code -eq [Mono.Cecil.Cil.Code]::Call -and $code[$j].Operand.Name -eq 'GetTypeFromHandle'
+                    if (-not $isTypeOf -and ($op.FlowControl -eq [Mono.Cecil.Cil.FlowControl]::Call -or
+                        $op.Code.ToString().StartsWith('St') -or $op.Code.ToString().StartsWith('Ldfld') -or
+                        $op.Code.ToString().StartsWith('Ldsfld') -or $op.Code.ToString().StartsWith('Ldloc') -or
+                        $op.Code.ToString().StartsWith('Ldarg'))) { break }
+                }
+                if (-not $name -or -not $token) { continue }
+                $target = $token.Resolve()
+                if (-not $target) { $failed += "$($type.Name).$($method.Name): cannot resolve $($token.FullName) for $kind '$name'"; continue }
+                $found = $false
+                for ($t = $target; $t -and -not $found; $t = $(if ($t.BaseType) { $t.BaseType.Resolve() } else { $null })) {
+                    switch -Wildcard ($kind) {
+                        '*Field'    { if ($t.Fields | Where-Object Name -eq $name) { $found = $true } }
+                        '*Property' { if ($t.Properties | Where-Object Name -eq $name) { $found = $true } }
+                        '*Method'   { if ($t.Methods | Where-Object Name -eq $name) { $found = $true } }
+                    }
+                    if ($kind.StartsWith('Declared')) { break }
+                }
+                if ($found) { $checked++; $lookups++ }
+                else { $failed += "$($type.Name).$($method.Name): AccessTools.$kind($($target.FullName), '$name') finds nothing" }
+            }
+        }
+    }
+
     if ($failed.Count) { throw ($failed -join [Environment]::NewLine) }
-    Write-Host "PASS: $checked checks ($patchClasses Harmony patches) against the shipped game runtime."
+    Write-Host "PASS: $checked checks ($patchClasses Harmony patches, $lookups name lookups) against the shipped game runtime."
 } finally {
     $game.Dispose()
     $assembly.Dispose()

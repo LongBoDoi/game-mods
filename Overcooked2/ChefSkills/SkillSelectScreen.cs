@@ -45,6 +45,7 @@ namespace ChefSkills
             LevelState.Reset();
             SkillSync.NewLevel();
             DashSync.Reset();
+            SpecialRuntime.NewLevel();
 
             if (Plugin.Enabled.Value)
             {
@@ -71,6 +72,16 @@ namespace ChefSkills
                     }
                     if (!more) break;
                     yield return screen.Current;
+                }
+
+                // Loadouts are set: the specials start working with the level.
+                try
+                {
+                    SpecialRuntime.StartLevel();
+                }
+                catch (Exception error)
+                {
+                    Plugin.Log.LogError("Không bật được kỹ năng đặc biệt cho màn này: " + error);
                 }
 
                 // Let the game's intro take its own pause before releasing ours, so the kitchen
@@ -100,9 +111,11 @@ namespace ChefSkills
             public int ColourIndex;
             public uint[] Chefs;
             public int[] Levels;
+            public int[] Specials;
             public int Selected;
             public bool Ready;
             public float DeniedAt = -10f;
+            public string DeniedReason;
             public ILogicalButton Up;
             public ILogicalButton Down;
             public ILogicalButton Left;
@@ -115,7 +128,7 @@ namespace ChefSkills
 
             public int FreePoints
             {
-                get { return SkillStats.FreePoints(Levels); }
+                get { return SkillStats.FreePoints(Levels, Specials); }
             }
         }
 
@@ -201,6 +214,7 @@ namespace ChefSkills
                     ColourIndex = GameArt.ColourIndex(colour),
                     Chefs = chefs[player].ToArray(),
                     Levels = Plugin.Skills.LastPicked(player),
+                    Specials = Plugin.Skills.LastPickedSpecials(player),
                     Up = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UIUp, player),
                     Down = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UIDown, player),
                     Left = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UILeft, player),
@@ -223,6 +237,9 @@ namespace ChefSkills
             Plugin.Log.LogInfo(string.Format("Mở màn chọn kỹ năng cho {0} người chơi trên máy này{1}.",
                 slots.Count, _sync != null ? " (chơi trực tuyến: chờ mọi người trong phòng)" : ""));
 
+            // The other machines' cards as last read (for "one per kitchen" specials).
+            List<SkillSync.RemoteCard> lastRemote = null;
+
             // No time limit: the screen stays until every player has locked in (or someone holds Skip).
             while (true)
             {
@@ -230,7 +247,7 @@ namespace ChefSkills
                 _view.ShowSkipProgress(skipProgress);
                 if (skipProgress >= 1f)
                 {
-                    foreach (Slot slot in slots) slot.Levels = SkillStats.Empty();
+                    foreach (Slot slot in slots) NoChanges(slot);
                     if (_sync != null) _sync.Finish(Entries(slots, true), true);
                     Plugin.Log.LogInfo(_sync != null && _sync.IsHost
                         ? "Chủ phòng đã bỏ qua màn chọn kỹ năng cho cả phòng."
@@ -243,7 +260,7 @@ namespace ChefSkills
 
                 // Once the host's level has started, a locked build here can't be unlocked again.
                 bool canUnlock = _sync == null || !_sync.HostStarted;
-                foreach (Slot slot in slots) HandleInput(slot, canUnlock);
+                foreach (Slot slot in slots) HandleInput(slot, canUnlock, TakenByOthers(slot, slots, lastRemote));
 
                 bool everyoneReady = true;
                 foreach (Slot slot in slots) everyoneReady &= slot.Ready;
@@ -254,11 +271,12 @@ namespace ChefSkills
                     bool othersReady;
                     _sync.Publish(Entries(slots, false));
                     remote = _sync.Poll(out othersReady);
+                    lastRemote = remote;
                     everyoneReady &= othersReady;
                     if (_sync.MissingMod)
                     {
                         // Someone without the mod is in the game after all: nobody gets skills.
-                        foreach (Slot slot in slots) slot.Levels = SkillStats.Empty();
+                        foreach (Slot slot in slots) NoChanges(slot);
                         _sync.Finish(Entries(slots, true), true);
                         Plugin.Log.LogInfo("Có người chơi không cài Chef Skills; màn này chơi bình thường, không dùng kỹ năng.");
                         Close();
@@ -266,7 +284,7 @@ namespace ChefSkills
                     }
                     if (_sync.HostSkipped)
                     {
-                        foreach (Slot slot in slots) slot.Levels = SkillStats.Empty();
+                        foreach (Slot slot in slots) NoChanges(slot);
                         _sync.Finish(Entries(slots, true), false);
                         Plugin.Log.LogInfo("Chủ phòng đã bỏ qua màn chọn kỹ năng; mọi người dùng kỹ năng mặc định.");
                         Close();
@@ -294,8 +312,9 @@ namespace ChefSkills
 
             foreach (Slot slot in slots)
             {
-                Plugin.Skills.Set(slot.Player, slot.Levels);
-                Plugin.Log.LogInfo(string.Format("Người chơi {0}: {1}", (int)slot.Player + 1, SkillStats.Summary(slot.Levels)));
+                Plugin.Skills.Set(slot.Player, slot.Levels, slot.Specials);
+                Plugin.Log.LogInfo(string.Format("Người chơi {0}: {1}; {2}", (int)slot.Player + 1,
+                    SkillStats.Summary(slot.Levels), SpecialCatalog.Summary(SpecialCatalog.Enforce(slot.Specials))));
             }
             Close();
         }
@@ -308,9 +327,41 @@ namespace ChefSkills
                 entries.Add(new SkillSync.Entry
                 {
                     Slot = (int)slot.Player, Ready = allReady || slot.Ready, Colour = slot.ColourIndex,
-                    Levels = (int[])slot.Levels.Clone(), Chefs = slot.Chefs
+                    Levels = (int[])slot.Levels.Clone(), Chefs = slot.Chefs, Specials = (int[])slot.Specials.Clone()
                 });
             return entries;
+        }
+
+        /// <summary>No skill changes and no specials (skipped, or someone lacks the mod).</summary>
+        private static void NoChanges(Slot slot)
+        {
+            slot.Levels = SkillStats.Empty();
+            slot.Specials = SpecialCatalog.Empty();
+        }
+
+        /// <summary>
+        /// "One per kitchen" specials already locked in by another player (here or on another
+        /// machine): this slot can't lock in with them.
+        /// </summary>
+        private static HashSet<Special> TakenByOthers(Slot self, List<Slot> slots, List<SkillSync.RemoteCard> remote)
+        {
+            var taken = new HashSet<Special>();
+            foreach (Slot slot in slots)
+                if (slot != self && slot.Ready) AddTeamWide(taken, slot.Specials);
+            if (remote != null)
+                foreach (SkillSync.RemoteCard card in remote)
+                    if (card.State == SkillSync.CardState.Ready) AddTeamWide(taken, card.Specials);
+            return taken;
+        }
+
+        private static void AddTeamWide(HashSet<Special> taken, int[] specials)
+        {
+            if (specials == null) return;
+            foreach (int pick in specials)
+            {
+                SpecialInfo info = SpecialCatalog.Info((Special)pick);
+                if (info != null && info.TeamWide) taken.Add(info.Id);
+            }
         }
 
         /// <summary>This machine's cards first, then everyone else's in the session's order.</summary>
@@ -322,8 +373,9 @@ namespace ChefSkills
                 {
                     Key = "L" + (int)slot.Player, Title = slot.Title, IsLocal = true, Player = slot.Player,
                     Colour = slot.Colour, Levels = slot.Levels, Selected = slot.Selected,
-                    FreePoints = slot.FreePoints, DeniedAt = slot.DeniedAt,
-                    State = slot.Ready ? SkillSync.CardState.Ready : SkillSync.CardState.Choosing
+                    FreePoints = slot.FreePoints, DeniedAt = slot.DeniedAt, DeniedReason = slot.DeniedReason,
+                    State = slot.Ready ? SkillSync.CardState.Ready : SkillSync.CardState.Choosing,
+                    Specials = slot.Specials
                 });
             if (remote != null)
                 foreach (SkillSync.RemoteCard card in remote)
@@ -331,13 +383,13 @@ namespace ChefSkills
                     {
                         Key = "R" + card.Key, Title = card.Name, IsLocal = false,
                         Colour = GameArt.ColourAt(card.Colour), Levels = card.Levels, Selected = -1,
-                        FreePoints = SkillStats.FreePoints(card.Levels), DeniedAt = -10f,
-                        State = card.State
+                        FreePoints = SkillStats.FreePoints(card.Levels, card.Specials), DeniedAt = -10f,
+                        State = card.State, Specials = card.Specials
                     });
             return cards;
         }
 
-        private static void HandleInput(Slot slot, bool canUnlock)
+        private static void HandleInput(Slot slot, bool canUnlock, HashSet<Special> taken)
         {
             if (slot.Select.JustPressed())
             {
@@ -345,8 +397,14 @@ namespace ChefSkills
                 if (!slot.Ready)
                 {
                     // A build can only be locked in when it adds up to exactly zero: no point left
-                    // to spend and none overspent.
-                    if (slot.FreePoints == 0)
+                    // to spend and none overspent. And a "one per kitchen" special can't be
+                    // locked in once another player has it.
+                    Special clash = Special.None;
+                    foreach (int pick in slot.Specials)
+                        if (taken.Contains((Special)pick)) clash = (Special)pick;
+                    if (clash != Special.None)
+                        Deny(slot, SpecialCatalog.NameOf(clash) + " IS TAKEN: ONE PER KITCHEN");
+                    else if (slot.FreePoints == 0)
                     {
                         PlaySound(GameOneShotAudioTag.UISelect);
                         slot.Ready = true;
@@ -365,7 +423,8 @@ namespace ChefSkills
             }
             if (slot.Ready) return;
 
-            int count = SkillStats.Count;
+            int count = SkillSelectView.RowCount;
+            if (slot.Selected >= count) slot.Selected = count - 1;
             int move = 0;
             if (slot.Up.JustPressed()) { slot.Up.ClaimPressEvent(); move = -1; }
             if (slot.Down.JustPressed()) { slot.Down.ClaimPressEvent(); move = 1; }
@@ -373,6 +432,12 @@ namespace ChefSkills
             {
                 slot.Selected = (slot.Selected + move + count) % count;
                 PlaySound(GameOneShotAudioTag.UIHighlight);
+            }
+
+            if (slot.Selected >= SkillStats.Count)
+            {
+                HandleSpecialInput(slot, (SpecialSlot)(slot.Selected - SkillStats.Count), taken);
+                return;
             }
 
             int max = SkillStats.MaxLevel;
@@ -401,9 +466,39 @@ namespace ChefSkills
             }
         }
 
+        /// <summary>
+        /// LEFT/RIGHT on a special row steps through that slot's choices ("none" first), skipping
+        /// ones that clash with this card's other picks or that another player has locked in.
+        /// </summary>
+        private static void HandleSpecialInput(Slot slot, SpecialSlot which, HashSet<Special> taken)
+        {
+            int step = 0;
+            if (slot.Left.JustPressed()) { slot.Left.ClaimPressEvent(); step = -1; }
+            if (slot.Right.JustPressed()) { slot.Right.ClaimPressEvent(); step = 1; }
+            if (step == 0) return;
+
+            List<Special> choices = SpecialCatalog.Choices(which);
+            int current = Math.Max(0, choices.IndexOf((Special)slot.Specials[(int)which]));
+            for (int tries = 1; tries <= choices.Count; tries++)
+            {
+                Special next = choices[((current + step * tries) % choices.Count + choices.Count) % choices.Count];
+                if (!SpecialCatalog.Fits(slot.Specials, which, next) || taken.Contains(next)) continue;
+                slot.Specials[(int)which] = (int)next;
+                PlaySound(GameOneShotAudioTag.UIHighlight);
+                return;
+            }
+            Deny(slot);
+        }
+
         private static void Deny(Slot slot)
         {
+            Deny(slot, null);
+        }
+
+        private static void Deny(Slot slot, string reason)
+        {
             slot.DeniedAt = Time.unscaledTime;
+            slot.DeniedReason = reason;
             PlaySound(GameOneShotAudioTag.UIBack);
         }
 
