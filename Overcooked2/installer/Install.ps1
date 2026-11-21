@@ -5,8 +5,8 @@
     the list refreshed, until you choose Q. Pass -All/-Only/-Yes and it does that one thing and
     exits instead, so scripted use never loops.
 
-      OC2Tweaks        F6 panel: ping, force host, kick, saved bans, and an F5 instant
-                       restart you can switch off or rebind in its Phim tat tab.
+      OC2Tweaks        Settings > OC2 TWEAKS: ping, force host, kick, saved bans, corner
+                       ping overlay, and an F5 instant restart you can switch off or rebind.
       RandomLevel      random DIY levels; Continue goes straight to the next random level.
       RelayKitchen     custom level Bếp Tiếp Sức / Night Market Relay (needs OC2DIYLevel).
       BepInEx          the mod loader itself (BepInEx 5 x86), installed or upgraded in place.
@@ -66,7 +66,7 @@ $BepInExFallback = '5.4.23.2'
 # so settings made before the mod moved into this repo are not silently abandoned.
 $Targets = @(
     [pscustomobject]@{ Key = 'OC2Tweaks'; Kind = 'Mod'
-        Blurb = 'F6 panel: ping, force host, kick, bans, F5 instant restart'
+        Blurb = 'Settings > OC2 TWEAKS: ping, kick, bans, force host, F5 restart'
         Id = 'com.manhl.overcooked2.tweaks'; LegacyId = 'com.manhl.overcooked2.lobbytools' }
     [pscustomobject]@{ Key = 'RandomLevel'; Kind = 'Mod'
         Blurb = 'random DIY levels; F8 skips, Continue plays the next level'
@@ -82,10 +82,27 @@ $Targets = @(
     [pscustomobject]@{ Key = 'BepInEx'; Kind = 'Loader'
         Blurb = 'the mod loader itself (BepInEx 5 x86)'
         Id = $null; LegacyId = $null }
-    [pscustomobject]@{ Key = 'ChefRoles'; Kind = 'Mod'
-        Blurb = 'pick a role each level: Cook cooks faster, Server runs and serves faster, or no role'
-        Id = 'com.manhl.overcooked2.chefroles'; LegacyId = $null }
+    [pscustomobject]@{ Key = 'ChefSkills'; Kind = 'Mod'
+        Blurb = 'trade skill levels each level: 9 skills, raise some by lowering others'
+        Id = 'com.manhl.overcooked2.chefskills'; LegacyId = $null }
 )
+
+# Mods that were renamed: installing or removing the new one also takes out the old plugin, so the
+# two never load side by side. (ChefRoles 1.0.0 became ChefSkills 2.0.0; its role settings don't
+# carry over to skills, so its config file is left where it is, unused.)
+$RenamedMods = @{ 'ChefSkills' = @('ChefRoles') }
+
+function Remove-RenamedMod($key) {
+    if (-not $RenamedMods.ContainsKey($key)) { return }
+    foreach ($old in $RenamedMods[$key]) {
+        $oldDir = Get-PluginDir $old
+        $oldDll = Join-Path $oldDir "$old.dll"
+        if (-not (Test-Path -LiteralPath $oldDll)) { continue }
+        Remove-Item -LiteralPath $oldDll -Force
+        if (-not (Get-ChildItem -LiteralPath $oldDir -Force)) { Remove-Item -LiteralPath $oldDir -Force }
+        Write-Note "Removed $old, which $key replaces."
+    }
+}
 
 <#
     The OC2DIYLevel pack is third-party work by someone else (see its own READ ME) and is hundreds
@@ -638,6 +655,7 @@ function Invoke-Remove($selected) {
         $pluginDir = Get-PluginDir $target.Key
         # Only this mod's DLL: anything else the user put in the folder stays.
         $installed = Join-Path $pluginDir "$($target.Key).dll"
+        Remove-RenamedMod $target.Key
         if (Test-Path -LiteralPath $installed) {
             Remove-Item -LiteralPath $installed -Force
             Write-Note "$($target.Key) removed."
@@ -951,6 +969,7 @@ function Invoke-Install($selected) {
         $destination = Join-Path $pluginDir "$($target.Key).dll"
         Copy-Item -LiteralPath $payload.Dll -Destination $destination -Force
         Unblock-Copied $destination
+        Remove-RenamedMod $target.Key
 
         # The mod's GUID changed when it moved into this repo. BepInEx names the config after the
         # GUID, so carry the old file over rather than leaving the user's key binding behind.
@@ -995,7 +1014,7 @@ function Invoke-Install($selected) {
         Write-Host "BepInEx $script:loaderVersion is in place. Nothing else was installed." -ForegroundColor Green
     }
     if ($installedNames -contains $MergedInto) {
-        Write-Note 'OC2Tweaks: press F6 for the panel (in Vietnamese), F5 while playing to restart the level.'
+        Write-Note 'OC2Tweaks: open Settings > OC2 TWEAKS on the main menu (in Vietnamese). F5 while playing restarts the level, F9 toggles the corner ping overlay.'
         Write-Note '           Its Phim tat tab switches the restart key off or rebinds either key. Host only.'
     }
     if ($installedNames -contains 'RandomLevel') {

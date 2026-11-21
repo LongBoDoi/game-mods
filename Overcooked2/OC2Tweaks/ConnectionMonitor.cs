@@ -17,6 +17,21 @@ namespace OC2Tweaks
     internal sealed class PlayerConnection
     {
         internal ConnectionSample Sample;
+        /// <summary>This machine's own row.</summary>
+        internal bool Local;
+        /// <summary>
+        /// Another client's row, seen from a client: nobody here can measure it, so the figure can
+        /// only arrive from the host (see <see cref="ConnectionMonitor.ReceiveRelay"/>).
+        /// </summary>
+        internal bool NeedsRelay;
+    }
+
+    /// <summary>One measured player the host passes on to its clients.</summary>
+    internal struct RelayEntry
+    {
+        internal byte Id;
+        internal float PingMs;
+        internal bool Stale;
     }
 
     internal static class ConnectionMonitor
@@ -32,6 +47,27 @@ namespace OC2Tweaks
         private static readonly Dictionary<IOnlineMultiplayerSessionUserId, PlayerConnection> players =
             new Dictionary<IOnlineMultiplayerSessionUserId, PlayerConnection>();
 
+        // ---- Host -> client relay ------------------------------------------------------------
+        // A client only holds a connection to the host, so it cannot measure anyone else. The host
+        // passes its own figures on inside the game's latency probe, with a negative send time as
+        // the marker: real probes carry Time.realtimeSinceStartup, which is never negative.
+        // PingRelay holds the wire side; this file keeps the encoding and the figures.
+
+        /// <summary>Largest ping that fits the 14-bit field; anything above is shown as this.</summary>
+        internal const int RelayMaxMs = 16383;
+        /// <summary>How long a figure counts as current. The host relays once a second.</summary>
+        internal const float FreshSeconds = 3f;
+        /// <summary>After this long in a room with no relay at all, the host evidently lacks the mod.</summary>
+        internal const float HostSilentSeconds = 6f;
+
+        private struct RelayedPing
+        {
+            internal float PingMs, ReceivedAt;
+            internal bool HostStale;
+        }
+        private static readonly Dictionary<byte, RelayedPing> relayed = new Dictionary<byte, RelayedPing>();
+        private static float clientSince = -1f, lastRelayAt = -1f;
+
         internal static void Validate()
         {
             foreach (FieldInfo field in new[] { LocalServer, LocalClient, Connections, ClientConnectionField, Reliable, Unreliable, History, ReplyTime })
@@ -44,17 +80,29 @@ namespace OC2Tweaks
             return session != null && players.TryGetValue(session, out player) ? player : null;
         }
 
+        private static bool Settled()
+        {
+            if (!Plugin.ConnectionMonitorReady || !SessionStatus.IsInSession()) return false;
+            IConnectionModeSwitchStatus status = ConnectionModeSwitcher.GetStatus();
+            return status != null && status.GetProgress() == eConnectionModeSwitchProgress.Complete;
+        }
+
+        /// <summary>The host's connection table, or null when this machine is not a settled host.</summary>
+        internal static Dictionary<IOnlineMultiplayerSessionUserId, NetworkConnection> HostConnections()
+        {
+            if (!Settled() || !SessionStatus.IsHost()) return null;
+            var server = LocalServer.GetValue(null) as Server;
+            return server == null ? null : Connections.GetValue(server) as
+                Dictionary<IOnlineMultiplayerSessionUserId, NetworkConnection>;
+        }
+
         internal static bool KeepMeasuring(BaseConnection connection)
         {
-            if (!Plugin.ConnectionMonitorReady || !(connection is RemoteConnection) || !SessionStatus.IsInSession()) return false;
-            IConnectionModeSwitchStatus status = ConnectionModeSwitcher.GetStatus();
-            if (status == null || status.GetProgress() != eConnectionModeSwitchProgress.Complete) return false;
+            if (!(connection is RemoteConnection) || !Settled()) return false;
 
             if (SessionStatus.IsHost())
             {
-                var server = LocalServer.GetValue(null) as Server;
-                var connections = server == null ? null : Connections.GetValue(server) as
-                    Dictionary<IOnlineMultiplayerSessionUserId, NetworkConnection>;
+                var connections = HostConnections();
                 var session = connection.GetRemoteSessionUserId();
                 NetworkConnection current;
                 return session != null && connections != null && connections.TryGetValue(session, out current) &&
@@ -66,13 +114,16 @@ namespace OC2Tweaks
             return clientConn != null && ReferenceEquals(clientConn, connection);
         }
 
+        private static void ForgetRelays()
+        {
+            relayed.Clear();
+            clientSince = -1f;
+            lastRelayAt = -1f;
+        }
+
         internal static void Tick(float now)
         {
-            if (!Plugin.ConnectionMonitorReady || !SessionStatus.IsInSession())
-            { players.Clear(); return; }
-            IConnectionModeSwitchStatus status = ConnectionModeSwitcher.GetStatus();
-            if (status == null || status.GetProgress() != eConnectionModeSwitchProgress.Complete)
-            { players.Clear(); return; }
+            if (!Settled()) { players.Clear(); ForgetRelays(); return; }
 
             var server = LocalServer.GetValue(null) as Server;
             var connections = server == null ? null : Connections.GetValue(server) as
@@ -80,6 +131,12 @@ namespace OC2Tweaks
             var client = LocalClient.GetValue(null) as Team17.Online.Multiplayer.Client;
             var clientConn = client == null ? null : ClientConnectionField.GetValue(client) as RemoteConnection;
             bool host = SessionStatus.IsHost();
+            if (host) ForgetRelays();
+            else if (clientSince < 0) clientSince = now;
+
+            // A player who left keeps no figure; one who joins under a reused id must not inherit it.
+            foreach (byte id in new List<byte>(relayed.Keys))
+                if (now - relayed[id].ReceivedAt > 10f) relayed.Remove(id);
 
             var present = new List<IOnlineMultiplayerSessionUserId>();
             foreach (DisplayParty party in Moderation.DisplayParties())
@@ -89,30 +146,46 @@ namespace OC2Tweaks
                 PlayerConnection player;
                 if (!players.TryGetValue(party.Session, out player))
                 { player = new PlayerConnection(); players.Add(party.Session, player); }
+                player.Local = party.IsLocal;
+                player.NeedsRelay = false;
 
                 if (party.IsLocal)
                 {
-                    if (host)
-                    {
-                        // The host talks to itself over loopback: no network round trip at all.
-                        player.Sample = new ConnectionSample { Available = true, Measured = true, PingMs = 0f, LastReplyTime = now };
-                    }
-                    else
-                    {
-                        player.Sample = Read(clientConn, now);
-                    }
+                    // The host talks to itself over loopback: no network round trip at all.
+                    player.Sample = host ? Loopback(now) : Read(clientConn, now);
+                }
+                else if (host)
+                {
+                    NetworkConnection connection;
+                    player.Sample = connections != null && connections.TryGetValue(party.Session, out connection) ?
+                        Read(connection as RemoteConnection, now) : new ConnectionSample();
+                }
+                else if (party.Session.IsHost)
+                {
+                    // Every figure in the room is a round trip to the host, so the host's own is
+                    // zero here exactly as it is on the host's panel.
+                    player.Sample = Loopback(now);
                 }
                 else
                 {
-                    // Only the host holds every remote client's connection; a client can see the
-                    // roster but has no way to measure anyone else's latency.
-                    NetworkConnection connection;
-                    player.Sample = host && connections != null && connections.TryGetValue(party.Session, out connection) ?
-                        Read(connection as RemoteConnection, now) : new ConnectionSample();
+                    player.NeedsRelay = true;
+                    RelayedPing relay;
+                    player.Sample = relayed.TryGetValue(party.Session.UniqueId, out relay) ?
+                        new ConnectionSample
+                        {
+                            Available = true, Measured = true, PingMs = relay.PingMs,
+                            // The host's own "no fresh reply" mark carries over as an old reply time.
+                            LastReplyTime = relay.HostStale ? float.MinValue : relay.ReceivedAt
+                        } : new ConnectionSample();
                 }
             }
             foreach (var session in new List<IOnlineMultiplayerSessionUserId>(players.Keys))
                 if (!present.Contains(session)) players.Remove(session);
+        }
+
+        private static ConnectionSample Loopback(float now)
+        {
+            return new ConnectionSample { Available = true, Measured = true, PingMs = 0f, LastReplyTime = now };
         }
 
         private static ConnectionSample Read(RemoteConnection connection, float now)
@@ -128,7 +201,7 @@ namespace OC2Tweaks
                 float latency = measure.GetAverageOneWayTripTime();
                 if (float.IsNaN(latency) || float.IsInfinity(latency) || latency < 0) continue;
                 float reply = (float)ReplyTime.GetValue(measure);
-                bool fresh = now - reply <= 3f;
+                bool fresh = now - reply <= FreshSeconds;
                 // An old sample from one channel must not override a fresh reply on the other.
                 if (haveFreshChannel && !fresh) continue;
                 if (fresh && !haveFreshChannel)
@@ -141,14 +214,103 @@ namespace OC2Tweaks
             return sample;
         }
 
+        private static bool ValidPing(ConnectionSample sample)
+        {
+            return sample.Available && sample.Measured && !float.IsNaN(sample.PingMs) &&
+                !float.IsInfinity(sample.PingMs) && sample.PingMs >= 0;
+        }
+
+        /// <summary>The current ping in ms, or false when there is no usable figure.</summary>
+        internal static bool TryPing(IOnlineMultiplayerSessionUserId session, out float pingMs)
+        {
+            var player = Get(session);
+            bool valid = player != null && ValidPing(player.Sample);
+            pingMs = valid ? player.Sample.PingMs : 0f;
+            return valid;
+        }
+
+        /// <summary>The figure has had a reply within <see cref="FreshSeconds"/>.</summary>
+        internal static bool IsCurrent(IOnlineMultiplayerSessionUserId session, float now)
+        {
+            var player = Get(session);
+            return player != null && ValidPing(player.Sample) && now - player.Sample.LastReplyTime <= FreshSeconds;
+        }
+
+        /// <summary>
+        /// A client's row for another client, with nothing from the host after
+        /// <see cref="HostSilentSeconds"/>: the host is not running this mod, so it never will.
+        /// </summary>
+        internal static bool HostLacksMod(IOnlineMultiplayerSessionUserId session, float now)
+        {
+            var player = Get(session);
+            return player != null && player.NeedsRelay && !ValidPing(player.Sample) &&
+                clientSince >= 0 && lastRelayAt < 0 && now - clientSince > HostSilentSeconds;
+        }
+
         internal static string Display(IOnlineMultiplayerSessionUserId session, float now)
         {
             var player = Get(session);
-            if (player == null || !player.Sample.Available) return "Độ trễ: đang đo...";
-            bool validPing = player.Sample.Measured && !float.IsNaN(player.Sample.PingMs) &&
-                !float.IsInfinity(player.Sample.PingMs) && player.Sample.PingMs >= 0;
-            return "Độ trễ: " + (validPing ? player.Sample.PingMs.ToString("0") + " ms" +
-                (now - player.Sample.LastReplyTime > 3f ? " (đang cập nhật)" : "") : "đang đo...");
+            if (player == null || !ValidPing(player.Sample))
+                return HostLacksMod(session, now) ? "Độ trễ: chủ phòng chưa cài OC2Tweaks" : "Độ trễ: đang đo...";
+            return "Độ trễ: " + player.Sample.PingMs.ToString("0") + " ms" +
+                (IsCurrent(session, now) ? "" : " (đang cập nhật)");
+        }
+
+        // ---- relay, host side ----
+
+        /// <summary>The host's measured remote players, to pass on to its clients.</summary>
+        internal static List<RelayEntry> RelayEntries(float now)
+        {
+            var result = new List<RelayEntry>();
+            if (!SessionStatus.IsHost()) return result;
+            foreach (var pair in players)
+            {
+                if (pair.Value.Local || pair.Key == null || !ValidPing(pair.Value.Sample)) continue;
+                result.Add(new RelayEntry
+                {
+                    Id = pair.Key.UniqueId, PingMs = pair.Value.Sample.PingMs,
+                    Stale = now - pair.Value.Sample.LastReplyTime > FreshSeconds
+                });
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Packs one player into a probe's send time: -(1 + (id &lt;&lt; 15 | stale &lt;&lt; 14 | ms)).
+        /// The largest code is 2^23, so every one is an exact float.
+        /// </summary>
+        internal static float EncodeRelay(byte id, float pingMs, bool stale)
+        {
+            int ms = pingMs >= RelayMaxMs ? RelayMaxMs : pingMs > 0 ? (int)(pingMs + 0.5f) : 0;
+            int bits = (id << 15) | (stale ? 1 << 14 : 0) | ms;
+            return -(bits + 1f);
+        }
+
+        internal static bool IsRelay(float sendTime) { return sendTime < 0; }
+
+        internal static bool DecodeRelay(float sendTime, out byte id, out float pingMs, out bool stale)
+        {
+            id = 0; pingMs = 0; stale = false;
+            if (!IsRelay(sendTime) || float.IsInfinity(sendTime)) return false;
+            float raw = -sendTime - 1f;
+            if (raw < 0 || raw > (1 << 23) - 1 || raw != (float)Math.Floor(raw)) return false;
+            int bits = (int)raw;
+            id = (byte)(bits >> 15);
+            stale = (bits & (1 << 14)) != 0;
+            pingMs = bits & RelayMaxMs;
+            return true;
+        }
+
+        // ---- relay, client side ----
+
+        /// <summary>A relayed figure from the host arrived. Ignored while hosting.</summary>
+        internal static bool ReceiveRelay(float sendTime, float now)
+        {
+            byte id; float pingMs; bool stale;
+            if (SessionStatus.IsHost() || !DecodeRelay(sendTime, out id, out pingMs, out stale)) return false;
+            relayed[id] = new RelayedPing { PingMs = pingMs, HostStale = stale, ReceivedAt = now };
+            lastRelayAt = now;
+            return true;
         }
     }
 

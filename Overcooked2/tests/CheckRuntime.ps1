@@ -67,13 +67,21 @@ try {
         } else { $checked++ }
     }
 
-    $ui = $assembly.MainModule.GetType('OC2Tweaks.ToolsUI')
-    if (-not $ui) { $failed += 'Missing OC2Tweaks.ToolsUI; the panel and the restart key both run off it' }
-    else {
+    # Unity calls these by name off MonoBehaviour: the always-on runtime (bans, ping, keys,
+    # overlay) and the settings screen's refresh and scrolling.
+    $unityMessages = @{
+        'OC2Tweaks.Runtime' = @('Update', 'OnGUI')
+        'OC2Tweaks.TweaksMenu' = @('Update', 'LateUpdate', 'OnDisable')
+        'OC2Tweaks.TabEntry' = @('OnEnable', 'LateUpdate')
+        'OC2Tweaks.DialogFonts' = @('OnDisable')
+    }
+    foreach ($typeName in $unityMessages.Keys) {
+        $type = $assembly.MainModule.GetType($typeName)
+        if (-not $type) { $failed += "Missing $typeName"; continue }
         $checked++
-        foreach ($name in 'Update', 'OnGUI') {
-            if (-not ($ui.Methods | Where-Object { $_.Name -eq $name -and $_.Parameters.Count -eq 0 })) {
-                $failed += "OC2Tweaks.ToolsUI has no $name(); Unity would never call it"
+        foreach ($name in $unityMessages[$typeName]) {
+            if (-not ($type.Methods | Where-Object { $_.Name -eq $name -and $_.Parameters.Count -eq 0 })) {
+                $failed += "$typeName has no $name(); Unity would never call it"
             } else { $checked++ }
         }
     }
@@ -124,6 +132,60 @@ try {
         if (-not ($baseConnection.Methods | Where-Object { $_.Name -eq 'GetLatencyTestPaused' -and $_.Parameters.Count -eq 0 })) {
             $failed += 'Missing continuous-ping patch target: BaseConnection.GetLatencyTestPaused()'
         } else { $checked++ }
+
+        # The host relays everyone's ping inside the game's latency probe; clients read it in a
+        # prefix on the probe handler. Harmony binds prefix arguments by name, so check those too.
+        $measure = $game.MainModule.GetType('Team17.Online.Multiplayer.Connection.LatencyMeasure')
+        $receive = $measure.Methods | Where-Object { $_.Name -eq 'OnLatencyReceived' } | Select-Object -First 1
+        if (-not $receive) { $failed += 'Missing ping-relay patch target: LatencyMeasure.OnLatencyReceived' }
+        else {
+            $checked++
+            $names = @($receive.Parameters | ForEach-Object { $_.Name }) -join ','
+            if ($names -ne 'from,message') {
+                $failed += "LatencyMeasure.OnLatencyReceived parameters are ($names), the relay prefix expects (from,message)"
+            } else { $checked++ }
+        }
+        if (-not ($measure.Fields | Where-Object { $_.Name -eq 'm_bReliable' -and $_.FieldType.FullName -eq 'System.Boolean' })) {
+            $failed += 'Missing ping-relay field: LatencyMeasure.m_bReliable (bool)'
+        } else { $checked++ }
+        # Real probes carry Time.realtimeSinceStartup here; the relay marks itself with a negative one.
+        $latencyMessage = $game.MainModule.GetType('LatencyMessage')
+        if (-not ($latencyMessage.Fields | Where-Object { $_.Name -eq 'm_fTime' -and $_.FieldType.FullName -eq 'System.Single' })) {
+            $failed += 'Missing ping-relay carrier: LatencyMessage.m_fTime (float)'
+        } else { $checked++ }
+
+        # --- the Settings screen: patch targets and private members reached by name --------------
+        function Assert-Method($typeName, $name, $parameters, $why) {
+            $type = $game.MainModule.GetType($typeName)
+            $method = if ($type) { $type.Methods | Where-Object { $_.Name -eq $name } | Select-Object -First 1 }
+            if (-not $method) { $script:failed += "Missing $typeName.$name ($why)"; return }
+            $names = @($method.Parameters | ForEach-Object { $_.Name }) -join ','
+            if ($null -ne $parameters -and $names -ne $parameters) {
+                $script:failed += "$typeName.$name parameters are ($names), expected ($parameters) ($why)"
+            } else { $script:checked++ }
+        }
+        function Assert-Field($typeName, $name, $why) {
+            $type = $game.MainModule.GetType($typeName)
+            if (-not ($type -and ($type.Fields | Where-Object Name -eq $name))) { $script:failed += "Missing $typeName.$name ($why)" }
+            else { $script:checked++ }
+        }
+        Assert-Method 'FrontendRootMenu' 'Awake' '' 'adds the OC2 TWEAKS entry to Settings'
+        Assert-Method 'FrontendRootMenu' 'OnMenuShow' 'menu' 'tells the main menu the screen is open, so Esc closes it'
+        Assert-Method 'FrontendRootMenu' 'OnMenuHide' 'menu' 'and that it closed'
+        Assert-Field 'FrontendOptionsMenu' 'm_VersionString' 'the version line the screen reuses'
+        Assert-Field 'FrontendOptionsMenu' 'm_ScrollView' 'the list the screen is built around'
+        Assert-Field 'BaseUIOption`1' 'm_OptionType' 'cleared so a copied row leaves the game option alone'
+        Assert-Field 'BaseUIOption`1' 'm_Option' 'where a copied row is pointed at the mod setting'
+        Assert-Field 'T17NavigableGrid' 'm_ContentIsDynamic' 'the list must not rebuild its rows on its own'
+        Assert-Field 'T17ScrollView' 'm_bScrollToSelectedElement' 'the screen does its own scrolling'
+        if (-not $game.MainModule.GetType('FrontendGameSettingsTab')) { $failed += 'Missing FrontendGameSettingsTab: the Settings tab the entry goes into' } else { $checked++ }
+        # The game's player cards: the hidden Kick button the mod switches on for the host.
+        Assert-Field 'UIPlayerMenuBehaviour' 'm_menuOptions' 'the card entries, Kick among them'
+        Assert-Field 'UIPlayerMenuBehaviour/MenuOption' 'm_platformsActiveOn' 'Kick is hidden on every platform here'
+        Assert-Method 'UIPlayerMenuBehaviour' 'OnClick' '_option' 'Kick opens the kick/ban prompt'
+        Assert-Method 'UIPlayerMenuBehaviour' 'Awake' '' 'Kick is un-hidden as each card is made'
+        Assert-Method 'UIPlayerRootMenu' 'ReCreateUIPlayers' '' 'lets the host kick from the cards'
+        Assert-Field 'UIPlayerRootMenu' 'm_canKickUsers' 'lets the host kick from the cards'
     } finally { $game.Dispose() }
     if ($failed.Count) { throw ($failed -join [Environment]::NewLine) }
     Write-Host "PASS: $checked type/member references resolve against the shipped game runtime."

@@ -1,17 +1,17 @@
 <#
-    Checks the built ChefRoles against the installed game.
+    Checks the built ChefSkills against the installed game.
 
-    The compiler checks everything ChefRoles calls directly. What it cannot check is what Harmony
+    The compiler checks everything ChefSkills calls directly. What it cannot check is what Harmony
     and AccessTools look up by name at runtime: patch target methods, the parameter names patch
     methods bind to (a wrong one makes Harmony throw and the whole plugin unpatch itself), and
     private fields read by name. Each of those is asserted here.
 
-    Run it after ChefRoles\build.cmd:
-        powershell -NoProfile -File tests\CheckChefRoles.ps1
+    Run it after ChefSkills\build.cmd:
+        powershell -NoProfile -File tests\CheckChefSkills.ps1
 #>
 param(
     [string]$GameDir = 'E:\Steam\steamapps\common\Overcooked! 2',
-    [string]$PluginPath = (Join-Path $PSScriptRoot '..\dist\ChefRoles.dll')
+    [string]$PluginPath = (Join-Path $PSScriptRoot '..\dist\ChefSkills.dll')
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -Path (Join-Path $GameDir 'BepInEx\core\Mono.Cecil.dll')
@@ -44,26 +44,26 @@ try {
     # Compiled against the game's mscorlib, not .NET 4's.
     $corlib = $assembly.MainModule.AssemblyReferences | Where-Object Name -eq 'mscorlib' | Select-Object -First 1
     if ($corlib -and $corlib.Version.Major -ge 4) {
-        $failed += "ChefRoles references mscorlib $($corlib.Version); the game runs the 2.0 profile (use build.cmd)"
+        $failed += "ChefSkills references mscorlib $($corlib.Version); the game runs the 2.0 profile (use build.cmd)"
     } else { $checked++ }
 
     # --- what BepInEx needs to load the plugin ------------------------------------------------
-    $plugin = $assembly.MainModule.GetType('ChefRoles.Plugin')
-    if (-not $plugin) { $failed += 'Missing ChefRoles.Plugin' }
+    $plugin = $assembly.MainModule.GetType('ChefSkills.Plugin')
+    if (-not $plugin) { $failed += 'Missing ChefSkills.Plugin' }
     else {
         $checked++
         $attribute = $plugin.CustomAttributes |
             Where-Object { $_.AttributeType.FullName -eq 'BepInEx.BepInPlugin' } | Select-Object -First 1
-        if (-not $attribute) { $failed += 'ChefRoles.Plugin has no [BepInPlugin]' }
-        elseif ($attribute.ConstructorArguments[0].Value -ne 'com.manhl.overcooked2.chefroles') {
-            $failed += "[BepInPlugin] GUID is '$($attribute.ConstructorArguments[0].Value)', the installer expects com.manhl.overcooked2.chefroles"
+        if (-not $attribute) { $failed += 'ChefSkills.Plugin has no [BepInPlugin]' }
+        elseif ($attribute.ConstructorArguments[0].Value -ne 'com.manhl.overcooked2.chefskills') {
+            $failed += "[BepInPlugin] GUID is '$($attribute.ConstructorArguments[0].Value)', the installer expects com.manhl.overcooked2.chefskills"
         } else { $checked++ }
         if ($plugin.CustomAttributes | Where-Object { $_.AttributeType.FullName -eq 'BepInEx.BepInDependency' }) {
-            $failed += 'ChefRoles.Plugin has a [BepInDependency]; it needs no other plugin and would not load without it'
+            $failed += 'ChefSkills.Plugin has a [BepInDependency]; it needs no other plugin and would not load without it'
         } else { $checked++ }
         foreach ($name in 'Awake', 'Update') {
             if (-not ($plugin.Methods | Where-Object { $_.Name -eq $name -and $_.Parameters.Count -eq 0 })) {
-                $failed += "ChefRoles.Plugin has no $name(); Unity would never call it"
+                $failed += "ChefSkills.Plugin has no $name(); Unity would never call it"
             } else { $checked++ }
         }
     }
@@ -121,13 +121,18 @@ try {
         }
         if ($found -eq 0) { $failed += "$($type.Name) has [HarmonyPatch] but no patch methods" }
     }
-    if ($patchClasses -lt 6) { $failed += "Expected 6 patch classes (intro, chop, cook, placement, serve, run), found $patchClasses" }
+    if ($patchClasses -lt 10) {
+        $failed += "Expected 10 patch classes (intro, chop, cook, mix, placement, serve, wash, throw, firefight, movement), found $patchClasses"
+    }
 
     # --- private members reached by name -----------------------------------------------------
     $byName = @{
         'PlateReturnController'            = @('m_plateReturnControllerDesc')
         'ClientPlayerControlsImpl_Default' = @('m_controls')
-        'T17InGameFlow'                    = @('m_pauseMenu')
+        'ServerWashingStation'             = @('m_cleaningTimer', 'm_interactor')
+        'ServerAttachmentThrower'          = @('m_thrower')
+        'ServerFireExtinguishSpray'        = @('m_FireExtinguishSpray')
+        'Team17.Online.SteamOnlineMultiplayerSessionCoordinator' = @('m_lobbyId')
     }
     foreach ($typeName in $byName.Keys) {
         $type = $game.MainModule.GetType($typeName)

@@ -45,6 +45,7 @@ namespace Team17.Online
         string DisplayName { get; }
         bool IsLocal { get; }
         bool IsHost { get; }
+        byte UniqueId { get; }
     }
     public class SteamOnlineMultiplayerSessionUserId : IOnlineMultiplayerSessionUserId
     {
@@ -52,6 +53,7 @@ namespace Team17.Online
         public string DisplayName { get; set; }
         public bool IsLocal { get; set; }
         public bool IsHost { get; set; }
+        public byte UniqueId { get; set; }
     }
     public class User
     {
@@ -110,6 +112,16 @@ namespace Team17.Online
     }
 }
 public enum GameState { MainMenu, PartyLobby, VSLobby, InLevel, InMap, LoadKitchen }
+public class OptionsData { public enum Categories { Graphics, Audio, SafeArea, Controls, System } }
+public interface IOption
+{
+    OptionsData.Categories Category { get; }
+    string Label { get; }
+    void SetOption(int _value);
+    int GetOption();
+    void Commit();
+}
+public interface INameListOption : IOption { string[] GetNames(); }
 public enum eConnectionModeSwitchProgress { Complete, InProgress }
 public interface IConnectionModeSwitchStatus { eConnectionModeSwitchProgress GetProgress(); }
 public sealed class TestConnectionStatus : IConnectionModeSwitchStatus

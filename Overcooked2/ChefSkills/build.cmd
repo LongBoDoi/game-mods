@@ -1,9 +1,9 @@
 @echo off
-rem Builds ChefRoles.dll with the C# compiler that ships with Windows (no .NET SDK needed) and
+rem Builds ChefSkills.dll with the C# compiler that ships with Windows (no .NET SDK needed) and
 rem stages it in ..\dist\. It compiles against the game's own mscorlib/System (the .NET 3.5
 rem profile Overcooked! 2 runs on), so it can't accidentally use APIs the game doesn't have.
 rem   build.cmd            build and stage in ..\dist\
-rem   build.cmd deploy     also copy into the game's BepInEx\plugins\ChefRoles (game closed)
+rem   build.cmd deploy     also copy into the game's BepInEx\plugins\ChefSkills (game closed)
 rem   set GAME_DIR=D:\Games\Overcooked! 2   before running, if the game is somewhere else
 setlocal
 if "%GAME_DIR%"=="" set "GAME_DIR=E:\Steam\steamapps\common\Overcooked! 2"
@@ -22,9 +22,9 @@ if not exist "%CORE%\BepInEx.dll" (
 )
 if not exist "%OUT%" mkdir "%OUT%"
 
-echo Building ChefRoles.dll...
+echo Building ChefSkills.dll...
 "%CSC%" /nologo /noconfig /nostdlib+ /target:library /optimize+ /langversion:5 ^
-  /out:"%OUT%\ChefRoles.dll" ^
+  /out:"%OUT%\ChefSkills.dll" ^
   /r:"%MANAGED%\mscorlib.dll" ^
   /r:"%MANAGED%\System.dll" ^
   /r:"%MANAGED%\System.Core.dll" ^
@@ -50,16 +50,16 @@ if errorlevel 1 (
 )
 
 if not exist "%~dp0..\dist" mkdir "%~dp0..\dist"
-copy /y "%OUT%\ChefRoles.dll" "%~dp0..\dist\ChefRoles.dll" >nul
-echo Built: %OUT%\ChefRoles.dll  (staged in dist\)
+copy /y "%OUT%\ChefSkills.dll" "%~dp0..\dist\ChefSkills.dll" >nul
+echo Built: %OUT%\ChefSkills.dll  (staged in dist\)
 
 if /i "%~1"=="deploy" (
-    if not exist "%GAME_DIR%\BepInEx\plugins\ChefRoles" mkdir "%GAME_DIR%\BepInEx\plugins\ChefRoles"
-    copy /y "%OUT%\ChefRoles.dll" "%GAME_DIR%\BepInEx\plugins\ChefRoles\ChefRoles.dll" >nul
+    if not exist "%GAME_DIR%\BepInEx\plugins\ChefSkills" mkdir "%GAME_DIR%\BepInEx\plugins\ChefSkills"
+    copy /y "%OUT%\ChefSkills.dll" "%GAME_DIR%\BepInEx\plugins\ChefSkills\ChefSkills.dll" >nul
     if errorlevel 1 (
         echo Could not copy into the game. Close Overcooked! 2 and try again.
         exit /b 1
     )
-    echo Installed into "%GAME_DIR%\BepInEx\plugins\ChefRoles".
+    echo Installed into "%GAME_DIR%\BepInEx\plugins\ChefSkills".
 )
 endlocal

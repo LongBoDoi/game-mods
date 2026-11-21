@@ -2,16 +2,16 @@
 
 | Mod | What it does |
 |---|---|
-| [OC2Tweaks](OC2Tweaks/) | In-game panel (**F6**, Vietnamese) for the lobby you host: every remote player's **ping** in ms, **kick**, **ban** (saved, and re-kicked automatically next time), and **force host** so public Arcade/Versus matchmaking creates your lobby instead of joining someone else's. Plus **F5** to restart the level you're playing straight away — no pause menu, no "are you sure?" — switchable and rebindable from the panel's **Phím tắt** tab |
+| [OC2Tweaks](OC2Tweaks/) | A screen in the game's own **Settings → OC2 TWEAKS** menu (Vietnamese): **force host** so public Arcade/Versus matchmaking creates your lobby instead of joining someone else's, a corner overlay with every player's **ping** in ms (**F9**), and the saved ban list. The game's own player cards gain a working **Kick** for the host, with **ban** (saved, and re-kicked automatically next time). Plus **F5** to restart the level you're playing straight away — no pause menu, no "are you sure?" — switchable and rebindable on the same screen |
 | [RandomLevel](RandomLevel/) | **More Levels → Chơi ngẫu nhiên — tất cả màn** starts a shuffled rotation of installed DIY levels. **F8** skips the current round; **Continue** loads the next random level directly; **Restart** keeps the current level; **F7** at results returns to the main menu. Requires OC2DIYLevel |
-| [ChefRoles](ChefRoles/) | After each kitchen loads, every local player picks a role on a screen made from the game's own pause-menu panel: **Cook** cooks faster but serves slower, **Server** runs and serves faster but cooks and chops slower, or **no role** (game default). **F9** skips the screen |
+| [ChefSkills](ChefSkills/) | After each kitchen loads, every player shapes their chef on a screen built from the game's own dialog art (one card per player, in their chef colour, including online players' live builds and lock-in status): nine skills — **cooking**, **slow burn**, **chopping**, **washing**, **serving**, **running**, **dashing**, **throwing** and **firefighting** — where raising one costs a point freed by lowering another, and a build locks in only when it adds up to zero. The level starts once everyone has locked in. Holding the game's **Skip** button skips the screen. Replaces ChefRoles |
 
 **Install:** download `Overcooked2-v*.zip` from the release, extract it anywhere, and double-click `Install.cmd` with the game closed. It finds the game through Steam and then **stays open**, asking what you want, doing it, and asking again with the list refreshed — so you can install one mod, upgrade BepInEx and check the result in one sitting. It closes when you choose **Q**.
 
 ```
 Which would you like to install?
 
-  1) OC2Tweaks        F6 panel: ping, force host, kick, bans, F5 instant restart  [installed 2.0.0.0]
+  1) OC2Tweaks        Settings > OC2 TWEAKS: ping, kick, bans, force host, F5 restart  [installed 3.0.0.0]
   2) RandomLevel      random DIY levels; Continue plays the next random level     [not installed]
   3) OC2DIYLevel      custom level pack + helper plugins (not bundled: ~400 MB)   [installed, 12 level sets]
   4) BepInEx          the mod loader itself (BepInEx 5 x86)                       [installed 5.4.23.6]
@@ -75,30 +75,28 @@ and preparation, cooking, washing and serving on both banks.
 See [RelayKitchen/README.md](RelayKitchen/README.md) for the layout,
 build and install instructions, attribution, and current playtest status.
 
-## ChefRoles
+## ChefSkills
 
-Right after the loading screen (and after any intro cutscene), before **Ready… Go!**, the kitchen stays frozen and a **CHOOSE YOUR ROLE** panel appears with one bar per local player. **Left/Right** changes your role, **Select** locks it in, **Back** unlocks it; the level starts when everyone is ready, after 30 seconds, or on **F9**. Each player's last pick is pre-selected on the next level. Online, roles work fully for the host's own chefs; see [ChefRoles/README.md](ChefRoles/README.md) for exactly what applies to joining players, the numbers and how to tune them.
+Right after the loading screen (and after any intro cutscene), before **Ready… Go!**, the kitchen stays frozen and a **CHOOSE YOUR SKILLS** dialog appears with one card per player. Online, that includes the other PCs' players, whose cards show their build and whether they've locked in. **Up/Down** picks a skill, **Left** lowers it to free a point, **Right** raises it (even past what you have freed), and **Select** locks the build in only when it adds up to exactly zero; **Back** unlocks it. There is no timer: the level starts only when every player has locked in, or when someone holds the game's **Skip** button for a second, like skipping a cutscene (the host's skip counts for everyone). Each player's last build is pre-selected on the next level.
+
+Online, everyone in the lobby needs Chef Skills: if anyone doesn't have it, each level is played the normal way, with no skill screen and no skill changes for anybody. With everyone on board, running and dashing apply on each player's own PC, and the rest on the host, which matches each joining player's chef to their build. ChefSkills 2.0.0 replaces ChefRoles 1.0.0 (Cook / Server roles), and the installer removes the old plugin. See [ChefSkills/README.md](ChefSkills/README.md) for every skill's numbers and how to tune them.
 
 ## OC2Tweaks
 
 LobbyTools and QuickKeyRestart were separate mods until OC2Tweaks 2.0.0 merged them, so there is one config file, one place to see both hotkeys, and somewhere in game to turn the restart key off. Choosing OC2Tweaks in the installer carries your old settings, ban list and rebound keys over and removes the two old plugins — [OC2Tweaks/README.md](OC2Tweaks/README.md#upgrading-from-lobbytools--quickkeyrestart) lists exactly what moves where.
 
-**Using it:** press **F6** in a lobby you host, including during a level or on the campaign map. The **Người chơi** (players) tab refreshes every 0.25 s and shows each remote player's name and ping. Steam IDs are used internally for bans and never shown in the panel.
+**Using it:** on the main menu (or in a lobby), open **Settings → OC2 TWEAKS**. It is a screen built from the game's own Game Settings screen, so it works with mouse, keyboard or pad like the rest of the menu; **Z / C** (LB / RB) switch tabs — the caps beside the tabs show the game's LB / RB icons while you use a pad — **Esc** or **XONG** closes it, and every change is saved as you make it. The line under the list explains whichever row is selected. Tabs:
 
-- **Đuổi** (kick): the player leaves and can rejoin.
-- **Cấm** (ban): saves their Steam ID and kicks them. If that account turns up in a lobby you host again, the mod kicks it automatically, even with the panel closed.
-- **Bỏ cấm** (unban): removes an account from the list in the **Đã cấm** tab.
+- **Tùy chọn** (options): force host (public Arcade/Versus matchmaking creates your lobby instead of joining someone else's; off by default), the corner ping overlay and its corner, and quick restart on/off.
+- **Phím tắt** (hotkeys): select a hotkey and press any key — hold Ctrl/Shift/Alt for a combination, Esc to cancel. Restart (**F5**), overlay (**F9**), and the tab keys (**Z / C**).
+- **Đã cấm** (banned): the saved list; select an account to **Bỏ cấm** (unban).
 
-Kicking and banning both ask for confirmation, and only the host can do either. Players sharing one remote machine share a connection, so they leave together.
+**Kick and ban:** the game's own player cards (pause menu, round results) get a working **Kick** for the host, offering **Đuổi** (kick; they can rejoin) or **Cấm...** (ban: saves their Steam ID, kicks them, and kicks that account automatically whenever it turns up in a lobby you host). Both ask first, with **Hủy** (cancel) selected. Steam IDs are never shown. Players sharing one remote machine share a connection, so they leave together.
 
-**Force host:** in **F6 → Ghép trận** (matchmaking), switch on **Luôn làm chủ phòng khi ghép trận** before searching for a public Arcade/Versus match. You create the lobby and wait for others to join. The choice is saved, applies from the next search, and is off by default.
+**Ping** is on the corner overlay (**F9**, or ticked in **Tùy chọn**), your own line reading **Bạn**. It is display only: it never filters matchmaking and never kicks anyone for a bad connection. With no measurement yet a line shows **đang đo...** (measuring); a figure with no fresh reply for 3 seconds keeps its value and turns grey. Clients see everyone's ping only when the host runs OC2Tweaks too.
 
-**Ping** is display only: it never filters matchmaking and never kicks anyone for a bad connection. With no measurement yet the panel shows **đang đo...** (measuring); while a level loads or the game pauses its own measuring, it keeps the last value and adds **(đang cập nhật)** after 3 seconds without a fresh reply.
+**Quick restart:** press **F5** while a level is running and it restarts immediately — the same thing **Pause → Restart → yes** does, without the menu or the dialog. It deliberately ignores the key outside a running level (main menu, lobby, campaign map, loading screens), because restarting mid-scene-change is what strands a match on a black screen, and ignores a second press within 3 seconds. Each case says so in the BepInEx log.
 
-**Quick restart:** press **F5** while a level is running and it restarts immediately — the same thing **Pause → Restart → yes** does, without the menu or the dialog. It deliberately ignores the key outside a running level (main menu, lobby, campaign map, loading screens), because restarting mid-scene-change is what strands a match on a black screen; it also ignores a second press within 3 seconds, and the key while the panel is open. Each case says so in the BepInEx log.
-
-**Phím tắt** (hotkeys) tab: untick the box to stop the restart key working without losing the key you chose, **Đổi phím** to rebind either key by pressing the new one (hold Ctrl/Shift/Alt for a combination, Esc to cancel), and a button that restarts the current level so you can see it work. The tab also says whether you are in a level and how long is left on the 3-second cooldown.
-
-**Settings and ban list:** `BepInEx\config\com.manhl.overcooked2.tweaks.cfg` and `…tweaks.bans.tsv`. Both survive uninstalling. The F6 and F5 defaults stay clear of Host Force Theme's F1/F2.
+**Settings and ban list:** `BepInEx\config\com.manhl.overcooked2.tweaks.cfg` and `…tweaks.bans.tsv`. Both survive uninstalling. The F5 and F9 defaults stay clear of Host Force Theme's F1/F2 and RandomLevel's F7/F8.
 
 For the Steam Mono build only (Unity 2017, 32-bit, BepInEx 5 **x86**). Players joining you don't need OC2Tweaks or RandomLevel. See each mod's README for details and in-match test checklists.

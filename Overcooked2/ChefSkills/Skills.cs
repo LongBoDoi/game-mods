@@ -1,0 +1,257 @@
+using System;
+using System.Collections.Generic;
+using System.Text;
+using BepInEx.Configuration;
+using Team17.Online.Multiplayer.Messaging;
+using UnityEngine;
+
+namespace ChefSkills
+{
+    /// <summary>
+    /// The skills a chef can trade levels between. Each one has a level from -MaxLevel to
+    /// +MaxLevel (0 = game default), and a chef's levels always add up to zero: raising one skill
+    /// costs a point that has to come from lowering another.
+    /// </summary>
+    public enum Skill
+    {
+        /// <summary>Cook/mix speed of pots, pans and mixing bowls this chef last filled or placed.</summary>
+        Cooking,
+        /// <summary>How long that chef's finished food takes to burn (or over-mix).</summary>
+        SlowBurn,
+        /// <summary>How much each chop counts.</summary>
+        Chopping,
+        /// <summary>How fast this chef washes plates at a sink.</summary>
+        Washing,
+        /// <summary>How soon the dirty plate comes back after this chef hands a dish in.</summary>
+        Serving,
+        /// <summary>Walking/running speed.</summary>
+        Running,
+        /// <summary>Dash distance and how soon the dash recharges.</summary>
+        Dashing,
+        /// <summary>How far this chef throws.</summary>
+        Throwing,
+        /// <summary>How fast this chef's fire extinguisher puts fires out.</summary>
+        Firefighting,
+    }
+
+    /// <summary>
+    /// What each skill level is worth, read from the BepInEx config so it can be tuned without a
+    /// rebuild. A level is worth PercentPerLevel: at 12, level +3 is 36% faster and level -2 is
+    /// 24% slower.
+    /// </summary>
+    internal static class SkillStats
+    {
+        internal static readonly int Count = Enum.GetValues(typeof(Skill)).Length;
+
+        private const float MinMultiplier = 0.1f;
+        private const float MaxMultiplier = 5f;
+
+        private static readonly ConfigEntry<int>[] Percent = new ConfigEntry<int>[Count];
+        private static ConfigEntry<int> _maxLevel;
+
+        /// <summary>Skill name on the screen.</summary>
+        internal static readonly string[] Names =
+        {
+            "COOKING", "SLOW BURN", "CHOPPING", "WASHING", "SERVING", "RUNNING", "DASHING", "THROWING", "FIREFIGHTING",
+        };
+
+        /// <summary>The line under a player's skills that explains the highlighted one.</summary>
+        internal static readonly string[] Descriptions =
+        {
+            "How fast pots, pans and mixers you fill cook and mix",
+            "How long the food you cooked lasts before it burns",
+            "How much each of your chops counts",
+            "How fast you wash dirty plates",
+            "How soon the plate comes back after you serve",
+            "How fast you run",
+            "How far you dash and how soon it recharges",
+            "How far you throw",
+            "How fast your extinguisher puts out fire",
+        };
+
+        internal static void Bind(ConfigFile config)
+        {
+            _maxLevel = config.Bind("General", "MaxLevel", 3,
+                new ConfigDescription("Mức cao nhất (và thấp nhất, số âm) của mỗi kỹ năng.",
+                    new AcceptableValueRange<int>(1, 5)));
+
+            BindSkill(config, Skill.Cooking, 12, "Tốc độ nấu/trộn của nồi, chảo, bát trộn mà đầu bếp cho nguyên liệu vào gần nhất");
+            BindSkill(config, Skill.SlowBurn, 20, "Thời gian món đã chín giữ được trước khi cháy (hoặc trộn quá tay)");
+            BindSkill(config, Skill.Chopping, 12, "Tốc độ thái");
+            BindSkill(config, Skill.Washing, 15, "Tốc độ rửa đĩa");
+            BindSkill(config, Skill.Serving, 15, "Tốc độ đĩa bẩn quay lại sau khi đầu bếp giao món");
+            BindSkill(config, Skill.Running, 6, "Tốc độ chạy");
+            BindSkill(config, Skill.Dashing, 15, "Quãng lướt và tốc độ hồi lướt");
+            BindSkill(config, Skill.Throwing, 12, "Độ xa khi ném");
+            BindSkill(config, Skill.Firefighting, 20, "Tốc độ dập lửa của bình cứu hỏa");
+        }
+
+        private static void BindSkill(ConfigFile config, Skill skill, int percent, string what)
+        {
+            Percent[(int)skill] = config.Bind("Skill." + skill, "PercentPerLevel", percent,
+                new ConfigDescription(what + ": mỗi mức +1 nhanh hơn (mỗi mức -1 chậm hơn) bấy nhiêu phần trăm.",
+                    new AcceptableValueRange<int>(0, 50)));
+        }
+
+        internal static int MaxLevel
+        {
+            get { return _maxLevel != null ? Mathf.Clamp(_maxLevel.Value, 1, 5) : 3; }
+        }
+
+        /// <summary>1 = game default, 1.36 = 36% faster, 0.76 = 24% slower.</summary>
+        internal static float Multiplier(Skill skill, int level)
+        {
+            if (level == 0) return 1f;
+            ConfigEntry<int> entry = Percent[(int)skill];
+            int percent = entry != null ? Mathf.Clamp(entry.Value, 0, 50) : 0;
+            return Mathf.Clamp(1f + percent * level / 100f, MinMultiplier, MaxMultiplier);
+        }
+
+        /// <summary>The change in percent a level makes, e.g. +36 or -24.</summary>
+        internal static int PercentChange(Skill skill, int level)
+        {
+            return Mathf.RoundToInt((Multiplier(skill, level) - 1f) * 100f);
+        }
+
+        /// <summary>A build with every skill at 0.</summary>
+        internal static int[] Empty()
+        {
+            return new int[Count];
+        }
+
+        /// <summary>
+        /// Points freed by lowering skills and not yet spent raising others: 0 when balanced, below 0
+        /// when more were spent than freed (only a balanced build can be locked in).
+        /// </summary>
+        internal static int FreePoints(int[] levels)
+        {
+            int sum = 0;
+            for (int i = 0; i < levels.Length; i++) sum += levels[i];
+            return -sum;
+        }
+
+        /// <summary>
+        /// A build that is valid under the current settings: every level within MaxLevel and no
+        /// more points spent than freed. Anything else (say MaxLevel was lowered) starts over at 0.
+        /// </summary>
+        internal static int[] Sanitise(int[] levels)
+        {
+            int[] result = Empty();
+            if (levels == null) return result;
+            int max = MaxLevel;
+            for (int i = 0; i < result.Length && i < levels.Length; i++)
+            {
+                if (levels[i] > max || levels[i] < -max) return Empty();
+                result[i] = levels[i];
+            }
+            return FreePoints(result) < 0 ? Empty() : result;
+        }
+
+        /// <summary>
+        /// Another machine's build under this machine's rules: each level clamped to MaxLevel, and
+        /// all 0 if it spends more points than it frees.
+        /// </summary>
+        internal static int[] Enforce(int[] levels)
+        {
+            int[] result = Empty();
+            if (levels == null) return result;
+            int max = MaxLevel;
+            for (int i = 0; i < result.Length && i < levels.Length; i++)
+                result[i] = Mathf.Clamp(levels[i], -max, max);
+            return FreePoints(result) < 0 ? Empty() : result;
+        }
+
+        /// <summary>"COOKING +2, RUNNING -2" for the log; "no changes" for an all-zero build.</summary>
+        internal static string Summary(int[] levels)
+        {
+            var text = new StringBuilder();
+            for (int i = 0; i < Count && levels != null && i < levels.Length; i++)
+            {
+                if (levels[i] == 0) continue;
+                if (text.Length > 0) text.Append(", ");
+                text.Append(Names[i]).Append(' ').Append(levels[i] > 0 ? "+" : "").Append(levels[i])
+                    .Append(" (").Append(PercentChange((Skill)i, levels[i]) > 0 ? "+" : "")
+                    .Append(PercentChange((Skill)i, levels[i])).Append("%)");
+            }
+            return text.Length > 0 ? text.ToString() : "không đổi";
+        }
+    }
+
+    /// <summary>
+    /// Skill levels of the players on this machine for the current level, keyed by
+    /// PlayerIDProvider.GetID(). Chefs of players on other machines are looked up through
+    /// <see cref="SkillSync"/> by their network entity ID (host only).
+    /// </summary>
+    public sealed class SkillManager
+    {
+        private readonly Dictionary<PlayerInputLookup.Player, int[]> _levels =
+            new Dictionary<PlayerInputLookup.Player, int[]>();
+
+        // What each player picked last time, used as the starting build on the next level.
+        private readonly Dictionary<PlayerInputLookup.Player, int[]> _lastPicked =
+            new Dictionary<PlayerInputLookup.Player, int[]>();
+
+        public void Set(PlayerInputLookup.Player player, int[] levels)
+        {
+            _levels[player] = (int[])levels.Clone();
+            _lastPicked[player] = (int[])levels.Clone();
+        }
+
+        public int[] LastPicked(PlayerInputLookup.Player player)
+        {
+            int[] levels;
+            return SkillStats.Sanitise(_lastPicked.TryGetValue(player, out levels) ? levels : null);
+        }
+
+        public void Clear()
+        {
+            _levels.Clear();
+        }
+
+        /// <summary>
+        /// The level of a skill for the chef that owns this GameObject. <paramref name="localOnly"/>:
+        /// for effects simulated on the controlling machine (movement), where another machine's
+        /// chef must never be changed here.
+        /// </summary>
+        public int LevelOf(GameObject chef, Skill skill, bool localOnly)
+        {
+            if (chef == null) return 0;
+            PlayerIDProvider provider = chef.GetComponent<PlayerIDProvider>();
+            if (provider == null) return 0;
+            if (provider.IsLocallyControlled())
+            {
+                int[] levels;
+                return _levels.TryGetValue(provider.GetID(), out levels) ? levels[(int)skill] : 0;
+            }
+            return localOnly ? 0 : SkillSync.RemoteLevel(EntityId(chef), skill);
+        }
+
+        /// <summary>Multiplier for a skill of the chef that owns this GameObject (1 when disabled).</summary>
+        public float Multiplier(GameObject chef, Skill skill, bool localOnly = false)
+        {
+            if (!Plugin.Enabled.Value) return 1f;
+            return SkillStats.Multiplier(skill, LevelOf(chef, skill, localOnly));
+        }
+
+        /// <summary>
+        /// The network entity ID of a chef. The host hands these out and every machine uses the same
+        /// number for the same chef, which is how the host knows whose skills a remote chef has.
+        /// </summary>
+        internal static uint EntityId(GameObject chef)
+        {
+            try
+            {
+                for (Transform t = chef != null ? chef.transform : null; t != null; t = t.parent)
+                {
+                    uint id = EntitySerialisationRegistry.GetId(t.gameObject);
+                    if (id != EntitySerialisationRegistry.kInvalidEntityID) return id;
+                }
+            }
+            catch (Exception error)
+            {
+                Plugin.Log.LogDebug("Không đọc được mã thực thể của đầu bếp: " + error.Message);
+            }
+            return EntitySerialisationRegistry.kInvalidEntityID;
+        }
+    }
+}

@@ -10,5 +10,7 @@
     <Compile Include="..\OC2Tweaks\Moderation.cs" Link="Moderation.cs" />
     <Compile Include="..\OC2Tweaks\ForceHostMatchmaking.cs" Link="ForceHostMatchmaking.cs" />
     <Compile Include="..\OC2Tweaks\ConnectionMonitor.cs" Link="ConnectionMonitor.cs" />
+    <Compile Include="..\OC2Tweaks\MenuText.cs" Link="MenuText.cs" />
+    <Compile Include="..\OC2Tweaks\MenuOptions.cs" Link="MenuOptions.cs" />
   </ItemGroup>
 </Project>

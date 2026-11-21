@@ -36,7 +36,10 @@ internal static class Program
             ForceHostPolicy();
             ConnectionMonitorIntegration();
             ClientLocalPingIntegration();
-            Console.WriteLine("PASS: " + checks + " checks (Vietnamese feedback, display-only ping, saved-ID kicks, force hosting and persistence).");
+            RelayEncoding();
+            RelayIntegration();
+            SettingsText();
+            Console.WriteLine("PASS: " + checks + " checks (Vietnamese feedback, display-only ping, saved-ID kicks, force hosting, persistence and the settings screen's text).");
         }
         finally
         {
@@ -45,6 +48,66 @@ internal static class Program
         }
     }
 
+    /// <summary>
+    /// What the Settings screen puts on its rows: names other people chose are made safe to
+    /// show, ping cells read and colour the same everywhere, and the hotkey selectors never
+    /// change a binding just by opening.
+    /// </summary>
+    private static void SettingsText()
+    {
+        Check(MenuText.SafeName("<color=red>Boss</color>") == "‹color=red›Boss‹/color›", "rich-text tags in a name are neutralised");
+        Check(MenuText.SafeName("a\nb\tc") == "a b c", "control characters in a name become spaces");
+        Check(MenuText.SafeName(null) == "Người chơi" && MenuText.SafeName("   ") == "Người chơi", "a missing name falls back to Người chơi");
+        string longName = MenuText.SafeName(new string('x', 80));
+        Check(longName.Length == MenuText.NameLength && longName.EndsWith("…"), "a long name is cut to fit one row");
+        Check(MenuText.SafeName("Nguyễn Văn A") == "Nguyễn Văn A", "Vietnamese names are left alone");
+        Check(MenuText.Literal("Đuổi") == "\"Đuổi\"", "dialog text is passed to the localiser as a quoted literal");
+
+        PingBand band;
+        Check(MenuText.PingCell(true, 42.4f, true, false, out band) == "42 ms" && band == PingBand.Good, "a fresh low ping is green");
+        Check(MenuText.PingCell(true, 120f, true, false, out band) == "120 ms" && band == PingBand.Fair, "a middling ping is yellow");
+        Check(MenuText.PingCell(true, 150f, true, false, out band) == "150 ms" && band == PingBand.Poor, "150 ms and up is red");
+        Check(MenuText.PingCell(true, 30f, false, false, out band) == "30 ms" && band == PingBand.Stale, "a figure with no fresh reply keeps its value and turns grey");
+        Check(MenuText.PingCell(false, 0f, false, false, out band) == "đang đo..." && band == PingBand.Waiting, "no figure yet reads as measuring");
+        Check(MenuText.PingCell(false, 0f, false, true, out band) == "chủ phòng thiếu mod" && band == PingBand.Waiting, "a host without the mod is named");
+
+        Check(MenuText.KeyLabel("F5") == "F5", "a plain key reads as itself");
+        Check(MenuText.KeyLabel("R + LeftControl") == "Ctrl + R", "a combination reads modifier first, in short form");
+        Check(MenuText.KeyLabel("R + LeftControl + RightControl + LeftShift") == "Ctrl + Shift + R", "left and right modifiers are named once");
+        Check(MenuText.KeyLabel("Alpha3") == "3" && MenuText.KeyLabel("Keypad7") == "Num 7" && MenuText.KeyLabel("Return") == "Enter",
+            "number-row, keypad and Enter keys lose Unity's names");
+        Check(MenuText.KeyLabel("None") == "Chưa đặt" && MenuText.KeyLabel("") == "Chưa đặt", "an empty binding says so");
+        Check(MenuText.KeyNote("F9", "F5", "F9").Contains("chức năng khác"), "a key another of the mod's hotkeys uses is flagged");
+        Check(MenuText.KeyNote("W", "F5").Contains("game cũng dùng"), "a key the game uses while playing is flagged");
+        Check(MenuText.KeyNote("W + LeftControl", "F5") == "", "the same key with a modifier is fine");
+        Check(MenuText.KeyNote("F7", "F5").Contains("RandomLevel") && MenuText.KeyNote("F1", "F5").Contains("Host Force Theme"),
+            "keys other mods in this collection use are flagged");
+        Check(MenuText.KeyNote("F10", "F5", "F9") == "", "a free key gets no warning");
+        Check(MenuText.Corners.Length == MenuText.CornerNames.Length, "every corner has a name");
+        Check(MenuText.CornerName(OverlayCorner.BottomLeft) == "Dưới trái" && MenuText.CornerName((OverlayCorner)99) == "Trên phải",
+            "corner names, with top right for anything unknown");
+
+        int picked = 1, writes = 0, redraws = 0;
+        var choice = new ChoiceBridge(() => new[] { "A", "B", "C" }, () => picked, i => { picked = i; writes++; });
+        choice.Changed = () => redraws++;
+        choice.SetOption(-1);
+        Check(picked == 2 && choice.GetOption() == 2, "the selector wraps left of the first choice round to the last");
+        choice.SetOption(3);
+        Check(picked == 0 && writes == 2 && redraws == 2, "and right of the last back to the first, redrawing each time");
+        choice.SetOption(0);
+        Check(writes == 2 && redraws == 3, "choosing the current value saves nothing but still redraws");
+        picked = 7;
+        Check(choice.GetOption() == 0, "a saved value outside the list shows as the first choice");
+
+        bool on = false;
+        int toggles = 0;
+        var toggle = new ToggleBridge(() => on, v => { on = v; toggles++; });
+        toggle.SetOption(1);
+        toggle.SetOption(1);
+        Check(on && toggles == 1 && toggle.GetOption() == 1, "a tick box saves once per real change");
+        toggle.SetOption(0);
+        Check(!on && toggles == 2 && toggle.GetOption() == 0, "and unticking saves the change");
+    }
     private static void ForceHostPolicy()
     {
         var flow = new ClientLobbyFlowController();
@@ -262,6 +325,134 @@ internal static class Program
         Check(Moderation.Remove(displayed[1], false) == "Chỉ chủ phòng hiện tại mới có thể đuổi hoặc cấm người chơi.",
             "Display-only roster must not bypass the host-only moderation gate.");
     }
+    /// <summary>
+    /// The host's figures ride in a latency probe's send time. Every code must be negative (real
+    /// send times never are), an exact float, and decode back to the same player and figure.
+    /// </summary>
+    private static void RelayEncoding()
+    {
+        foreach (int id in new[] { 0, 1, 2, 127, 254, 255 })
+            foreach (float ms in new[] { 0f, 1f, 45.4f, 45.6f, 999f, 16383f })
+                foreach (bool stale in new[] { false, true })
+                {
+                    float code = ConnectionMonitor.EncodeRelay((byte)id, ms, stale);
+                    byte gotId; float gotMs; bool gotStale;
+                    Check(code < 0 && ConnectionMonitor.IsRelay(code) &&
+                        ConnectionMonitor.DecodeRelay(code, out gotId, out gotMs, out gotStale) &&
+                        gotId == id && gotStale == stale && gotMs == (float)Math.Round(ms, MidpointRounding.AwayFromZero),
+                        "Relay code must round-trip player " + id + ", " + ms + " ms, stale=" + stale + ".");
+                }
+        byte i; float m; bool s;
+        Check(ConnectionMonitor.DecodeRelay(ConnectionMonitor.EncodeRelay(3, 50000f, false), out i, out m, out s) &&
+            i == 3 && m == ConnectionMonitor.RelayMaxMs, "A ping beyond the field must clamp, not spill into the player id.");
+        Check(ConnectionMonitor.DecodeRelay(ConnectionMonitor.EncodeRelay(3, -5f, false), out i, out m, out s) && m == 0,
+            "A negative figure must clamp to zero.");
+        foreach (float time in new[] { 0f, 0.1f, 1234.5f, float.PositiveInfinity })
+            Check(!ConnectionMonitor.IsRelay(time) && !ConnectionMonitor.DecodeRelay(time, out i, out m, out s),
+                "A real probe's send time (" + time + ") must never be taken for a relay.");
+        foreach (float time in new[] { float.NegativeInfinity, -1.5f, -(1 << 23) - 2f, float.NaN })
+            Check(!ConnectionMonitor.DecodeRelay(time, out i, out m, out s),
+                "A malformed relay code (" + time + ") must be rejected.");
+    }
+
+    /// <summary>
+    /// The fix for clients seeing "đang đo..." on every other row: the host passes on what it
+    /// measured, and a client shows it against the right player.
+    /// </summary>
+    private static void RelayIntegration()
+    {
+        // Host: relay entries cover remote players only, keyed by session unique id.
+        ResetRoster();
+        Plugin.Bans = NewStore("relay-bans.tsv");
+        var parties = Moderation.Parties();
+        var server = new Team17.Online.Multiplayer.Server();
+        var slow = new Team17.Online.Multiplayer.Connection.RemoteConnection();
+        var fast = new Team17.Online.Multiplayer.Connection.RemoteConnection();
+        server.Add(parties[0].Session, slow);
+        server.Add(parties[1].Session, fast);
+        ConnectionModeSwitcher.SetServer(server);
+        slow.Set(new[] { 0.1f }, new[] { 0.1f }, 10);
+        fast.Set(new[] { 0.02f }, new[] { 0.02f }, 5);
+        ConnectionMonitor.Tick(10);
+        var entries = ConnectionMonitor.RelayEntries(10);
+        Check(entries.Count == 2, "The host must relay each measured remote player and not itself.");
+        foreach (RelayEntry entry in entries)
+        {
+            if (entry.Id == parties[0].Session.UniqueId)
+                Check(Math.Abs(entry.PingMs - 200) < 0.01f && !entry.Stale, "Relay must carry the host's figure for that player.");
+            else
+                Check(entry.Id == parties[1].Session.UniqueId && Math.Abs(entry.PingMs - 40) < 0.01f && entry.Stale,
+                    "A figure with no recent reply must be relayed as stale.");
+        }
+        Check(!ConnectionMonitor.ReceiveRelay(ConnectionMonitor.EncodeRelay(9, 10, false), 10),
+            "The host must ignore relays; it measures everyone itself.");
+        slow.Set(new float[0], new float[0], 10);
+        ConnectionMonitor.Tick(10);
+        Check(ConnectionMonitor.RelayEntries(10).Count == 1, "An unmeasured player must not be relayed as zero.");
+
+        // Client: own row measured, host row zero, other clients from the relay.
+        var me = Session(76561198000000011, "Me");
+        var host = Session(76561198000000012, "Host chef");
+        host.IsHost = true;
+        var other = Session(76561198000000013, "Another chef");
+        var client = new Team17.Online.Multiplayer.Client();
+        var toHost = new Team17.Online.Multiplayer.Connection.RemoteConnection();
+        toHost.Set(new[] { 0.03f }, new[] { 0.03f }, 0);
+        client.SetServerConnection(toHost);
+        ConnectionModeSwitcher.SetServer(null);
+        ConnectionModeSwitcher.SetClient(client);
+        GameUtils.Platform.Host = false;
+        ClientUserSystem.m_Users._items = new[]
+        {
+            new User { IsLocal = true, Machine = User.MachineID.One, GameState = GameState.MainMenu, SessionId = me },
+            new User { Machine = User.MachineID.Two, GameState = GameState.MainMenu, SessionId = host },
+            new User { Machine = User.MachineID.Three, GameState = GameState.MainMenu, SessionId = other }
+        };
+        ConnectionMonitor.Tick(0);
+        Check(ConnectionMonitor.Display(me, 0) == "Độ trễ: 60 ms", "Client's own row must stay its own measurement.");
+        Check(ConnectionMonitor.Display(host, 0) == "Độ trễ: 0 ms",
+            "The host's row on a client must read zero, as it does on the host's own panel.");
+        Check(ConnectionMonitor.Display(other, 0) == "Độ trễ: đang đo..." && !ConnectionMonitor.HostLacksMod(other, 0),
+            "Before any relay, another client's row must say measuring.");
+        toHost.Set(new[] { 0.03f }, new[] { 0.03f }, 7);
+        ConnectionMonitor.Tick(7);
+        Check(ConnectionMonitor.Display(other, 7) == "Độ trễ: chủ phòng chưa cài OC2Tweaks" &&
+            ConnectionMonitor.HostLacksMod(other, 7),
+            "A host that never relays must be named as the reason, instead of measuring forever.");
+        Check(!ConnectionMonitor.HostLacksMod(me, 7) && !ConnectionMonitor.HostLacksMod(host, 7),
+            "Only rows that depend on the host's relay may blame the host.");
+
+        Check(ConnectionMonitor.ReceiveRelay(ConnectionMonitor.EncodeRelay(other.UniqueId, 123, false), 8),
+            "A client must accept the host's relay.");
+        ConnectionMonitor.Tick(8);
+        float ms;
+        Check(ConnectionMonitor.Display(other, 8) == "Độ trễ: 123 ms" && ConnectionMonitor.TryPing(other, out ms) &&
+            ms == 123 && ConnectionMonitor.IsCurrent(other, 8),
+            "A relayed figure must show against the player it was measured for.");
+        Check(ConnectionMonitor.Display(me, 8) == "Độ trễ: 60 ms",
+            "A relay for someone else must not touch the client's own row.");
+        Check(ConnectionMonitor.Display(other, 12) == "Độ trễ: 123 ms (đang cập nhật)" && !ConnectionMonitor.IsCurrent(other, 12),
+            "A relay that stops arriving must keep the figure but mark it as awaiting an update.");
+        ConnectionMonitor.ReceiveRelay(ConnectionMonitor.EncodeRelay(other.UniqueId, 300, true), 13);
+        ConnectionMonitor.Tick(13);
+        Check(ConnectionMonitor.Display(other, 13) == "Độ trễ: 300 ms (đang cập nhật)",
+            "The host's own stale mark must carry over to the client.");
+        ConnectionMonitor.Tick(30);
+        Check(ConnectionMonitor.Display(other, 30) == "Độ trễ: đang đo..." && !ConnectionMonitor.HostLacksMod(other, 30),
+            "A long-silent relay must be dropped, and a host that has relayed before is not blamed.");
+
+        // Leaving clears the relay state, so the next room starts fresh.
+        GameUtils.Platform.InSession = false;
+        ConnectionMonitor.Tick(31);
+        GameUtils.Platform.InSession = true;
+        ConnectionMonitor.Tick(32);
+        Check(ConnectionMonitor.Display(other, 32) == "Độ trễ: đang đo..." && !ConnectionMonitor.HostLacksMod(other, 37),
+            "A new room must wait its own grace period before blaming the host.");
+        ConnectionMonitor.Tick(39);
+        Check(ConnectionMonitor.HostLacksMod(other, 39), "Relay state must not leak from the previous room.");
+        ResetRoster();
+    }
+
     private static void Persistence()
     {
         const string id = "76561198000000001";
@@ -306,8 +497,9 @@ internal static class Program
 
     private static SteamOnlineMultiplayerSessionUserId Session(ulong id, string name)
     {
+        // The game numbers session members per room; the low byte keeps test ids distinct.
         return new SteamOnlineMultiplayerSessionUserId
-        { m_steamId = new Steamworks.CSteamID { m_SteamID = id }, DisplayName = name };
+        { m_steamId = new Steamworks.CSteamID { m_SteamID = id }, DisplayName = name, UniqueId = (byte)(id & 0xFF) };
     }
     private static void ResetRoster()
     {
