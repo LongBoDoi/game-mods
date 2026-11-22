@@ -4,12 +4,14 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 
-[assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.1.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.1.0.0")]
 
 namespace TiengViet
 {
-    internal enum GameLanguage { English, Vietnamese }
+    /// <summary>English and Vietnamese are set by the mod; GameDefault leaves the game on Steam's
+    /// language and the mod out of the way, as if it were not installed.</summary>
+    internal enum GameLanguage { English, Vietnamese, GameDefault }
 
     /// <summary>Title fonts with every Vietnamese letter: six built into the mod, one from
     /// Windows, or the game's own (which lacks them).</summary>
@@ -40,7 +42,7 @@ namespace TiengViet
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Id = "com.manhl.overcooked2.tiengviet";
-        public const string Version = "1.0.0";
+        public const string Version = "1.1.0";
 
         /// <summary>The AppDomain slot every mod in the collection reads: "vi" or "en".</summary>
         internal const string Slot = "com.manhl.overcooked2.language";
@@ -51,14 +53,33 @@ namespace TiengViet
 
         internal static bool Vietnamese { get { return Language != null && Language.Value == GameLanguage.Vietnamese; } }
 
+        /// <summary>"Default (Steam)": the game's own language and no changes from this mod, apart
+        /// from the language row, so the player can switch back.</summary>
+        internal static bool Off { get { return Language != null && Language.Value == GameLanguage.GameDefault; } }
+
+        /// <summary>How each choice reads in the language row and MOD Settings.</summary>
+        internal static string LanguageLabel(object value)
+        {
+            if (!(value is GameLanguage)) return Convert.ToString(value);
+            switch ((GameLanguage)value)
+            {
+                case GameLanguage.English: return "English";
+                case GameLanguage.Vietnamese: return "Tiếng Việt";
+                default: return "Default (Steam)";
+            }
+        }
+
         private Harmony harmony;
 
         private void Awake()
         {
             Log = Logger;
-            Language = Config.Bind("General", "Language", GameLanguage.Vietnamese,
-                "Ngôn ngữ của game và các mod trong bộ này. Đổi được ngay trong game: Cài đặt → Cài đặt trò chơi → NGÔN NGỮ.\n" +
-                "Language of the game and of this collection's mods. Also in game: Settings → Game Settings → LANGUAGE.");
+            Language = Config.Bind("General", "Language", GameLanguage.GameDefault, new ConfigDescription(
+                "Ngôn ngữ của game và các mod trong bộ này. Đổi được ngay trong game: Cài đặt → Cài đặt trò chơi → NGÔN NGỮ. " +
+                "GameDefault (Mặc định) giữ ngôn ngữ Steam của game và tắt mọi thay đổi của mod này, như khi chưa cài.\n" +
+                "Language of the game and of this collection's mods. Also in game: Settings → Game Settings → LANGUAGE. " +
+                "GameDefault keeps the game on its Steam language and turns off everything this mod changes, as if it were not installed.",
+                null, new ConfigurationManagerAttributes { ObjToStr = LanguageLabel, Order = 0 }));
             Titles = Config.Bind("General", "TitleFont", TitleFont.Coiny, new ConfigDescription(
                 "Phông cho tiêu đề và nút của game khi chơi tiếng Việt, vì phông gốc thiếu các chữ như ạ, ả, ơ, ư. " +
                 "Sáu phông đầu có sẵn trong mod, Segoe UI lấy từ Windows; đổi là thấy ngay.\n" +
@@ -72,13 +93,14 @@ namespace TiengViet
 
             harmony = new Harmony(Id);
             Patch(typeof(LocalizationGet), "the game's text lookup");
+            Patch(typeof(LanguageGet), "the game's language");
             Patch(typeof(LanguageRow), "the language option in Game Settings");
             Patch(typeof(HeaderFont.TextSet), "the title font fix");
             Patch(typeof(HeaderFont.TextEnable), "the title font fix");
 
             Language.SettingChanged += delegate { Apply(); };
             Titles.SettingChanged += delegate { HeaderFont.Reset(); HeaderFont.Sweep(); };
-            Log.LogInfo("Tiếng Việt " + Version + ": " + (Vietnamese ? "tiếng Việt" : "English") + ", " +
+            Log.LogInfo("Tiếng Việt " + Version + ": " + LanguageLabel(Language.Value) + ", " +
                 Translations.Count + " game texts and " + ModTexts.Count + " texts of other mods translated.");
         }
 
@@ -112,7 +134,8 @@ namespace TiengViet
 
         private static void Publish()
         {
-            AppDomain.CurrentDomain.SetData(Slot, Vietnamese ? "vi" : "en");
+            // Nothing for Default: each mod then shows the language it has without TiengViet.
+            AppDomain.CurrentDomain.SetData(Slot, Off ? null : Vietnamese ? "vi" : "en");
         }
 
         /// <summary>Switches everything on screen to the language just chosen.</summary>
@@ -120,9 +143,10 @@ namespace TiengViet
         {
             Publish();
             Refresh.All();
+            HeaderFont.Sweep();
             ModTexts.Relabel();
             LanguageRow.SyncAll();
-            Log.LogInfo("Language: " + (Vietnamese ? "tiếng Việt" : "English"));
+            Log.LogInfo("Language: " + LanguageLabel(Language.Value));
         }
 
         private void OnDestroy()

@@ -5,7 +5,8 @@
     An update upgrades the mods that are there and adds the release's mods the player doesn't
     have yet, so a mod that arrived in a later release (TiengViet, DIYChefFix) reaches people who
     update through Mod Updater. It must not bring back a mod the player removed, and must not
-    add a companion whose third-party plugin is missing.
+    add a companion whose third-party plugin is missing. Mods that left the collection
+    (OC2Tweaks, RandomLevel, the Relay Kitchen level) are taken back out.
 
     Needs every mod's build.cmd to have run (..\dist), and a real BepInEx.dll to copy in so the
     installer sees a loader and never reaches the network.
@@ -40,7 +41,7 @@ function Invoke-Installer([string[]]$arguments) {
 }
 
 try {
-    # --- a player on an older release: ChefSkills and Mod Updater, and the DIY level pack -----
+    # --- a player on an older release: ChefSkills and Mod Updater, plus the retired mods -------
     New-Item -ItemType Directory -Force -Path (Join-Path $root 'Overcooked2_Data\Managed') | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $root 'BepInEx\core') | Out-Null
     New-Item -ItemType Directory -Force -Path $config | Out-Null
@@ -48,7 +49,8 @@ try {
         Set-Content -LiteralPath (Join-Path $root $stub) -Value 'stub' -Encoding Ascii
     }
     Copy-Item -LiteralPath $bepInEx -Destination (Join-Path $root 'BepInEx\core\BepInEx.dll')
-    foreach ($stub in 'ChefSkills\ChefSkills.dll', 'ModUpdater\ModUpdater.dll', 'OC2DIYLevel\OC2DIYLevel.dll') {
+    foreach ($stub in 'ChefSkills\ChefSkills.dll', 'ModUpdater\ModUpdater.dll', 'OC2Tweaks\OC2Tweaks.dll',
+                      'RandomLevel\RandomLevel.dll', 'RandomLevel\keep.txt', 'OC2DIYLevel\levels\manhl_relay_kitchen\info_manhl_relay') {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent (Join-Path $plugins $stub)) | Out-Null
         Set-Content -LiteralPath (Join-Path $plugins $stub) -Value 'old' -Encoding Ascii
     }
@@ -58,7 +60,11 @@ try {
     Check ((Invoke-Installer '-Update') -eq 0) 'update exited 0'
     Check ((Get-Content -LiteralPath (Join-Path $plugins 'ChefSkills\ChefSkills.dll') -Raw) -ne "old`r`n") 'installed mod upgraded'
     Check (Test-Path -LiteralPath (Join-Path $plugins 'ModUpdater\ModUpdater.ps1')) 'Mod Updater upgraded with its script'
-    foreach ($mod in 'TiengViet', 'OC2Tweaks', 'RandomLevel') { Check (Installed $mod) "update added $mod" }
+    Check (Installed 'TiengViet') 'update added TiengViet'
+    Check (-not (Test-Path -LiteralPath (Join-Path $plugins 'OC2Tweaks'))) 'retired OC2Tweaks removed with its folder'
+    Check (-not (Installed 'RandomLevel')) 'retired RandomLevel removed'
+    Check (Test-Path -LiteralPath (Join-Path $plugins 'RandomLevel\keep.txt')) 'other files in its folder kept'
+    Check (-not (Test-Path -LiteralPath (Join-Path $plugins 'OC2DIYLevel\levels\manhl_relay_kitchen'))) 'retired Relay Kitchen level removed'
     Check (-not (Installed 'EmoteSync')) 'update did not bring back a mod the player removed'
     Check (-not (Installed 'DIYChefFix')) 'update did not add DIYChefFix without DIYChef'
 
@@ -78,13 +84,13 @@ try {
     Check ($removed -contains 'TiengViet') 'TiengViet still on the removed list'
 
     # --- a companion chosen by hand without its third-party plugin is skipped -----------------
-    Remove-Item -LiteralPath (Join-Path $plugins 'OC2DIYLevel') -Recurse -Force
-    Check ((Invoke-Installer '-Uninstall', '-Only', 'RandomLevel', '-Yes') -eq 0) 'uninstall RandomLevel exited 0'
-    Invoke-Installer '-Only', 'RandomLevel', '-Yes' | Out-Null
-    Check (-not (Installed 'RandomLevel')) 'RandomLevel skipped without OC2DIYLevel'
+    Remove-Item -LiteralPath (Join-Path $plugins 'OC2DIYChef-FastInit') -Recurse -Force
+    Check ((Invoke-Installer '-Uninstall', '-Only', 'DIYChefFix', '-Yes') -eq 0) 'uninstall DIYChefFix exited 0'
+    Invoke-Installer '-Only', 'DIYChefFix', '-Yes' | Out-Null
+    Check (-not (Installed 'DIYChefFix')) 'DIYChefFix skipped without DIYChef'
 
     if ($failed.Count) { throw "$($failed.Count) check(s) failed." }
-    Write-Host "PASS: $checked checks (-Update upgrades, adds new mods, respects removals and requirements)."
+    Write-Host "PASS: $checked checks (-Update upgrades, adds new mods, respects removals and requirements, drops retired mods)."
 } finally {
     if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
 }

@@ -10,8 +10,9 @@ namespace ModUpdater
     /// <summary>
     /// Puts the Check and Update buttons on the Status row of this mod's page in MOD Settings
     /// (OC2ModSettings by CH3NGYZ). MOD Settings lists every plugin's config on its own, so the
-    /// AutoUpdate switch and the Status line need nothing extra; only the buttons go through its
-    /// public API, which is reached by name so this mod still loads without it.
+    /// CheckOnStart switch and the Status line need nothing extra; only the buttons go through its
+    /// public API, which is reached by name so this mod still loads without it. Both buttons close
+    /// the page, so the dialog that answers them can be seen.
     /// </summary>
     internal sealed class SettingsBridge : IDisposable
     {
@@ -84,15 +85,15 @@ namespace ModUpdater
         private void RegisterButtons()
         {
             Register("check", Lang.T("Check", "Kiểm tra"),
-                Lang.T("Ask GitHub whether there is a new version, and download it if there is.",
-                    "Hỏi GitHub xem có bản mới không, và tải về nếu có."), 2,
-                delegate { updater.Start(false); },
-                delegate { return updater.ScriptFound && !updater.Busy; }, false);
+                Lang.T("Ask GitHub now whether there is a new version. A dialog shows what it finds.",
+                    "Hỏi GitHub ngay xem có bản mới không. Kết quả hiện trong một hộp thoại."), 2,
+                plugin.CheckNow,
+                delegate { return updater.ScriptFound && !updater.Busy; }, true);
             Register("update", Lang.T("Update", "Cập nhật"),
                 Lang.T("Load the downloaded version into the game now, without closing it. Only works in the main menu, when not in an online room.",
                     "Nạp bản vừa tải vào game ngay, không cần tắt game. Chỉ dùng được ở menu chính, khi không ở trong phòng trực tuyến."), 1,
-                plugin.LoadNow,
-                delegate { return plugin.CanLoadNow(updater.Read()) && Reloader.SafeNow(); }, false);
+                plugin.UpdateFromSettings,
+                delegate { return plugin.CanLoadNow(updater.Read()) && Reloader.SafeNow(); }, true);
         }
 
         private void Register(string id, string name, string description, int order, Action execute,

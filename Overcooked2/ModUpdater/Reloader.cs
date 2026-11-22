@@ -105,6 +105,78 @@ namespace ModUpdater
             return result;
         }
 
+        /// <summary>One mod the downloaded release changes or adds.</summary>
+        internal sealed class Change
+        {
+            internal string Name;
+            internal string OldVersion;   // null: not running now (new to this player)
+            internal string NewVersion;
+        }
+
+        /// <summary>
+        /// What the download in <paramref name="stagedDir"/> would change: every mod DLL in it
+        /// that differs from the running copy, and the ones not running at all (they arrive when
+        /// the game closes). Read with Cecil, so nothing is loaded. Mod Updater itself is left
+        /// out, as are mods the player removed (<paramref name="removed"/>) and companions whose
+        /// third-party mod isn't loaded (<paramref name="needs"/>, by DLL name).
+        /// </summary>
+        internal static List<Change> Changes(string stagedDir, ICollection<string> removed, IDictionary<string, string> needs)
+        {
+            var loaded = new Dictionary<string, PluginInfo>(StringComparer.OrdinalIgnoreCase);
+            foreach (PluginInfo info in Chainloader.PluginInfos.Values)
+                if (info != null && !string.IsNullOrEmpty(info.Location))
+                    loaded[Path.GetFileName(info.Location)] = info;
+
+            var changes = new List<Change>();
+            foreach (string staged in Directory.GetFiles(stagedDir, "*.dll"))
+            {
+                string file = Path.GetFileName(staged);
+                string mod = Path.GetFileNameWithoutExtension(staged);
+                try
+                {
+                    string guid, name, version;
+                    if (!ReadPlugin(staged, out guid, out name, out version) || guid == Plugin.Id) continue;
+                    PluginInfo current;
+                    if (loaded.TryGetValue(file, out current) && current.Metadata.GUID == guid)
+                    {
+                        string runningHash;
+                        if (!running.TryGetValue(guid, out runningHash)) runningHash = Hash(File.ReadAllBytes(current.Location));
+                        if (runningHash == Hash(File.ReadAllBytes(staged))) continue;
+                        changes.Add(new Change { Name = name, OldVersion = current.Metadata.Version.ToString(), NewVersion = version });
+                        continue;
+                    }
+                    if (removed.Contains(mod)) continue;
+                    string need;
+                    if (needs.TryGetValue(mod, out need) && !Chainloader.PluginInfos.ContainsKey(need)) continue;
+                    changes.Add(new Change { Name = name, OldVersion = null, NewVersion = version });
+                }
+                catch (Exception error)
+                {
+                    Plugin.Log.LogWarning("Không đọc được " + file + " trong bản tải về: " + error.Message);
+                }
+            }
+            return changes;
+        }
+
+        /// <summary>The [BepInPlugin] of a DLL on disk, without loading it.</summary>
+        private static bool ReadPlugin(string path, out string guid, out string name, out string version)
+        {
+            guid = name = version = null;
+            using (AssemblyDefinition assembly = AssemblyDefinition.ReadAssembly(path))
+            {
+                foreach (TypeDefinition type in assembly.MainModule.Types)
+                    foreach (CustomAttribute attribute in type.CustomAttributes)
+                    {
+                        if (attribute.AttributeType.FullName != "BepInEx.BepInPlugin" || attribute.ConstructorArguments.Count < 3) continue;
+                        guid = attribute.ConstructorArguments[0].Value as string;
+                        name = attribute.ConstructorArguments[1].Value as string;
+                        version = attribute.ConstructorArguments[2].Value as string;
+                        return guid != null;
+                    }
+            }
+            return false;
+        }
+
         private static Assembly LoadRenamed(byte[] bytes, string pluginDir)
         {
             var resolver = new DefaultAssemblyResolver();

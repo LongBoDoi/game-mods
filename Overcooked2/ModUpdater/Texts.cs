@@ -3,7 +3,7 @@ namespace ModUpdater
     /// <summary>The helper reports codes; these are the words shown for them.</summary>
     internal static class Texts
     {
-        internal static string Describe(Updater.Report report, bool automatic)
+        internal static string Describe(Updater.Report report)
         {
             string latest = report.Latest;
             bool known = report.Installed != "" && report.Installed != "unknown";
@@ -15,17 +15,12 @@ namespace ModUpdater
                 case "uptodate":
                     return (vi ? "Đã là bản mới nhất (" : "Already up to date (") + (known ? report.Installed : latest) + ")";
                 case "ready":
-                    if (automatic && known)
-                        return vi ? "Đã tải bản " + latest + ": bấm Cập nhật để dùng ngay, hoặc tự cài khi tắt game"
-                            : "Version " + latest + " downloaded: press Update to use it now, or it installs when you close the game";
-                    return vi ? "Đã tải bản " + latest + ": bấm Cập nhật để dùng ngay"
-                        : "Version " + latest + " downloaded: press Update to use it now";
+                    return vi ? "Có bản " + latest + ": bấm Cập nhật để dùng"
+                        : "Version " + latest + " is available: press Update to use it";
                 case "applying": return vi ? "Đang cài bản " + latest + "..." : "Installing version " + latest + "...";
                 case "applied": return vi ? "Đã cập nhật lên bản " + report.Installed : "Updated to version " + report.Installed;
                 case "error": return Error(report);
-                default:
-                    return automatic ? Lang.T("Not checked yet", "Chưa kiểm tra")
-                        : Lang.T("Automatic updates are off", "Tự động cập nhật đang tắt");
+                default: return Lang.T("Not checked yet", "Chưa kiểm tra");
             }
         }
 

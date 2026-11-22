@@ -145,18 +145,24 @@ namespace TiengViet
         /// <summary>The game's option rows talk to an option; this one is the language setting.</summary>
         private sealed class Choice : INameListOption
         {
-            private static readonly string[] Names = { "English", "Tiếng Việt" };
+            /// <summary>In the order of <see cref="GameLanguage"/>: English, Tiếng Việt, Default (Steam).</summary>
+            private static readonly string[] Names =
+            {
+                Plugin.LanguageLabel(GameLanguage.English),
+                Plugin.LanguageLabel(GameLanguage.Vietnamese),
+                Plugin.LanguageLabel(GameLanguage.GameDefault),
+            };
 
             public OptionsData.Categories Category { get { return OptionsData.Categories.System; } }
             public string Label { get { return "Language"; } }
             public string[] GetNames() { return Names; }
-            public int GetOption() { return Plugin.Vietnamese ? 1 : 0; }
+            public int GetOption() { return Plugin.Language == null ? 0 : (int)Plugin.Language.Value; }
             public void Commit() { }
 
             public void SetOption(int value)
             {
                 value = ((value % Names.Length) + Names.Length) % Names.Length;
-                var language = value == 1 ? GameLanguage.Vietnamese : GameLanguage.English;
+                var language = (GameLanguage)value;
                 if (Plugin.Language.Value != language) Plugin.Language.Value = language;
                 SyncAll();
             }

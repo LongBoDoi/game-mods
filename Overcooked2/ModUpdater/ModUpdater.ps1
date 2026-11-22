@@ -1,14 +1,15 @@
 <#
     Background helper for the Mod Updater plugin. The plugin starts it hidden when the game
-    launches (and again from the Check button in MOD Settings); it never asks anything.
+    launches (and again from the Check button in MOD Settings); it never asks anything itself.
+    The plugin asks the player, in a dialog, once a new version is downloaded.
 
     1. Asks GitHub for the newest Overcooked2-v<version> release of this repo.
     2. If it is newer than the package last installed (BepInEx\config\com.manhl.overcooked2.package.txt),
        downloads its zip and unpacks it into BepInEx\cache\ModUpdater\staged.
     3. Waits for the game (-WaitPid) to close - a loaded DLL cannot be replaced - and then runs the
-       release's own installer with -Update, which upgrades exactly the mods that are installed.
-       That happens when AutoUpdate is on in the plugin's config, or when the plugin already
-       loaded the new versions into the running game and left install.flag behind.
+       release's own installer with -Update, but only if the player chose Update in the dialog:
+       the plugin then loaded the new versions into the running game and left install.flag
+       behind. Otherwise the download stays staged and the player is asked again next launch.
 
     Progress goes to BepInEx\cache\ModUpdater\state.txt as key=value lines, which the plugin
     shows in MOD Settings; everything else goes to update.log next to it. Messages are codes,
@@ -32,7 +33,6 @@ $stateFile   = Join-Path $work 'state.txt'
 $logFile     = Join-Path $work 'update.log'
 $installFlag = Join-Path $work 'install.flag'
 $packageFile = Join-Path $GameDir 'BepInEx\config\com.manhl.overcooked2.package.txt'
-$configFile  = Join-Path $GameDir 'BepInEx\config\com.manhl.overcooked2.modupdater.cfg'
 
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 
@@ -62,12 +62,6 @@ function Test-Newer([string]$candidate, [string]$current) {
     if (-not $candidate) { return $false }
     if (-not $current -or $current -eq 'unknown') { return $true }
     try { return ([version]$candidate -gt [version]$current) } catch { return $candidate -ne $current }
-}
-
-function Test-AutoUpdateOn {
-    if (-not (Test-Path -LiteralPath $configFile)) { return $true }
-    $line = Get-Content -LiteralPath $configFile | Where-Object { $_ -match '^\s*AutoUpdate\s*=' } | Select-Object -First 1
-    return -not ($line -match '=\s*false\s*$')
 }
 
 # One helper at a time per machine: a second start (the Check button while another is waiting
@@ -155,11 +149,8 @@ try {
         }
     }
 
-    $requested = Test-Path -LiteralPath $installFlag
-    # An unknown installed version is a hand-made or developer install: only replace it on request.
-    $automatic = (Test-AutoUpdateOn) -and $script:installed -ne 'unknown'
-    if (-not $requested -and -not $automatic) {
-        Write-Log "Version $ready stays staged: automatic install is off and it was not loaded in game."
+    if (-not (Test-Path -LiteralPath $installFlag)) {
+        Write-Log "Version $ready stays staged: the player did not choose to update."
         exit 0
     }
 

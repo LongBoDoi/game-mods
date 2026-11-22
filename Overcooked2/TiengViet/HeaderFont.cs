@@ -40,7 +40,8 @@ namespace TiengViet
         /// </summary>
         private static bool NeedsSubstitute(string text)
         {
-            if (string.IsNullOrEmpty(text)) return false;
+            // Default (Steam): no swaps, so every title goes back to the game's font.
+            if (string.IsNullOrEmpty(text) || Plugin.Off) return false;
             bool words = Plugin.Vietnamese;
             for (int i = 0; i < text.Length; i++)
             {
@@ -114,7 +115,7 @@ namespace TiengViet
         {
             bool repaired = font == repairedBody;
             if (!repaired && font.name != "Body_Font") return false;
-            bool needs = text.text != null && text.text.IndexOfAny(Hatless) >= 0;
+            bool needs = !Plugin.Off && text.text != null && text.text.IndexOfAny(Hatless) >= 0;
             if (repaired)
             {
                 // Swapped by an older copy of the mod (see Adopt): find the game's font by name.

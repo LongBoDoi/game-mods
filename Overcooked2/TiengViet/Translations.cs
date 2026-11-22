@@ -108,6 +108,21 @@ namespace TiengViet
     }
 
     /// <summary>
+    /// The game takes its language from Steam each time it asks (<c>Localization.GetLanguage</c>,
+    /// which MOD Settings asks too). English and Vietnamese both answer English, so English
+    /// means English whatever Steam is set to, and a text the Vietnamese table lacks falls back
+    /// to English. Default (Steam) leaves the answer alone.
+    /// </summary>
+    [HarmonyPatch(typeof(Localization), "GetLanguage")]
+    internal static class LanguageGet
+    {
+        private static void Postfix(ref SupportedLanguages __result)
+        {
+            if (Plugin.Language != null && !Plugin.Off) __result = SupportedLanguages.English;
+        }
+    }
+
+    /// <summary>
     /// Every text the game shows by tag goes through <c>Localization.Get(tag, out text, tokens)</c>
     /// (the one-argument overload calls it too). In Vietnamese the answer comes from the table;
     /// anything the table lacks falls through to the game, so the worst case is English.

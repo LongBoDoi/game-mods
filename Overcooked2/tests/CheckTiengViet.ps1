@@ -60,6 +60,7 @@ function Assert-Method($module, $typeName, $method, $parameters) {
 }
 
 Assert-Method $game 'Localization' 'Get' 'System.String,System.String&,LocToken[]'   # LocalizationGet
+Assert-Method $game 'Localization' 'GetLanguage' ''                                  # LanguageGet
 Assert-Method $game 'Localization' 'CheckForMarkup' $null                            # button markers in vi.tsv
 Assert-Field  $game 'T17Text' 'm_TextProcessors'                                      # Refresh: has it started?
 Assert-Field  $game 'LocalisedText' 'm_tag'                                           # Refresh
@@ -70,6 +71,7 @@ Assert-Method $game 'T17ScrollView' 'SingleTimeInitialize' ''                   
 Assert-Field  $game 'FrontendOptionsMenu' 'm_ScrollView'
 Assert-Method $ui 'UnityEngine.UI.Text' 'set_text' 'System.String'                    # HeaderFont patches
 Assert-Method $ui 'UnityEngine.UI.Text' 'OnEnable' ''
+Assert-Method $ui 'UnityEngine.UI.Text' 'OnPopulateMesh' 'UnityEngine.UI.VertexHelper'
 
 # --- plugin identity and the table ------------------------------------------------------------
 $plugin = $assembly.MainModule.GetType('TiengViet.Plugin')

@@ -6,10 +6,15 @@ Keeps this repo's Overcooked! 2 mods on the newest GitHub release, so players do
 
 1. **When the game starts**, it starts `ModUpdater.ps1` hidden in the background. That script asks GitHub for the newest `Overcooked2-v<version>` release and compares it with the release you installed. The installer records that version in `BepInEx\config\com.manhl.overcooked2.package.txt`.
 2. **If the release is newer**, the script downloads its zip and unpacks it to `BepInEx\cache\ModUpdater\staged\` while you play.
-3. **Right away, if you want:** on the main menu, **Cập nhật** loads the new versions into the running game, with no restart. The **Cập nhật ngay khi tải xong** setting does this automatically. See [Updating without restarting](#updating-without-restarting).
-4. **When you close the game**, it runs that release's own `Install.ps1 -Update`. This upgrades the mods that are installed and adds the release's other mods, so a mod that is new in that release reaches you too. It does not bring back a mod you uninstalled (the installer lists those in `BepInEx\config\com.manhl.overcooked2.removed.txt`), and it adds RandomLevel or DIYChefFix only when the third-party mod they extend (OC2DIYLevel, DIYChef) is installed. The next launch loads the new files.
+3. **On the main menu, a dialog asks** what to do with it, the way Arcade MOD asks about its own updates. It names the new version and the one you have, and lists each mod it changes (old and new version) or adds:
+   - **Update now** (Cập nhật ngay): loads the new versions into the running game, with no restart. A second dialog says what happened. If a mod only starts on the next launch (one new to you, or one that couldn't be swapped), it offers **Close game**.
+   - **View details** (Xem chi tiết): opens the release page in your browser, then asks again.
+   - **Later** (Để sau): keeps what you have. Nothing is installed, and you are asked again the next time the game starts.
 
-All network and file work happens in Windows PowerShell. GitHub requires TLS 1.2, which this game's old Mono can't do. The work also has to happen after the game exits, because Windows won't let anything replace a DLL the game has loaded.
+   The dialog waits until you are on the main menu, outside an online room, with no other dialog open.
+4. **When you close the game after Update now**, it runs that release's own `Install.ps1 -Update`, which replaces the files so the next launch loads them from disk. This upgrades the mods that are installed and adds the release's other mods, so a mod that is new in that release reaches you too. It does not bring back a mod you uninstalled (the installer lists those in `BepInEx\config\com.manhl.overcooked2.removed.txt`), and it adds DIYChefFix only when DIYChef is installed.
+
+All network and file work happens in Windows PowerShell. GitHub requires TLS 1.2, which this game's old Mono can't do. The files can only be replaced after the game exits, because Windows won't let anything replace a DLL the game has loaded.
 
 ## In MOD Settings
 
@@ -17,13 +22,12 @@ If **MOD Settings** (OC2ModSettings) is installed, **Mod Updater** has its own p
 
 | Row | |
 |---|---|
-| **Trạng thái** (status) | read-only: checking, downloading, up to date, update downloaded, or what went wrong |
-| **Kiểm tra** button | ask GitHub now (greyed out while a check or download is running) |
-| **Cập nhật** button | when an update is downloaded: loads it into the game now, without restarting. Greyed out except on the main menu outside an online room |
-| **Cập nhật ngay khi tải xong** | off (default). On: does what **Cập nhật** does by itself as soon as the download finishes and you are on the main menu |
-| **Tự động cập nhật** | on (default): updates install by themselves when you close the game. Off: they are still downloaded, but only installed if you loaded them with **Cập nhật** |
+| **Trạng thái** (status) | read-only: checking, downloading, up to date, new version available, or what went wrong |
+| **Kiểm tra** button | asks GitHub now. MOD Settings closes, and a dialog shows the check, then the new version, "up to date" or what went wrong. Greyed out while a check or download is running |
+| **Cập nhật** button | when a new version is downloaded: the same as **Update now** in the dialog. Greyed out except on the main menu outside an online room |
+| **Kiểm tra khi mở game** | on (default): checks each time the game starts. Off: only the **Kiểm tra** button checks |
 
-Without MOD Settings, the same switches are `UpdateImmediately` and `AutoUpdate` in `BepInEx\config\com.manhl.overcooked2.modupdater.cfg`, and the status is written to the BepInEx log.
+Without MOD Settings, the switch is `CheckOnStart` in `BepInEx\config\com.manhl.overcooked2.modupdater.cfg`, the dialog still appears, and the status is written to the BepInEx log. Version 1's `AutoUpdate` and `UpdateImmediately` settings are no longer read: nothing installs unless you choose to update.
 
 ## Updating without restarting
 
@@ -43,8 +47,9 @@ Only mods whose DLL actually changed are swapped. When the game closes, the file
 
 ## Notes
 
-- **Hand-made and developer installs are not overwritten automatically.** If the mods were installed from a repo checkout, which has no `version.txt`, or copied in by hand, no release version is recorded. ModUpdater still checks and downloads, but it only installs when you press **Cập nhật**.
-- **Players need one manual install to get ModUpdater.** Releases from before ModUpdater don't include it. After that one install, updates arrive by themselves.
+- **Hand-made and developer installs** (from a repo checkout, which has no `version.txt`, or copied in by hand) record no release version, so every release counts as new and the dialog offers it.
+- **Players need one manual install to get ModUpdater.** Releases from before ModUpdater don't include it. After that one install, each new release is offered in game.
+- **Moving from ModUpdater 1.x:** the update that brings 2.0 is still installed the 1.x way (automatically when the game closes, if that was on). From then on, every update waits for your answer in the dialog.
 - If the game is in a protected folder (such as `C:\Program Files (x86)`), the install fails. The status says so. Run `Install.cmd` as administrator once, or move the Steam library.
 - Files: `BepInEx\cache\ModUpdater\state.txt` holds the status the plugin reads. `update.log` holds everything the script and the installer printed.
 
