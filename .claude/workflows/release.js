@@ -101,9 +101,12 @@ Your task: ensure every mod in ${game.name}/ builds with ZERO compiler errors an
 
 1. List every subdirectory under ${game.name}/ that has a build.cmd.
 2. For each mod, run its build.cmd from the mod's own directory and capture stdout+stderr.
-3. For any error or warning, read the offending source file(s) and fix them.
-   - Never edit files under ${game.name}/_decompiled/ — read-only game DLLs.
-   - Never edit conversation_checkpoint.md or inspect_*.ps1/list_*.ps1 at the repo root.
+3. For any error or warning, read the offending source file(s) and fix them IN PLACE.
+   ABSOLUTE RULES — violating any of these is a critical failure:
+   - NEVER delete any mod folder or any source file (.cs, .csproj, build.cmd, README.md).
+     If a mod does not build, fix its source code or report success:false. Deleting is never an option.
+   - NEVER edit files under ${game.name}/_decompiled/ — read-only game DLLs.
+   - NEVER edit conversation_checkpoint.md or inspect_*.ps1/list_*.ps1 at the repo root.
 4. Re-run the build after each fix; repeat until 0 errors and 0 warnings.
 5. Do NOT stage or commit — the Release phase handles git.
 

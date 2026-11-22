@@ -8,9 +8,10 @@ My mods for various games, one folder per game. Each game has its own GitHub rel
 | [Kebab Chefs! - Restaurant Simulator](KebabChefs/) | PlayerTweaks, LoadTweaks | BepInEx 6 (IL2CPP) | [KebabChefs](../../releases?q=KebabChefs) |
 | [Lemon Cake](LemonCake/) | LemonCoop (split-screen co-op, save backup + upgrade repair, achievements) | UE4SS 3.0.1 (Lua) + patch pak | [LemonCake](../../releases?q=LemonCake) |
 | [Mortal Kombat 11](MK11/) | MK11Tweaks | Ultimate ASI Loader (C++) | [MK11](../../releases?q=MK11) |
-| [Overcooked! 2](Overcooked2/) | OC2Tweaks (panel: ping, force host, kick, bans; plus a one-key level restart), RandomLevel (random DIY levels, Continue goes straight to the next) | BepInEx 5 (Mono, x86) | [Overcooked2](../../releases?q=Overcooked2) |
+| [Overcooked! 2](Overcooked2/) | OC2Tweaks (panel: ping, force host, kick, bans; plus a one-key level restart), RandomLevel (random DIY levels, Continue goes straight to the next), ChefSkills (trade skill levels and pick special skills before each kitchen), EmoteSync (Arcade MOD emote texts follow each player online), TiengViet (the game and all these mods in Vietnamese, switched in Settings) | BepInEx 5 (Mono, x86) | [Overcooked2](../../releases?q=Overcooked2) |
 | [Project Zomboid](ProjectZomboid/) | MonitorCoop (local split-screen on a monitor each, laid out like your monitors, with who sits where up to you) | Java agent, with its own launcher | [ProjectZomboid](../../releases?q=ProjectZomboid) |
 | [Stardew Valley](StardewValley/) | MonitorCoop (local co-op on a monitor each, laid out like your monitors), AutoFishCoop (Auto Fishing settings per local player, with controller shortcuts and a menu each) | SMAPI 4 | [StardewValley](../../releases?q=StardewValley) |
+| [Tasty Chef](TastyChef/) | LocalCoop (local co-op for up to four: a window and a controller each, joined through the game's LAN room) | BepInEx 5.4.23.5 (Mono) | [TastyChef](../../releases?q=TastyChef) |
 
 ## Installing
 

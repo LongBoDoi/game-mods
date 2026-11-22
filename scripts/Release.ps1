@@ -98,6 +98,9 @@ Get-ChildItem -LiteralPath (Join-Path $gameDir 'installer') |
     Where-Object { $Game -ne 'Overcooked2' -or $_.Name -ne 'plugins' } |
     ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $stage -Recurse }
 Copy-Item -LiteralPath (Join-Path $gameDir 'README.md') -Destination $stage
+# Lets an installer record which release it installed (Overcooked2's Mod Updater compares it with
+# the newest release on GitHub).
+Set-Content -LiteralPath (Join-Path $stage 'version.txt') -Value $Version -Encoding ASCII
 foreach ($mod in $mods) {
     $readme = Join-Path $mod.FullName 'README.md'
     $inStage = Join-Path $stage "$($mod.Name)\README.md"
