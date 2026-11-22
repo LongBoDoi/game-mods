@@ -39,7 +39,7 @@ try {
     }
     $entry = $plugin.MainModule.GetType('RandomLevel.Plugin')
     Assert ($entry.BaseType.FullName -eq 'BepInEx.BaseUnityPlugin') 'Wrong plugin base class.'
-    $dependency = $entry.CustomAttributes | Where-Object AttributeType -Match 'BepInDependency$'
+    $dependency = $entry.CustomAttributes | Where-Object { $_.AttributeType.Name -eq 'BepInDependency' -and $_.ConstructorArguments[0].Value -eq 'dev.gua.overcooked.diylevel' } | Select-Object -First 1
     Assert ($dependency.ConstructorArguments[0].Value -eq 'dev.gua.overcooked.diylevel') 'Missing hard dependency on OC2DIYLevel.'
     Assert ($dependency.ConstructorArguments[1].Value -eq '0.10.0') 'Unexpected minimum pack version.'
 

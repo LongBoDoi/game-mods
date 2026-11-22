@@ -75,8 +75,9 @@ namespace ChefSkills
         private const string RulesKey = "chefskills.rules";
         // 4: dashes are reported by the player's machine and followed by the host (DashSync),
         // which only works when both sides do it. 5: special skills (a loadout per player, and
-        // the SpecialNet channel every machine has to read).
-        private const string Version = "5";
+        // the SpecialNet channel every machine has to read). 6: SpecialNet protocol 2 (refusal
+        // reasons, visual effects) and the reworked specials.
+        private const string Version = "6";
         private const float TickSeconds = 0.5f;
         private const int LevelLimit = 5;
 
@@ -329,8 +330,12 @@ namespace ChefSkills
             if (Round > 0) return;
             int round = ReadRound(_lobby);
             if (round <= 0 || round == LastRound(_lobby)) return;
+            // A round the host has already finished may be an old level's, unless this machine has
+            // been through a round in this lobby before: then any newer round is this level's
+            // (the host skipped, or started, before this machine got here) and Poll follows it.
             Published host = Read(_lobby, SteamMatchmaking.GetLobbyOwner(_lobby));
-            if (host != null && host.Round == round && (host.Phase == Phase.Done || host.Phase == Phase.Skip)) return;
+            if (host != null && host.Round == round && (host.Phase == Phase.Done || host.Phase == Phase.Skip) &&
+                (LastRound(_lobby) <= 0 || round < LastRound(_lobby))) return;
             Round = round;
             Remember(_lobby, round);
             Plugin.Log.LogInfo("Đồng bộ chọn kỹ năng: lượt " + round + ".");
@@ -623,7 +628,7 @@ namespace ChefSkills
         {
             string name = index < names.Count ? names[index] : null;
             if (string.IsNullOrEmpty(name))
-                name = (names.Count > 0 && !string.IsNullOrEmpty(names[0]) ? names[0] : "PLAYER") + " " + (index + 1);
+                name = (names.Count > 0 && !string.IsNullOrEmpty(names[0]) ? names[0] : Lang.T("PLAYER", "NGƯỜI CHƠI")) + " " + (index + 1);
             return new RemoteCard
             {
                 Key = machine + ":" + index, Name = name, State = state,

@@ -55,20 +55,44 @@ namespace ModUpdater
                 if (apiVersion == null || status == null || registerAction == null) return;
                 if ((int)apiVersion.Invoke(instance, null) != 1 || (string)status.Invoke(instance, null) != "ready") return;
                 host = instance;
-
-                Register("check", "Kiểm tra", "Hỏi GitHub xem có bản mới không, và tải về nếu có.", 2,
-                    delegate { updater.Start(false); },
-                    delegate { return updater.ScriptFound && !updater.Busy; }, false);
-                Register("update", "Cập nhật",
-                    "Nạp bản vừa tải vào game ngay, không cần tắt game. Chỉ dùng được ở menu chính, khi không ở trong phòng trực tuyến.", 1,
-                    plugin.LoadNow,
-                    delegate { return plugin.CanLoadNow(updater.Read()) && Reloader.SafeNow(); }, false);
+                RegisterButtons();
             }
             catch (Exception error)
             {
                 host = null;
                 Plugin.Log.LogWarning("Không thêm được nút vào MOD Settings: " + error.Message);
             }
+        }
+
+        /// <summary>The buttons' words are copied when they are registered; register them again
+        /// in the language now in use (same ids, so they replace the old ones).</summary>
+        internal void Relabel()
+        {
+            if (host == null) return;
+            try
+            {
+                foreach (IDisposable lease in leases)
+                {
+                    try { lease.Dispose(); } catch { }
+                }
+                leases.Clear();
+                RegisterButtons();
+            }
+            catch (Exception error) { Plugin.Log.LogWarning("Không đổi được chữ trên nút MOD Settings: " + error.Message); }
+        }
+
+        private void RegisterButtons()
+        {
+            Register("check", Lang.T("Check", "Kiểm tra"),
+                Lang.T("Ask GitHub whether there is a new version, and download it if there is.",
+                    "Hỏi GitHub xem có bản mới không, và tải về nếu có."), 2,
+                delegate { updater.Start(false); },
+                delegate { return updater.ScriptFound && !updater.Busy; }, false);
+            Register("update", Lang.T("Update", "Cập nhật"),
+                Lang.T("Load the downloaded version into the game now, without closing it. Only works in the main menu, when not in an online room.",
+                    "Nạp bản vừa tải vào game ngay, không cần tắt game. Chỉ dùng được ở menu chính, khi không ở trong phòng trực tuyến."), 1,
+                plugin.LoadNow,
+                delegate { return plugin.CanLoadNow(updater.Read()) && Reloader.SafeNow(); }, false);
         }
 
         private void Register(string id, string name, string description, int order, Action execute,

@@ -15,6 +15,8 @@ namespace OC2Tweaks
     /// ban list, all on rows that look and navigate like the game's own.
     /// </summary>
     [BepInPlugin(Id, "Overcooked 2 - Bộ công cụ", Version)]
+    // Loads after TiengViet when it is installed, so the language it sets applies from the start.
+    [BepInDependency("com.manhl.overcooked2.tiengviet", BepInDependency.DependencyFlags.SoftDependency)]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Id = "com.manhl.overcooked2.tweaks";
@@ -47,23 +49,31 @@ namespace OC2Tweaks
         {
             Log = Logger;
             ForceHost = Config.Bind("Matchmaking", "ForceHost", false,
-                "Tự tạo phòng Arcade/Versus thay vì tìm phòng của người khác. Áp dụng từ lần ghép trận tiếp theo.");
+                Lang.T("Open your own Arcade/Versus room instead of joining someone else's. Applies from the next matchmaking.",
+                    "Tự tạo phòng Arcade/Versus thay vì tìm phòng của người khác. Áp dụng từ lần ghép trận tiếp theo."));
             QuickRestartEnabled = Config.Bind("QuickRestart", "Enabled", true,
-                "Bật phím chơi lại nhanh. Bật/tắt trong Cài đặt → Bộ công cụ.");
+                Lang.T("Enables the quick restart key. Turn it on/off in Settings → OC2 TWEAKS.",
+                    "Bật phím chơi lại nhanh. Bật/tắt trong Cài đặt → Bộ công cụ."));
             QuickRestartKey = Config.Bind("QuickRestart", "RestartKey",
                 new KeyboardShortcut(KeyCode.F5),
-                "Phím chơi lại màn đang chơi ngay lập tức, bỏ qua menu tạm dừng và câu hỏi xác nhận. Ví dụ tổ hợp: R + LeftControl.");
+                Lang.T("Key that restarts the current level at once, skipping the pause menu and the confirmation. Example combination: R + LeftControl.",
+                    "Phím chơi lại màn đang chơi ngay lập tức, bỏ qua menu tạm dừng và câu hỏi xác nhận. Ví dụ tổ hợp: R + LeftControl."));
             PingOverlay = Config.Bind("PingOverlay", "Enabled", false,
-                "Hiện độ trễ của mọi người chơi ở một góc màn hình.");
+                Lang.T("Shows every player's ping in a corner of the screen.",
+                    "Hiện độ trễ của mọi người chơi ở một góc màn hình."));
             PingOverlayCorner = Config.Bind("PingOverlay", "Corner", OverlayCorner.TopRight,
-                "Góc màn hình hiện độ trễ: TopLeft, TopRight, BottomLeft, BottomRight.");
+                Lang.T("Screen corner for the ping list: TopLeft, TopRight, BottomLeft, BottomRight.",
+                    "Góc màn hình hiện độ trễ: TopLeft, TopRight, BottomLeft, BottomRight."));
             PingOverlayKey = Config.Bind("PingOverlay", "ToggleKey",
                 new KeyboardShortcut(KeyCode.F9),
-                "Phím bật/tắt bảng độ trễ ở góc màn hình. F9 tránh trùng với F7/F8 của RandomLevel.");
+                Lang.T("Key that shows/hides the corner ping list. F9 avoids RandomLevel's F7/F8.",
+                    "Phím bật/tắt bảng độ trễ ở góc màn hình. F9 tránh trùng với F7/F8 của RandomLevel."));
             PreviousTabKey = Config.Bind("Settings", "PreviousTabKey", new KeyboardShortcut(KeyCode.Z),
-                "Chuyển sang thẻ bên trái trong Cài đặt → OC2 TWEAKS. Tay cầm: LB.");
+                Lang.T("Switches to the tab on the left in Settings → OC2 TWEAKS. Pad: LB.",
+                    "Chuyển sang thẻ bên trái trong Cài đặt → OC2 TWEAKS. Tay cầm: LB."));
             NextTabKey = Config.Bind("Settings", "NextTabKey", new KeyboardShortcut(KeyCode.C),
-                "Chuyển sang thẻ bên phải trong Cài đặt → OC2 TWEAKS. Tay cầm: RB.");
+                Lang.T("Switches to the tab on the right in Settings → OC2 TWEAKS. Pad: RB.",
+                    "Chuyển sang thẻ bên phải trong Cài đặt → OC2 TWEAKS. Tay cầm: RB."));
 
             Bans = new BanStore(Path.Combine(Paths.ConfigPath, Id + ".bans.tsv"));
             try

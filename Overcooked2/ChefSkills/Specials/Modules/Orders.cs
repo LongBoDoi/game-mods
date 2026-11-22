@@ -5,6 +5,7 @@ using System.Reflection;
 using HarmonyLib;
 using OrderController;
 using UnityEngine;
+using UnityEngine.UI;
 using Object = UnityEngine.Object;
 using Random = UnityEngine.Random;
 
@@ -14,33 +15,41 @@ namespace ChefSkills.Specials
     /// Orders and score: tips, order timers, the order list and delivery streaks.
     ///
     /// The host decides every score change inside the game's own delivery and expiry paths (so the
-    /// KitchenFlowMessage it sends already carries the changed score and tip), and adds/removes
-    /// orders through the server order controller. The few things the game doesn't sync (an order
-    /// taken off the list, the fortune-teller preview, the bounty, the hot streak) go over
-    /// SpecialNet.
+    /// KitchenFlowMessage it sends already carries the changed score and tip), and adds orders
+    /// through the server order controller (the game's OrderAdded message reaches every machine).
+    /// The few things the game doesn't sync (an order taken off the list, the fortune-teller
+    /// preview, the bounty, the hot streak, team recharges) go over SpecialNet.
+    ///
+    /// What players see: every bonus a delivery got floats up over the pass that took it
+    /// ("CHARMER TIP +50%", "BOUNTY! x2"...), the bounty order is framed in gold on the order bar,
+    /// chefs glow while Golden Hour / a full Hot Streak / Coffee Run holds, the passes are ringed
+    /// while Time Out stops the clock, and team recharges sweep over the skill icons.
     /// </summary>
     internal sealed class OrdersModule : ISpecialModule
     {
         // --- tuning -----------------------------------------------------------------------------
         internal const float CharmerTip = 1.5f;
-        internal const float MaitreDLifetime = 1.15f;
-        internal const float ClutchWindow = 0.15f;
-        internal const float FreshSeconds = 15f;
-        internal const float FreshTip = 1.4f;
-        internal const float CloseEnoughCooldown = 60f;
-        internal const float GoldenHourSeconds = 30f;
-        internal const float CoffeeSpeed = 0.2f;
-        internal const float CoffeeSeconds = 5f;
+        internal const float MaitreDLifetime = 1.25f;
+        internal const float ClutchWindow = 0.25f;
+        internal const float FreshSeconds = 20f;
+        internal const float FreshTip = 1.5f;
+        internal const float CloseEnoughCooldown = 45f;
+        internal const float ComboKeeperCooldown = 40f;
+        internal const float GoldenHourSeconds = 45f;
+        internal const float CoffeeSpeed = 0.25f;
+        internal const float CoffeeSeconds = 6f;
         internal const float PressurePerOrder = 0.05f;
         internal const int PressureMaxOrders = 5;
         internal const float StreakStep = 0.03f;
         internal const int StreakMax = 5;
         internal const float DecoySeconds = 15f;
         internal const float PoseSeconds = 1f;
-        internal const float TimeOutSeconds = 6f;
-        // Reroll: the new order is added a moment after the removal reached the clients, so a
-        // full order bar never has one widget too many.
+        internal const float TimeOutSeconds = 10f;
+        // Reroll on a full order bar: the new order is added a moment after the removal reached
+        // the clients, so their bar never has one widget too many (no table left for it).
         internal const float RerollAddDelay = 0.5f;
+        // An order younger than this may not have reached every client yet: Reroll leaves it.
+        private const float RerollMinAge = 1f;
         // The game sends 6 bits of tip; the score itself carries the full amount.
         private const int MaxTipShown = 63;
 
@@ -49,18 +58,28 @@ namespace ChefSkills.Specials
         private static readonly ushort TopicFortune = (ushort)((int)Special.FortuneTeller * 10 + 1);
         private static readonly ushort TopicBounty = (ushort)((int)Special.BountyHunter * 10 + 1);
         private static readonly ushort TopicStreak = (ushort)((int)Special.HotStreak * 10 + 1);
+        private static readonly ushort TopicCloseEnough = (ushort)((int)Special.CloseEnough * 10 + 1);
+        private static readonly ushort TopicComboKeeper = (ushort)((int)Special.ComboKeeper * 10 + 1);
 
         // --- private game members ---------------------------------------------------------------
         internal static readonly FieldInfo ServerActiveOrders = AccessTools.Field(typeof(ServerOrderControllerBase), "m_activeOrders");
         internal static readonly FieldInfo ServerRoundData = AccessTools.Field(typeof(ServerOrderControllerBase), "m_roundData");
         internal static readonly FieldInfo ServerRoundInstance = AccessTools.Field(typeof(ServerOrderControllerBase), "m_roundInstanceData");
         internal static readonly FieldInfo ServerMaxOrders = AccessTools.Field(typeof(ServerOrderControllerBase), "m_maxOrdersAllowed");
+        internal static readonly FieldInfo ServerTimerUntilOrder = AccessTools.Field(typeof(ServerOrderControllerBase), "m_timerUntilOrder");
         internal static readonly MethodInfo ServerAddEntry =
             AccessTools.Method(typeof(ServerOrderControllerBase), "AddNewOrder", new Type[] { typeof(RecipeList.Entry) });
         internal static readonly FieldInfo ClientActiveOrders = AccessTools.Field(typeof(ClientOrderControllerBase), "m_activeOrders");
         internal static readonly FieldInfo ClientGui = AccessTools.Field(typeof(ClientOrderControllerBase), "m_gui");
         internal static readonly FieldInfo StationPlate = AccessTools.Field(typeof(ServerPlateStation), "m_plate");
         internal static readonly FieldInfo TimerLimit = AccessTools.Field(typeof(ServerRoundTimer), "m_timeLimit");
+        internal static readonly FieldInfo ClientTimerLimit = AccessTools.Field(typeof(ClientRoundTimer), "m_timeLimit");
+        internal static readonly FieldInfo WidgetTiles = AccessTools.Field(typeof(RecipeWidgetUIController), "m_recipeTiles");
+        private static readonly FieldInfo GuiWidgets = AccessTools.Field(typeof(RecipeFlowGUI), "m_widgets");
+        private static readonly FieldInfo GuiDyingWidgets = AccessTools.Field(typeof(RecipeFlowGUI), "m_dyingWidgets");
+        private static readonly FieldInfo GuiPrefab = AccessTools.Field(typeof(RecipeFlowGUI), "m_recipeWidgetPrefab");
+        private static readonly FieldInfo GuiSpacing = AccessTools.Field(typeof(RecipeFlowGUI), "m_distanceBetweenOrders");
+        private static readonly FieldInfo GuiEdge = AccessTools.Field(typeof(RecipeFlowGUI), "m_distanceFromEndOfScreen");
         // ClientOrderControllerBase.ActiveOrder is a protected nested class.
         private static readonly Type ActiveOrderType = AccessTools.Inner(typeof(ClientOrderControllerBase), "ActiveOrder");
         private static readonly FieldInfo ActiveOrderId = ActiveOrderType != null ? AccessTools.Field(ActiveOrderType, "ID") : null;
@@ -70,21 +89,36 @@ namespace ChefSkills.Specials
         // --- level state (cleared with the level) -----------------------------------------------
         private static ServerKitchenFlowControllerBase s_serverFlow;
         private static ClientKitchenFlowControllerBase s_clientFlow;
+        private static PlateStation[] s_passes = new PlateStation[0];
         private static bool s_versus;
         private static float s_nextFind;
 
         // Per team (index 0 = team one / campaign, 1 = team two).
         private static readonly int[] s_waiting = new int[2];
         private static readonly int[] s_streak = new int[2];
-        private static readonly bool[] s_secondChanceUsed = new bool[2];
-        private static readonly bool[] s_comboKeeperUsed = new bool[2];
+        private static readonly HashSet<uint>[] s_secondChanceOrders = { new HashSet<uint>(), new HashSet<uint>() };
+        // Team recharges: host decides with them, every machine shows them (SpecialNet).
+        private static readonly float[] s_comboKeeperReadyAt = new float[2];
         private static readonly float[] s_closeEnoughReadyAt = new float[2];
         private static readonly RecipeList.Entry[] s_fortuneNext = new RecipeList.Entry[2];
-        private static readonly string[] s_fortuneName = new string[2];
         private static readonly uint[] s_bountyServer = new uint[2];
         private static readonly int[] s_bountyShown = new int[2];
         private static readonly List<Decoy>[] s_decoys = { new List<Decoy>(), new List<Decoy>() };
-        private static readonly List<PendingAdd> s_pendingAdds = new List<PendingAdd>();
+        // Reroll on a full bar (host): replacements owed, when, which recipe to avoid, who asked.
+        private static readonly int[] s_rerollOwed = new int[2];
+        private static readonly float[] s_rerollAt = new float[2];
+        private static readonly OrderDefinitionNode[] s_rerollAvoid = new OrderDefinitionNode[2];
+        private static readonly ChefState[] s_rerollChef = new ChefState[2];
+        // The gold frame on the bounty order's widget (every machine).
+        private static readonly GameObject[] s_bountyFrame = new GameObject[2];
+        private static readonly Component[] s_bountyWidget = new Component[2];
+        private static readonly CardMark[] s_bountyMark = new CardMark[2];
+        // Fortune Teller: the foretold order (its uID, -1 = none) and its ghost card on the bar.
+        private static readonly int[] s_fortuneUid = { -1, -1 };
+        private static readonly GameObject[] s_ghost = new GameObject[2];
+        private static readonly int[] s_ghostUid = { -1, -1 };
+        private static readonly CardMark[] s_ghostMark = new CardMark[2];
+        private static readonly float[] s_maitreTextAt = new float[2];
 
         // Fresh Delivery (host): cooking handler -> when its food finished; plate -> the earliest
         // finish time of the cooked food put on it.
@@ -95,6 +129,7 @@ namespace ChefSkills.Specials
         internal static bool CtxActive;
         internal static bool CtxSuccess;
         internal static bool CtxDecoy;
+        internal static bool CtxCloseEnough;
         internal static ChefState CtxPlacer;
         internal static float CtxCookedAt = -1f;
         internal static int LastBaseScore;
@@ -104,11 +139,17 @@ namespace ChefSkills.Specials
         internal static int ExpiryDeductions, ExpiryMultiplier, ExpiryCombo;
         internal static bool ExpiryMaintained;
 
-        // A decoy being added: its lifetime, and no Fortune Teller swap.
+        // The wrong dish being handled right now on the host (tip streak before the game reset it).
+        internal static bool FailActive;
+        internal static int FailMultiplier, FailCombo;
+        internal static bool FailMaintained;
+
+        // An order being added by a special: its lifetime, and no Fortune Teller swap.
         internal static float LifetimeOverride = -1f;
+        internal static bool SkipFortune;
         internal static bool AddingDecoy;
 
-        private static float s_nextBountyCheck, s_nextBountySend, s_nextStatus;
+        private static float s_nextBountyCheck, s_nextBountySend, s_nextStatus, s_nextResend;
 
         private struct Decoy
         {
@@ -117,17 +158,12 @@ namespace ChefSkills.Specials
             public bool Expired;
         }
 
-        private struct PendingAdd
-        {
-            public ServerOrderControllerBase Controller;
-            public float At;
-        }
-
         public void Register()
         {
             SpecialRuntime.LevelStarted += OnLevelStarted;
             SpecialRuntime.LevelEnded += Reset;
             SpecialRuntime.Tick += OnTick;
+            SpecialRuntime.Frame += OnFrame;
 
             SpecialRuntime.RunSpeedModifiers.Add(RunSpeed);
             SpecialRuntime.DashSpeedModifiers.Add(DashSpeed);
@@ -137,9 +173,14 @@ namespace ChefSkills.Specials
             SpecialNet.Register(TopicFortune, OnFortune);
             SpecialNet.Register(TopicBounty, OnBounty);
             SpecialNet.Register(TopicStreak, OnStreak);
+            SpecialNet.Register(TopicCloseEnough, OnTeamRecharge);
+            SpecialNet.Register(TopicComboKeeper, OnTeamRecharge);
 
             SpecialRuntime.RegisterActive(Special.Reroll, new ActiveHandler { Execute = ExecuteReroll });
-            SpecialRuntime.RegisterActive(Special.TimeOut, new ActiveHandler { Execute = ExecuteTimeOut, Duration = TimeOutSeconds });
+            SpecialRuntime.RegisterActive(Special.TimeOut, new ActiveHandler
+            {
+                Execute = ExecuteTimeOut, OnActivated = OnTimeOutActivated, Duration = TimeOutSeconds
+            });
             SpecialRuntime.RegisterActive(Special.DecoyOrder, new ActiveHandler { Execute = ExecuteDecoy, Duration = DecoySeconds });
         }
 
@@ -147,30 +188,45 @@ namespace ChefSkills.Specials
         {
             s_serverFlow = null;
             s_clientFlow = null;
+            s_passes = new PlateStation[0];
             s_versus = false;
             s_nextFind = 0f;
             for (int i = 0; i < 2; i++)
             {
                 s_waiting[i] = 0;
                 s_streak[i] = 0;
-                s_secondChanceUsed[i] = false;
-                s_comboKeeperUsed[i] = false;
+                s_secondChanceOrders[i].Clear();
+                s_comboKeeperReadyAt[i] = 0f;
                 s_closeEnoughReadyAt[i] = 0f;
                 s_fortuneNext[i] = null;
-                s_fortuneName[i] = null;
                 s_bountyServer[i] = 0;
                 s_bountyShown[i] = -1;
                 s_decoys[i].Clear();
+                s_rerollOwed[i] = 0;
+                s_rerollAt[i] = 0f;
+                s_rerollAvoid[i] = null;
+                s_rerollChef[i] = null;
+                if (s_bountyFrame[i] != null) Object.Destroy(s_bountyFrame[i]);
+                s_bountyFrame[i] = null;
+                s_bountyWidget[i] = null;
+                s_bountyMark[i] = null;
+                s_fortuneUid[i] = -1;
+                DestroyGhost(i);
+                s_maitreTextAt[i] = 0f;
             }
-            s_pendingAdds.Clear();
             CookedAt.Clear();
             PlateCookedAt.Clear();
             CtxActive = false;
+            CtxCloseEnough = false;
             CtxPlacer = null;
             ExpiryActive = false;
+            FailActive = false;
             LifetimeOverride = -1f;
+            SkipFortune = false;
             AddingDecoy = false;
-            s_nextBountyCheck = s_nextBountySend = s_nextStatus = 0f;
+            s_nextBountyCheck = s_nextBountySend = s_nextStatus = s_nextResend = 0f;
+            OrdersServerTimeOutPatch.Reset();
+            OrdersClientTimeOutPatch.Reset();
         }
 
         private static void OnLevelStarted()
@@ -180,7 +236,7 @@ namespace ChefSkills.Specials
             FindFlows();
         }
 
-        // --- teams and flow controllers ----------------------------------------------------------
+        // --- teams, flow controllers and passes --------------------------------------------------
 
         /// <summary>FindFlows, at most once a second (patches call this when a flow is missing).</summary>
         private static void FindFlowsSoon()
@@ -195,6 +251,7 @@ namespace ChefSkills.Specials
             if (s_clientFlow == null) s_clientFlow = Object.FindObjectOfType<ClientKitchenFlowControllerBase>();
             if (s_serverFlow == null && SpecialNet.IsServer) s_serverFlow = Object.FindObjectOfType<ServerKitchenFlowControllerBase>();
             s_versus = s_serverFlow is ServerCompetitiveFlowController || s_clientFlow is ClientCompetitiveFlowController;
+            if (s_passes.Length == 0) s_passes = Object.FindObjectsOfType<PlateStation>();
         }
 
         internal static bool Versus
@@ -227,6 +284,42 @@ namespace ChefSkills.Specials
             return false;
         }
 
+        /// <summary>The chefs of a team with this special.</summary>
+        private static List<ChefState> TeamWith(Special special, TeamID team)
+        {
+            var list = new List<ChefState>();
+            IList<ChefState> chefs = SpecialRuntime.Chefs;
+            for (int i = 0; i < chefs.Count; i++)
+                if (chefs[i].Has(special) && TeamOf(chefs[i]) == team) list.Add(chefs[i]);
+            return list;
+        }
+
+        /// <summary>A team's serving passes (campaign: all of them).</summary>
+        private static List<PlateStation> PassesOf(TeamID team)
+        {
+            var list = new List<PlateStation>();
+            if (s_passes.Length == 0 || s_passes[0] == null) s_passes = Object.FindObjectsOfType<PlateStation>();
+            for (int i = 0; i < s_passes.Length; i++)
+            {
+                PlateStation pass = s_passes[i];
+                if (pass == null) continue;
+                if (s_versus && (pass.m_teamId == TeamID.Two ? TeamID.Two : TeamID.One) != team) continue;
+                list.Add(pass);
+            }
+            return list;
+        }
+
+        /// <summary>Where a team's messages float up: over its first pass, else over one of its chefs.</summary>
+        private static Vector3 PassPoint(TeamID team)
+        {
+            List<PlateStation> passes = PassesOf(team);
+            if (passes.Count > 0) return passes[0].transform.position + Vector3.up * 1.7f;
+            IList<ChefState> chefs = SpecialRuntime.Chefs;
+            for (int i = 0; i < chefs.Count; i++)
+                if (TeamOf(chefs[i]) == team && chefs[i].Chef != null) return chefs[i].Position + Vector3.up * 2.3f;
+            return Vector3.up * 2f;
+        }
+
         internal static ServerOrderControllerBase ServerController(TeamID team)
         {
             if (s_serverFlow == null) return null;
@@ -255,12 +348,16 @@ namespace ChefSkills.Specials
             return controller != null && ServerActiveOrders != null ? ServerActiveOrders.GetValue(controller) as List<ServerOrderData> : null;
         }
 
+        internal static int ServerMax(ServerOrderControllerBase controller)
+        {
+            return controller != null && ServerMaxOrders != null ? (int)ServerMaxOrders.GetValue(controller) : 5;
+        }
+
         internal static bool ServerFull(ServerOrderControllerBase controller)
         {
             List<ServerOrderData> orders = ServerOrders(controller);
             if (orders == null) return true;
-            int max = ServerMaxOrders != null ? (int)ServerMaxOrders.GetValue(controller) : 5;
-            return orders.Count >= max;
+            return orders.Count >= ServerMax(controller);
         }
 
         internal static ClientOrderControllerBase ClientController(TeamID team)
@@ -296,6 +393,21 @@ namespace ChefSkills.Specials
             return float.MaxValue;
         }
 
+        /// <summary>Seconds left in the round as this machine's clock shows it (MaxValue: no limit).</summary>
+        private static float ClientTimeLeft()
+        {
+            IClientRoundTimer timer = s_clientFlow != null ? s_clientFlow.RoundTimer : null;
+            if (timer is ClientModifiableRoundTimer) return timer.TimeElapsed; // counts down
+            if (timer is ClientRoundTimer && ClientTimerLimit != null)
+                return (float)ClientTimerLimit.GetValue(timer) - timer.TimeElapsed;
+            return float.MaxValue;
+        }
+
+        private static bool InGoldenHour(float timeLeft)
+        {
+            return timeLeft > 0f && timeLeft <= GoldenHourSeconds;
+        }
+
         internal static string OrderName(OrderDefinitionNode node)
         {
             if (node == null || string.IsNullOrEmpty(node.name)) return "?";
@@ -311,20 +423,28 @@ namespace ChefSkills.Specials
 
         // --- speed and skills (every machine) -----------------------------------------------------
 
+        private static int PressureOrders(ChefState chef)
+        {
+            return Mathf.Min(s_waiting[Idx(TeamOf(chef))], PressureMaxOrders);
+        }
+
+        private static int StreakOf(ChefState chef)
+        {
+            return Mathf.Min(s_streak[Idx(TeamOf(chef))], StreakMax);
+        }
+
         private static float RunSpeed(ChefState chef)
         {
             float value = 1f;
-            if (chef.Has(Special.UnderPressure))
-                value *= 1f + PressurePerOrder * Mathf.Min(s_waiting[Idx(TeamOf(chef))], PressureMaxOrders);
-            if (chef.Has(Special.HotStreak))
-                value *= 1f + StreakStep * Mathf.Min(s_streak[Idx(TeamOf(chef))], StreakMax);
+            if (chef.Has(Special.UnderPressure)) value *= 1f + PressurePerOrder * PressureOrders(chef);
+            if (chef.Has(Special.HotStreak)) value *= 1f + StreakStep * StreakOf(chef);
             return value;
         }
 
         private static float DashSpeed(ChefState chef)
         {
             if (!chef.Has(Special.HotStreak)) return 1f;
-            return 1f + StreakStep * Mathf.Min(s_streak[Idx(TeamOf(chef))], StreakMax);
+            return 1f + StreakStep * StreakOf(chef);
         }
 
         // Skills come in whole levels (~12-20% each): at the full streak every other skill gets +1.
@@ -367,14 +487,29 @@ namespace ChefSkills.Specials
         {
             float now = SpecialRuntime.Now;
 
-            // Reroll: the replacement order.
-            for (int i = s_pendingAdds.Count - 1; i >= 0; i--)
+            // Reroll on a full bar: the replacement, once the removal has reached everyone. Until
+            // then the game's own next-order timer is held, so it can't fill the gap first.
+            for (int t = 0; t < 2; t++)
             {
-                if (now < s_pendingAdds[i].At) continue;
-                ServerOrderControllerBase controller = s_pendingAdds[i].Controller;
-                s_pendingAdds.RemoveAt(i);
-                // The game may already have filled the gap itself.
-                if (controller != null && !ServerFull(controller)) controller.AddNewOrder();
+                if (s_rerollOwed[t] <= 0) continue;
+                ServerOrderControllerBase controller = ServerController(TeamAt(t));
+                if (controller == null)
+                {
+                    s_rerollOwed[t] = 0;
+                    continue;
+                }
+                if (now < s_rerollAt[t])
+                {
+                    if (ServerTimerUntilOrder != null && (float)ServerTimerUntilOrder.GetValue(controller) < 1f)
+                        ServerTimerUntilOrder.SetValue(controller, 1f);
+                    continue;
+                }
+                while (s_rerollOwed[t] > 0)
+                {
+                    s_rerollOwed[t]--;
+                    if (!ServerFull(controller)) AddReplacement(controller, TeamAt(t), s_rerollAvoid[t], s_rerollChef[t]);
+                }
+                s_rerollChef[t] = null;
             }
 
             // Decoys leave when they run out (or after a while, if timers were stopped).
@@ -387,6 +522,19 @@ namespace ChefSkills.Specials
                     uint id = decoys[i].Id;
                     decoys.RemoveAt(i);
                     ServerRemoveOrder(TeamAt(t), id);
+                }
+            }
+
+            // Fortune and streak are only sent when they change. Send them again now and then, so a
+            // machine that started its level after a change (its start wipes them) catches up:
+            // the streak changes everyone's movement, so every machine must agree on it.
+            if (now >= s_nextResend)
+            {
+                s_nextResend = now + 5f;
+                for (int t = 0; t < (s_versus ? 2 : 1); t++)
+                {
+                    if (TeamHas(Special.FortuneTeller, TeamAt(t)) && s_fortuneNext[t] != null) SendFortune(t);
+                    if (TeamHas(Special.HotStreak, TeamAt(t))) SendStreak(t);
                 }
             }
 
@@ -406,6 +554,7 @@ namespace ChefSkills.Specials
                     bool alive = false;
                     for (int i = 0; i < orders.Count && current != 0; i++)
                         if (orders[i].ID.m_id == current) alive = true;
+                    bool sendThis = resend;
                     if (!alive)
                     {
                         var choices = new List<uint>();
@@ -415,10 +564,10 @@ namespace ChefSkills.Specials
                         if (picked != current)
                         {
                             s_bountyServer[t] = picked;
-                            resend = true;
+                            sendThis = true;
                         }
                     }
-                    if (resend) SendBounty(t);
+                    if (sendThis) SendBounty(t);
                 }
             }
         }
@@ -437,16 +586,29 @@ namespace ChefSkills.Specials
             SpecialNet.SendToAll(new SpecialMessage { Topic = TopicStreak, A = t, I = s_streak[t] });
         }
 
+        /// <summary>Host: starts a team recharge everywhere (sweep on the special's icon).</summary>
+        private static void SendTeamRecharge(Special special, int t, float seconds)
+        {
+            if (special == Special.CloseEnough) s_closeEnoughReadyAt[t] = SpecialRuntime.Now + seconds;
+            else s_comboKeeperReadyAt[t] = SpecialRuntime.Now + seconds;
+            SpecialNet.SendToAll(new SpecialMessage
+            {
+                Topic = special == Special.CloseEnough ? TopicCloseEnough : TopicComboKeeper, A = t, B = seconds, I = (int)special
+            });
+        }
+
         /// <summary>Host: takes an order off a team's list everywhere (no score change).</summary>
         internal static void ServerRemoveOrder(TeamID team, uint id)
         {
-            List<ServerOrderData> orders = ServerOrders(ServerController(team));
+            ServerOrderControllerBase controller = ServerController(team);
+            List<ServerOrderData> orders = ServerOrders(controller);
             if (orders == null) return;
             bool found = false;
             for (int i = 0; i < orders.Count; i++)
                 if (orders[i].ID.m_id == id) found = true;
             if (!found) return;
-            ServerController(team).RemoveOrder(new OrderID(id));
+            controller.RemoveOrder(new OrderID(id));
+            // Clients know orders by the 8 bits OrderID sends.
             SpecialNet.SendToAll(new SpecialMessage { Topic = TopicRemoveOrder, A = Idx(team), I = (int)(id & 0xFF) });
         }
 
@@ -482,44 +644,430 @@ namespace ChefSkills.Specials
             }
         }
 
-        // --- status lines (every machine, local chefs) -------------------------------------------
+        // --- status, icons and auras (every machine) --------------------------------------------
 
         private static void UpdateStatus()
         {
             bool fortune = SpecialRuntime.AnyHas(Special.FortuneTeller);
             bool bounty = SpecialRuntime.AnyHas(Special.BountyHunter);
             bool streak = SpecialRuntime.AnyHas(Special.HotStreak);
-            if (!fortune && !bounty && !streak) return;
+            bool pressure = SpecialRuntime.AnyHas(Special.UnderPressure);
+            bool golden = SpecialRuntime.AnyHas(Special.GoldenHour);
+            if (!fortune && !bounty && !streak && !pressure && !golden) return;
+
+            float now = SpecialRuntime.Now;
+            float timeLeft = golden ? ClientTimeLeft() : float.MaxValue;
             foreach (ChefState chef in SpecialRuntime.Chefs)
             {
-                if (!chef.Local) continue;
+                if (chef.Chef == null) continue;
                 int t = Idx(TeamOf(chef));
-                var parts = new List<string>();
-                if (chef.Has(Special.FortuneTeller) && s_fortuneName[t] != null) parts.Add("NEXT: " + s_fortuneName[t]);
-                if (bounty && s_bountyShown[t] >= 0 && TeamHas(Special.BountyHunter, TeamOf(chef)))
-                {
-                    string where = BountyText(TeamOf(chef), s_bountyShown[t]);
-                    if (where != null) parts.Add(where);
-                }
-                if (chef.Has(Special.HotStreak) && s_streak[t] > 0)
-                    parts.Add("STREAK +" + (Mathf.Min(s_streak[t], StreakMax) * Mathf.RoundToInt(StreakStep * 100f)) + "%");
-                string text = parts.Count > 0 ? string.Join("  ", parts.ToArray()) : null;
 
-                chef.SetStatus("Orders", text);
+                // Auras every machine draws from what it knows (all of it synced).
+                bool goldenNow = chef.Has(Special.GoldenHour) && InGoldenHour(timeLeft);
+                if (goldenNow)
+                {
+                    SpecialFx.Mark(chef.Chef, Special.GoldenHour, 0.6f, null);
+                    if (!chef.Get("Orders.Golden", false))
+                    {
+                        chef.Set("Orders.Golden", true);
+                        SpecialFx.Text(chef.Chef, SpecialCatalog.NameOf(Special.GoldenHour) + Lang.T("! TIPS x2", "! BOA x2"), SpecialFx.ColourOf(Special.GoldenHour));
+                        SpecialFx.Burst(chef.Position, Special.GoldenHour);
+                    }
+                }
+                if (chef.Has(Special.HotStreak) && s_streak[t] >= StreakMax)
+                    SpecialFx.Mark(chef.Chef, Special.HotStreak, 0.6f, null);
+                if (chef.Has(Special.UnderPressure) && PressureOrders(chef) >= PressureMaxOrders)
+                    SpecialFx.Mark(chef.Chef, Special.UnderPressure, 0.6f, null);
+
+                if (!chef.Local) continue;
+                if (goldenNow) chef.SetTimer(Special.GoldenHour, now + timeLeft, GoldenHourSeconds);
+                if (chef.Has(Special.HotStreak)) chef.SetCount(Special.HotStreak, Mathf.Min(s_streak[t], 99));
+                if (chef.Has(Special.UnderPressure))
+                    chef.SetCount(Special.UnderPressure, Mathf.RoundToInt(PressurePerOrder * 100f) * PressureOrders(chef));
+
+                var parts = new List<string>();
+                if (chef.Has(Special.HotStreak) && s_streak[t] > 0)
+                    parts.Add(Lang.T("STREAK +", "CHUỖI +") + (StreakOf(chef) * Mathf.RoundToInt(StreakStep * 100f)) + "%");
+                chef.SetStatus("Orders", parts.Count > 0 ? string.Join("  ", parts.ToArray()) : null, Special.HotStreak);
             }
         }
 
-        private static string BountyText(TeamID team, int shortId)
+        // --- order bar marks (every machine, every frame, also while paused) ---------------------
+
+        /// <summary>
+        /// What this mod draws round one order card. They are the bar's children, not the card's
+        /// (the card recolours every Image under it while it animates): a soft halo behind all the
+        /// cards, and in front of them a rounded outline hugging the card and a tag on its bottom edge.
+        /// </summary>
+        private sealed class CardMark
         {
-            IList orders = ClientOrders(team);
-            if (orders == null || ActiveOrderId == null) return null;
+            public RectTransform Back, Front, Halo, Frame, Tag;
+            public Image HaloImage, FrameImage, TagImage;
+            public Text TagText;
+            public Component Widget;
+            public Color Colour;
+            public bool Strong;
+            public float Born;
+        }
+
+        /// <summary>Destroys the mark's back half along with its front.</summary>
+        private sealed class MarkOwner : MonoBehaviour
+        {
+            public GameObject Other;
+
+            private void OnDestroy()
+            {
+                if (Other != null) Destroy(Other);
+            }
+        }
+
+        private static void OnFrame()
+        {
+            if (!SpecialRuntime.InLevel) return;
+            bool menu = SpecialHud.GameMenuOpen();
+            try
+            {
+                UpdateBountyFrames(menu);
+            }
+            catch (Exception e)
+            {
+                SpecialRuntime.Fail("BountyHunter.Frame", e);
+            }
+            try
+            {
+                UpdateFortuneGhosts(menu);
+            }
+            catch (Exception e)
+            {
+                SpecialRuntime.Fail("FortuneTeller.Ghost", e);
+            }
+        }
+
+        /// <summary>Every machine: the bounty order's card gets a pulsing gold frame, an x2 badge and a BOUNTY ribbon.</summary>
+        private static void UpdateBountyFrames(bool menu)
+        {
+            for (int t = 0; t < 2; t++)
+            {
+                Component widget = t < (s_versus ? 2 : 1) && s_bountyShown[t] >= 0 ? BountyWidget(TeamAt(t), s_bountyShown[t]) : null;
+                if (widget != s_bountyWidget[t] || (widget != null && s_bountyFrame[t] == null))
+                {
+                    if (s_bountyFrame[t] != null) Object.Destroy(s_bountyFrame[t]);
+                    s_bountyFrame[t] = null;
+                    s_bountyMark[t] = null;
+                    s_bountyWidget[t] = null;
+                    if (widget == null) continue;
+                    CardMark mark = MakeMark(widget, "ChefSkillsBounty", SpecialFx.ColourOf(Special.BountyHunter), true,
+                        Lang.T("BOUNTY  x2", "THƯỞNG  x2"), new Color(0.22f, 0.12f, 0.02f, 1f));
+                    if (mark == null) continue; // its tiles aren't built yet: next frame
+                    s_bountyMark[t] = mark;
+                    s_bountyFrame[t] = mark.Front.gameObject;
+                    s_bountyWidget[t] = widget;
+                }
+                if (s_bountyMark[t] != null) PlaceMark(s_bountyMark[t], menu);
+            }
+        }
+
+        // --- Fortune Teller's ghost card ----------------------------------------------------------
+
+        /// <summary>
+        /// Every machine: the foretold order shows as a see-through card after the last order on
+        /// the bar, marked NEXT ORDER. In versus only the team that has it sees it.
+        /// </summary>
+        private static void UpdateFortuneGhosts(bool menu)
+        {
+            for (int t = 0; t < 2; t++)
+            {
+                int uid = t < (s_versus ? 2 : 1) && (!s_versus || LocalOnTeam(TeamAt(t))) ? s_fortuneUid[t] : -1;
+                RecipeFlowGUI gui = uid >= 0 ? GuiOf(TeamAt(t)) : null;
+                if (gui == null)
+                {
+                    DestroyGhost(t);
+                    continue;
+                }
+                if (s_ghost[t] == null || s_ghostUid[t] != uid || s_ghost[t].transform.parent != gui.transform)
+                {
+                    DestroyGhost(t);
+                    if (!MakeGhost(t, gui, uid)) continue;
+                }
+                PlaceGhost(t, gui, menu);
+            }
+        }
+
+        private static bool LocalOnTeam(TeamID team)
+        {
+            foreach (ChefState chef in SpecialRuntime.Chefs)
+                if (chef.Local && TeamOf(chef) == team) return true;
+            return false;
+        }
+
+        private static RecipeFlowGUI GuiOf(TeamID team)
+        {
+            ClientOrderControllerBase controller = ClientController(team);
+            return controller != null && ClientGui != null ? ClientGui.GetValue(controller) as RecipeFlowGUI : null;
+        }
+
+        private static void DestroyGhost(int t)
+        {
+            if (s_ghost[t] != null) Object.Destroy(s_ghost[t]);
+            s_ghost[t] = null;
+            s_ghostUid[t] = -1;
+            DestroyMark(s_ghostMark[t]);
+            s_ghostMark[t] = null;
+        }
+
+        private static bool MakeGhost(int t, RecipeFlowGUI gui, int uid)
+        {
+            if (GuiPrefab == null) return false;
+            OrderDefinitionNode node = GameUtils.GetOrderDefinitionNode(uid);
+            var prefab = GuiPrefab.GetValue(gui) as RecipeWidgetUIController;
+            if (node == null || prefab == null) return false;
+            GameObject go = GameUtils.InstantiateUIController(prefab.gameObject, gui.transform as RectTransform);
+            go.name = "ChefSkillsFortune";
+            RecipeWidgetUIController widget = go.GetComponent<RecipeWidgetUIController>();
+            if (widget == null)
+            {
+                Object.Destroy(go);
+                return false;
+            }
+            widget.SetupFromOrderDefinition(node, 0);
+            CanvasGroup group = go.AddComponent<CanvasGroup>();
+            group.alpha = 0.68f;
+            group.interactable = false;
+            group.blocksRaycasts = false;
+            s_ghost[t] = go;
+            s_ghostUid[t] = uid;
+            return true;
+        }
+
+        private static void PlaceGhost(int t, RecipeFlowGUI gui, bool menu)
+        {
+            GameObject go = s_ghost[t];
+            var widget = go.GetComponent<RecipeWidgetUIController>();
+            if (widget == null) return;
+            widget.SetTimePropRemaining(1f);
+
+            // After the last card on the bar, spaced the way the bar spaces its cards.
+            float spacing = GuiSpacing != null ? (float)GuiSpacing.GetValue(gui) : 5f;
+            float right = (GuiEdge != null ? (float)GuiEdge.GetValue(gui) : 5f) - spacing;
+            AddRightEdges(GuiWidgets != null ? GuiWidgets.GetValue(gui) as IList : null, ref right);
+            AddRightEdges(GuiDyingWidgets != null ? GuiDyingWidgets.GetValue(gui) as IList : null, ref right);
+            RectTransformExtension place = go.GetComponent<RectTransformExtension>() ?? go.AddComponent<RectTransformExtension>();
+            var at = new Vector2(right + spacing, 0f);
+            if (place.PixelOffset != at)
+            {
+                place.AnchorOffset = Vector2.zero;
+                place.PixelOffset = at;
+            }
+
+            var group = go.GetComponent<CanvasGroup>();
+            if (group != null) group.alpha = 0.68f + 0.07f * Mathf.Sin(Time.unscaledTime * 2.5f);
+
+            if (s_ghostMark[t] == null)
+                s_ghostMark[t] = MakeMark(widget, "ChefSkillsFortuneMark", SpecialFx.ColourOf(Special.FortuneTeller), false, Lang.T("NEXT ORDER", "MÓN TIẾP THEO"), new Color(0.06f, 0.06f, 0.08f, 1f));
+            if (s_ghostMark[t] != null) PlaceMark(s_ghostMark[t], menu);
+        }
+
+        private static void AddRightEdges(IList widgets, ref float right)
+        {
+            if (widgets == null) return;
+            foreach (object item in widgets)
+            {
+                var data = item as RecipeFlowGUI.RecipeWidgetData;
+                if (data == null || data.m_widget == null) continue;
+                RectTransformExtension place = data.m_widget.GetComponent<RectTransformExtension>();
+                if (place == null) continue;
+                right = Mathf.Max(right, place.PixelOffset.x + data.m_widget.GetBounds().width);
+            }
+        }
+
+        // --- drawing a mark ---------------------------------------------------------------------
+
+        /// <summary>
+        /// The card's tiles in <paramref name="space"/>'s local coordinates, and the height of its
+        /// top tile (the dish). The card moves and scales as the bar animates: read every frame.
+        /// </summary>
+        private static bool CardBounds(Component widget, Transform space, out Vector2 min, out Vector2 max, out float headHeight)
+        {
+            min = new Vector2(float.MaxValue, float.MaxValue);
+            max = new Vector2(float.MinValue, float.MinValue);
+            headHeight = 0f;
+            IList tiles = WidgetTiles != null ? WidgetTiles.GetValue(widget) as IList : null;
+            if (tiles == null || tiles.Count == 0) return false;
+            var corners = new Vector3[4];
+            for (int i = 0; i < tiles.Count; i++)
+            {
+                var tile = tiles[i] as Component;
+                RectTransform rect = tile != null ? tile.transform as RectTransform : null;
+                if (rect == null) continue;
+                rect.GetWorldCorners(corners);
+                float top = float.MinValue, bottom = float.MaxValue;
+                for (int c = 0; c < 4; c++)
+                {
+                    Vector3 p = space.InverseTransformPoint(corners[c]);
+                    min = Vector2.Min(min, p);
+                    max = Vector2.Max(max, p);
+                    top = Mathf.Max(top, p.y);
+                    bottom = Mathf.Min(bottom, p.y);
+                }
+                if (i == tiles.Count - 1) headHeight = top - bottom;
+            }
+            if (max.x <= min.x || max.y <= min.y) return false;
+            if (headHeight <= 1f) headHeight = (max.y - min.y) * 0.5f;
+            return true;
+        }
+
+        /// <summary>
+        /// Builds a mark round a card on the bar (null until the card's tiles exist). Strong: a
+        /// pulsing halo too (the bounty); otherwise just the outline and the tag (the ghost card).
+        /// </summary>
+        private static CardMark MakeMark(Component widget, string name, Color colour, bool strong, string tag, Color tagText)
+        {
+            Transform bar = widget.transform.parent;
+            Vector2 min, max;
+            float head;
+            if (bar == null || !CardBounds(widget, bar, out min, out max, out head)) return null;
+            var mark = new CardMark { Widget = widget, Colour = colour, Strong = strong, Born = Time.unscaledTime };
+            int layer = widget.gameObject.layer;
+
+            mark.Back = MarkRect(name + "Back", bar, layer);
+            mark.Back.SetAsFirstSibling();
+            mark.Halo = MarkRect("Halo", mark.Back, layer);
+            mark.HaloImage = MarkImage(mark.Halo, SpecialFx.RoundHalo, colour);
+            mark.Back.gameObject.SetActive(strong);
+
+            mark.Front = MarkRect(name, bar, layer);
+            CanvasGroup group = mark.Front.gameObject.AddComponent<CanvasGroup>();
+            group.interactable = false;
+            group.blocksRaycasts = false;
+            mark.Front.gameObject.AddComponent<MarkOwner>().Other = mark.Back.gameObject;
+            mark.Frame = MarkRect("Frame", mark.Front, layer);
+            mark.FrameImage = MarkImage(mark.Frame, SpecialFx.RoundFrame, colour);
+            mark.Tag = MarkRect("Tag", mark.Front, layer);
+            mark.TagImage = MarkImage(mark.Tag, SpecialFx.RoundBox, colour);
+            mark.TagText = MarkText(mark.Tag, tag, tagText, layer);
+            PlaceMark(mark, false);
+            return mark;
+        }
+
+        private static void DestroyMark(CardMark mark)
+        {
+            if (mark == null) return;
+            if (mark.Front != null) Object.Destroy(mark.Front.gameObject);
+            if (mark.Back != null) Object.Destroy(mark.Back.gameObject);
+        }
+
+        private static void PlaceMark(CardMark mark, bool menu)
+        {
+            if (mark.Front == null || mark.Widget == null) return;
+            bool show = !menu;
+            if (mark.Front.gameObject.activeSelf != show) mark.Front.gameObject.SetActive(show);
+            bool back = show && mark.Strong;
+            if (mark.Back != null && mark.Back.gameObject.activeSelf != back) mark.Back.gameObject.SetActive(back);
+            if (!show) return;
+
+            var bar = mark.Widget.transform.parent as RectTransform;
+            Vector2 min, max;
+            float head;
+            if (bar == null || !CardBounds(mark.Widget, bar, out min, out max, out head)) return;
+            // Behind every card, and in front of every card (cards added later go on top).
+            if (mark.Back != null && mark.Back.GetSiblingIndex() != 0) mark.Back.SetAsFirstSibling();
+            if (mark.Front.GetSiblingIndex() != bar.childCount - 1) mark.Front.SetAsLastSibling();
+
+            float now = Time.unscaledTime;
+            float pulse = 0.5f + 0.5f * Mathf.Sin(now * 4f);
+            // Pops in when the card is first marked.
+            float age = now - mark.Born;
+            float pop = age < 0.45f ? 1f + 1.2f * (1f - age / 0.45f) * (1f - age / 0.45f) : 1f;
+
+            float hug = 3f;
+            SetBox(mark.Frame, bar, min - Vector2.one * hug, max + Vector2.one * hug);
+            Color frame = Color.Lerp(mark.Colour, Color.white, (mark.Strong ? 0.35f : 0.15f) * pulse);
+            frame.a = mark.Strong ? 1f : 0.55f + 0.35f * pulse;
+            mark.FrameImage.color = frame;
+
+            if (mark.Strong)
+            {
+                // The halo's glow is its 24 px border, so the box grows by that much plus a little.
+                float spread = 24f * (1f + 0.25f * pulse) * pop;
+                SetBox(mark.Halo, bar, min - Vector2.one * spread, max + Vector2.one * spread);
+                Color halo = mark.Colour;
+                halo.a = 0.55f + 0.35f * pulse;
+                mark.HaloImage.color = halo;
+            }
+
+            // The tag hangs just under the card (clear of its icons), centred, never wider than the card.
+            float height = Mathf.Clamp(head * 0.34f, 22f, 34f);
+            mark.TagText.fontSize = Mathf.RoundToInt(height * 0.62f);
+            float width = Mathf.Min(mark.TagText.preferredWidth + height, max.x - min.x + 2f * hug);
+            float scale = (1f + 0.04f * pulse) * (age < 0.45f ? pop * 0.5f + 0.5f : 1f);
+            var centre = new Vector2((min.x + max.x) * 0.5f, min.y - hug - 4f - height * 0.5f);
+            SetBox(mark.Tag, bar, centre - new Vector2(width, height) * 0.5f, centre + new Vector2(width, height) * 0.5f);
+            mark.Tag.localScale = new Vector3(scale, scale, 1f);
+        }
+
+        /// <summary>Puts <paramref name="rect"/> (a child of <paramref name="parent"/>, or of a full-size child of it) over a box in the parent's local space.</summary>
+        private static void SetBox(RectTransform rect, RectTransform parent, Vector2 min, Vector2 max)
+        {
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = (min + max) * 0.5f - parent.rect.center;
+            rect.sizeDelta = max - min;
+        }
+
+        /// <summary>A rect filling its parent exactly (so its children can use the parent's space).</summary>
+        private static RectTransform MarkRect(string name, Transform parent, int layer)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.layer = layer;
+            var rect = (RectTransform)go.transform;
+            rect.SetParent(parent, false);
+            rect.localScale = Vector3.one;
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.offsetMin = rect.offsetMax = Vector2.zero;
+            return rect;
+        }
+
+        private static Image MarkImage(RectTransform rect, Sprite sprite, Color colour)
+        {
+            Image image = rect.gameObject.AddComponent<Image>();
+            image.raycastTarget = false;
+            image.sprite = sprite;
+            image.type = Image.Type.Sliced;
+            image.color = colour;
+            return image;
+        }
+
+        private static Text MarkText(RectTransform parent, string text, Color colour, int layer)
+        {
+            RectTransform rect = MarkRect("Text", parent, layer);
+            Text label = rect.gameObject.AddComponent<Text>();
+            label.raycastTarget = false;
+            label.supportRichText = false;
+            label.font = SpecialFx.Font;
+            label.alignment = TextAnchor.MiddleCenter;
+            label.horizontalOverflow = HorizontalWrapMode.Overflow;
+            label.verticalOverflow = VerticalWrapMode.Overflow;
+            label.color = colour;
+            label.text = Lang.Pick(text);
+            return label;
+        }
+
+        private static Component BountyWidget(TeamID team, int shortId)
+        {
+            ClientOrderControllerBase controller = ClientController(team);
+            if (controller == null || ClientActiveOrders == null || ClientGui == null || ActiveOrderId == null || ActiveOrderToken == null)
+                return null;
+            IList orders = ClientActiveOrders.GetValue(controller) as IList;
+            RecipeFlowGUI gui = ClientGui.GetValue(controller) as RecipeFlowGUI;
+            if (orders == null || gui == null) return null;
             for (int i = 0; i < orders.Count; i++)
             {
-                object order = orders[i];
-                OrderID id = (OrderID)ActiveOrderId.GetValue(order);
+                OrderID id = (OrderID)ActiveOrderId.GetValue(orders[i]);
                 if ((int)(id.m_id & 0xFF) != shortId) continue;
-                RecipeList.Entry entry = ActiveOrderEntry != null ? ActiveOrderEntry.GetValue(order) as RecipeList.Entry : null;
-                return "BOUNTY: #" + (i + 1) + " " + OrderName(entry != null ? entry.m_order : null);
+                RecipeFlowGUI.RecipeWidgetData data = gui.GetData((RecipeFlowGUI.ElementToken)ActiveOrderToken.GetValue(orders[i]));
+                return data != null ? data.m_widget : null;
             }
             return null;
         }
@@ -544,6 +1092,7 @@ namespace ChefSkills.Specials
             {
                 OrderID id = (OrderID)ActiveOrderId.GetValue(orders[i]);
                 if ((int)(id.m_id & 0xFF) != message.I) continue;
+                // The failure animation also frees the widget's table on the bar.
                 if (gui != null && ActiveOrderToken != null)
                     gui.RemoveElement((RecipeFlowGUI.ElementToken)ActiveOrderToken.GetValue(orders[i]), new RecipeFailureAnimation());
                 orders.RemoveAt(i);
@@ -554,7 +1103,7 @@ namespace ChefSkills.Specials
         private static void OnFortune(SpecialMessage message)
         {
             int t = TeamIndex(message);
-            s_fortuneName[t] = message.I >= 0 ? OrderName(GameUtils.GetOrderDefinitionNode(message.I)) : null;
+            s_fortuneUid[t] = message.I;
             s_nextStatus = 0f;
         }
 
@@ -568,6 +1117,18 @@ namespace ChefSkills.Specials
         {
             s_streak[TeamIndex(message)] = Mathf.Max(0, message.I);
             s_nextStatus = 0f;
+        }
+
+        private static void OnTeamRecharge(SpecialMessage message)
+        {
+            int t = TeamIndex(message);
+            var special = (Special)message.I;
+            float until = SpecialRuntime.Now + message.B;
+            if (special == Special.CloseEnough) s_closeEnoughReadyAt[t] = until;
+            else if (special == Special.ComboKeeper) s_comboKeeperReadyAt[t] = until;
+            else return;
+            foreach (ChefState chef in SpecialRuntime.Chefs)
+                if (chef.Local && chef.Has(special) && Idx(TeamOf(chef)) == t) chef.SetTimer(special, until, message.B);
         }
 
         internal static void SendFortune(int t)
@@ -596,22 +1157,100 @@ namespace ChefSkills.Specials
         {
             if (s_serverFlow == null) FindFlowsSoon();
             TeamID team = TeamOf(chef);
+            int t = Idx(team);
             ServerOrderControllerBase controller = ServerController(team);
             List<ServerOrderData> orders = ServerOrders(controller);
-            if (orders == null || orders.Count == 0) return false;
-            uint newest = orders[orders.Count - 1].ID.m_id;
-            TakeDecoy(Idx(team), newest);
-            ServerRemoveOrder(team, newest);
-            s_pendingAdds.Add(new PendingAdd { Controller = controller, At = SpecialRuntime.Now + RerollAddDelay });
+            if (orders == null) return chef.Refuse(Lang.Both("NOT READY YET", "CHƯA SẴN SÀNG"));
+            if (orders.Count == 0) return chef.Refuse(Lang.Both("NO ORDERS", "KHÔNG CÓ MÓN"));
+            // The newest order every client already has (one just added may still be on its way).
+            ServerOrderData target = null;
+            for (int i = orders.Count - 1; i >= 0 && target == null; i--)
+                if (orders[i].Lifetime - orders[i].Remaining >= RerollMinAge) target = orders[i];
+            if (target == null) return chef.Refuse(Lang.Both("WAIT FOR THE ORDER", "ĐỢI CÓ MÓN ĐÃ"));
+
+            bool wasFull = ServerFull(controller);
+            OrderDefinitionNode old = target.RecipeListEntry != null ? target.RecipeListEntry.m_order : null;
+            uint id = target.ID.m_id;
+            TakeDecoy(t, id);
+            ServerRemoveOrder(team, id);
+            SpecialFx.TextAllAt(PassPoint(team), SpecialFx.NameBoth(Special.Reroll, ": " + OrderName(old), ": " + OrderName(old)), Special.Reroll);
+            if (!wasFull)
+            {
+                // Room on every bar: the new order can go out at once.
+                AddReplacement(controller, team, old, chef);
+                return true;
+            }
+            s_rerollOwed[t]++;
+            s_rerollAt[t] = SpecialRuntime.Now + RerollAddDelay;
+            s_rerollAvoid[t] = old;
+            s_rerollChef[t] = chef;
             return true;
+        }
+
+        /// <summary>
+        /// Host: a new order in place of a rerolled one, a different dish when the level's round
+        /// data rolls freely. Scripted and boss rounds count their recipes, so they get the game's
+        /// own next order. The Fortune Teller's foretold order stays next.
+        /// </summary>
+        private static void AddReplacement(ServerOrderControllerBase controller, TeamID team, OrderDefinitionNode avoid, ChefState chef)
+        {
+            List<ServerOrderData> orders = ServerOrders(controller);
+            int before = orders != null ? orders.Count : 0;
+            RoundDataBase round = ServerRoundData != null ? ServerRoundData.GetValue(controller) as RoundDataBase : null;
+            RoundInstanceDataBase instance = ServerRoundInstance != null ? ServerRoundInstance.GetValue(controller) as RoundInstanceDataBase : null;
+            bool freeRoll = round != null && instance != null && ServerAddEntry != null &&
+                (round.GetType() == typeof(RoundData) || round.GetType() == typeof(DynamicRoundData));
+            if (freeRoll)
+            {
+                RecipeList.Entry pick = null;
+                for (int i = 0; i < 6; i++)
+                {
+                    RecipeList.Entry[] rolled = round.GetNextRecipe(instance);
+                    if (rolled == null || rolled.Length == 0 || rolled[0] == null) continue;
+                    pick = rolled[0];
+                    if (avoid == null || pick.m_order != avoid) break;
+                }
+                if (pick == null) return;
+                SkipFortune = true;
+                try
+                {
+                    ServerAddEntry.Invoke(controller, new object[] { pick });
+                }
+                finally
+                {
+                    SkipFortune = false;
+                }
+            }
+            else controller.AddNewOrder();
+
+            orders = ServerOrders(controller);
+            if (orders != null && orders.Count > before && chef != null && chef.Chef != null)
+            {
+                RecipeList.Entry added = orders[orders.Count - 1].RecipeListEntry;
+                SpecialFx.TextAll(chef.Chef, Lang.Both("NEW: " + OrderName(added != null ? added.m_order : null), "MỚI: " + OrderName(added != null ? added.m_order : null)), Special.Reroll);
+            }
         }
 
         private static bool ExecuteTimeOut(ChefState chef)
         {
             if (s_serverFlow == null) FindFlowsSoon();
             List<ServerOrderData> orders = ServerOrders(ServerController(TeamOf(chef)));
+            if (orders == null) return chef.Refuse(Lang.Both("NOT READY YET", "CHƯA SẴN SÀNG"));
+            if (orders.Count == 0) return chef.Refuse(Lang.Both("NO ORDERS", "KHÔNG CÓ MÓN"));
+            if (TimeOutActive(TeamOf(chef))) return chef.Refuse(Lang.Both("CLOCK ALREADY STOPPED", "ĐỒNG HỒ ĐÃ DỪNG RỒI"));
             // Order timers read the chef's ActiveUntil (set on every machine once confirmed).
-            return orders != null && orders.Count > 0;
+            return true;
+        }
+
+        /// <summary>Every machine, once confirmed: the team's passes are ringed while the clock stands still.</summary>
+        private static void OnTimeOutActivated(ChefState chef)
+        {
+            if (s_passes.Length == 0) FindFlows();
+            foreach (PlateStation pass in PassesOf(TeamOf(chef)))
+            {
+                SpecialFx.Mark(pass.gameObject, Special.TimeOut, TimeOutSeconds, SpecialCatalog.NameOf(Special.TimeOut));
+                SpecialFx.Burst(pass.transform.position, Special.TimeOut);
+            }
         }
 
         internal static bool TimeOutActive(TeamID team)
@@ -629,16 +1268,18 @@ namespace ChefSkills.Specials
         private static bool ExecuteDecoy(ChefState chef)
         {
             if (s_serverFlow == null) FindFlowsSoon();
-            if (!s_versus || ServerAddEntry == null) return false;
+            if (!s_versus) return chef.Refuse(Lang.Both("VERSUS ONLY", "CHỈ KHI ĐỐI KHÁNG"));
+            if (ServerAddEntry == null) return chef.Refuse(Lang.Both("NOT AVAILABLE", "KHÔNG DÙNG ĐƯỢC"));
             TeamID rival = TeamOf(chef) == TeamID.One ? TeamID.Two : TeamID.One;
             ServerOrderControllerBase controller = ServerController(rival);
+            if (controller == null) return chef.Refuse(Lang.Both("NOT READY YET", "CHƯA SẴN SÀNG"));
             // A full order bar has no table left for another widget.
-            if (controller == null || ServerFull(controller)) return false;
+            if (ServerFull(controller)) return chef.Refuse(Lang.Both("RIVAL ORDERS FULL", "ĐƠN ĐỐI THỦ ĐÃ ĐẦY"));
             RoundDataBase round = ServerRoundData != null ? ServerRoundData.GetValue(controller) as RoundDataBase : null;
             RoundInstanceDataBase instance = ServerRoundInstance != null ? ServerRoundInstance.GetValue(controller) as RoundInstanceDataBase : null;
-            if (round == null || instance == null) return false;
+            if (round == null || instance == null) return chef.Refuse(Lang.Both("NOT AVAILABLE", "KHÔNG DÙNG ĐƯỢC"));
             RecipeList.Entry[] entries = round.GetNextRecipe(instance);
-            if (entries == null || entries.Length == 0 || entries[0] == null) return false;
+            if (entries == null || entries.Length == 0 || entries[0] == null) return chef.Refuse(Lang.Both("NO ORDERS LEFT", "HẾT MÓN RỒI"));
 
             ServerOrderData added;
             AddingDecoy = true;
@@ -652,7 +1293,7 @@ namespace ChefSkills.Specials
                 AddingDecoy = false;
                 LifetimeOverride = -1f;
             }
-            if (added == null) return false;
+            if (added == null) return chef.Refuse(Lang.Both("NOT AVAILABLE", "KHÔNG DÙNG ĐƯỢC"));
             s_decoys[Idx(rival)].Add(new Decoy { Id = added.ID.m_id, Until = SpecialRuntime.Now + DecoySeconds + 5f });
             return true;
         }
@@ -668,13 +1309,20 @@ namespace ChefSkills.Specials
                 SpecialRuntime.AnyHas(Special.BountyHunter) || SpecialRuntime.AnyHas(Special.DecoyOrder);
         }
 
+        /// <summary>Host: a word over the pass, stacked so several bonuses on one dish don't overlap.</summary>
+        private static void PassText(Vector3 at, ref int line, string text, Special special)
+        {
+            SpecialFx.TextAllAt(at + Vector3.up * (1.7f + 0.55f * line), text, special);
+            line++;
+        }
+
         /// <summary>
         /// Host, inside SendDeliverySuccess: the tip and score of this delivery after the specials.
         /// The game has already added base score and tip; the difference is added here, before
-        /// the score goes out.
+        /// the score goes out. Every bonus that changed something floats up over the pass.
         /// </summary>
-        internal static void AdjustDelivery(ServerKitchenFlowControllerBase flow, TeamID teamId, OrderID orderId,
-            float timeProp, ref int tip)
+        internal static void AdjustDelivery(ServerKitchenFlowControllerBase flow, TeamID teamId, ServerPlateStation station,
+            OrderID orderId, float timeProp, ref int tip)
         {
             ServerTeamMonitor monitor = flow.GetMonitorForTeam(teamId);
             if (monitor == null) return;
@@ -682,6 +1330,10 @@ namespace ChefSkills.Specials
             TeamID team = s_versus && teamId == TeamID.Two ? TeamID.Two : TeamID.One;
             int t = Idx(team);
             int baseScore = LastBaseScore;
+            Vector3 at = station != null ? station.transform.position : PassPoint(team) - Vector3.up * 1.7f;
+            int line = 0;
+
+            if (CtxCloseEnough) PassText(at, ref line, SpecialFx.NameBoth(Special.CloseEnough, "!", "!"), Special.CloseEnough);
 
             // A decoy was never a real order: it scores nothing.
             if (TakeDecoy(t, orderId.m_id))
@@ -691,26 +1343,59 @@ namespace ChefSkills.Specials
                 score.TotalTipsScore = Mathf.Max(0, score.TotalTipsScore - tip);
                 score.TotalSuccessfulDeliveries = Mathf.Max(0, score.TotalSuccessfulDeliveries - 1);
                 tip = 0;
+                PassText(at, ref line, Lang.Both("DECOY! NO POINTS", "ĐƠN GIẢ! KHÔNG CÓ ĐIỂM"), Special.DecoyOrder);
+                SpecialFx.BurstAll(at, Special.DecoyOrder);
                 return;
             }
 
             float tipFactor = 1f, scoreFactor = 1f;
+            Special first = Special.None;
             ChefState placer = CtxActive ? CtxPlacer : null;
             if (placer != null)
             {
-                if (placer.Has(Special.Charmer)) tipFactor *= CharmerTip;
+                bool hasTip = tip > 0;
+                if (placer.Has(Special.Charmer))
+                {
+                    tipFactor *= CharmerTip;
+                    if (hasTip) PassText(at, ref line, SpecialFx.NameBoth(Special.Charmer, " TIP +" + Mathf.RoundToInt((CharmerTip - 1f) * 100f) + "%", ": BOA +" + Mathf.RoundToInt((CharmerTip - 1f) * 100f) + "%"), Special.Charmer);
+                    if (hasTip && first == Special.None) first = Special.Charmer;
+                }
                 if (placer.Has(Special.FreshDelivery) && CtxCookedAt >= 0f && SpecialRuntime.Now - CtxCookedAt <= FreshSeconds)
+                {
                     tipFactor *= FreshTip;
-                if (placer.Has(Special.GoldenHour) && TimeLeft(flow) <= GoldenHourSeconds) tipFactor *= 2f;
-                if (placer.Has(Special.Gambler)) tipFactor *= Random.Range(0, 4);
-                if (placer.Has(Special.Clutch) && timeProp <= ClutchWindow) scoreFactor *= 2f;
+                    if (hasTip) PassText(at, ref line, Lang.Both("FRESH TIP +" + Mathf.RoundToInt((FreshTip - 1f) * 100f) + "%", "BOA NÓNG HỔI +" + Mathf.RoundToInt((FreshTip - 1f) * 100f) + "%"), Special.FreshDelivery);
+                    if (hasTip && first == Special.None) first = Special.FreshDelivery;
+                }
+                if (placer.Has(Special.GoldenHour) && InGoldenHour(TimeLeft(flow)))
+                {
+                    tipFactor *= 2f;
+                    if (hasTip) PassText(at, ref line, SpecialFx.NameBoth(Special.GoldenHour, " TIP x2", ": BOA x2"), Special.GoldenHour);
+                    if (hasTip && first == Special.None) first = Special.GoldenHour;
+                }
+                if (placer.Has(Special.Gambler))
+                {
+                    int roll = Random.Range(0, 4);
+                    tipFactor *= roll;
+                    if (hasTip) PassText(at, ref line, roll == 0 ? SpecialFx.NameBoth(Special.Gambler, ": TIP LOST", ": MẤT BOA") : SpecialFx.NameBoth(Special.Gambler, " TIP x" + roll, ": BOA x" + roll), Special.Gambler);
+                    if (hasTip && first == Special.None) first = Special.Gambler;
+                }
+                if (placer.Has(Special.Clutch) && timeProp <= ClutchWindow)
+                {
+                    scoreFactor *= 2f;
+                    PassText(at, ref line, SpecialFx.NameBoth(Special.Clutch, "! x2", "! x2"), Special.Clutch);
+                    if (first == Special.None) first = Special.Clutch;
+                }
             }
             if (s_bountyServer[t] != 0 && s_bountyServer[t] == orderId.m_id && TeamHas(Special.BountyHunter, team))
             {
                 scoreFactor *= 2f;
                 s_bountyServer[t] = 0;
                 s_nextBountyCheck = 0f; // mark another one at once
+                PassText(at, ref line, Lang.Both("BOUNTY! x2", "TIỀN THƯỞNG! x2"), Special.BountyHunter);
+                if (first == Special.None) first = Special.BountyHunter;
             }
+            if (first != Special.None) SpecialFx.BurstAll(at, first);
+            if (placer != null && first != Special.None && placer.Chef != null) SpecialFx.BurstAll(placer.Position, first);
             if (Mathf.Approximately(tipFactor, 1f) && Mathf.Approximately(scoreFactor, 1f)) return;
 
             int newTip = Mathf.Max(0, Mathf.RoundToInt(tip * tipFactor * scoreFactor));
@@ -724,44 +1409,99 @@ namespace ChefSkills.Specials
         internal static void AfterDelivery(TeamID stationTeam)
         {
             ChefState placer = CtxPlacer;
-            if (placer != null)
+            if (placer != null && placer.Chef != null)
             {
                 if (CtxSuccess && !CtxDecoy && placer.Has(Special.CoffeeRun))
+                {
                     SpecialRuntime.BroadcastBuff(placer, BuffId.RunSpeed, CoffeeSeconds, CoffeeSpeed, placer);
+                    SpecialFx.MarkAll(placer.Chef, Special.CoffeeRun, CoffeeSeconds, null);
+                    SpecialFx.TextAll(placer.Chef, Lang.Both("COFFEE! +" + Mathf.RoundToInt(CoffeeSpeed * 100f) + "% SPEED", "CÀ PHÊ! +" + Mathf.RoundToInt(CoffeeSpeed * 100f) + "% TỐC ĐỘ"), Special.CoffeeRun);
+                }
                 if (placer.Has(Special.ShowOff))
+                {
                     SpecialRuntime.BroadcastBuff(placer, BuffId.Frozen, PoseSeconds, 1f, placer);
+                    SpecialFx.TextAll(placer.Chef, "TA-DA!", Special.ShowOff);
+                }
             }
             if (CtxDecoy || !SpecialRuntime.AnyHas(Special.HotStreak)) return;
-            int t = Idx(s_versus && stationTeam == TeamID.Two ? TeamID.Two : TeamID.One);
+            TeamID team = s_versus && stationTeam == TeamID.Two ? TeamID.Two : TeamID.One;
+            int t = Idx(team);
             int before = s_streak[t];
             s_streak[t] = CtxSuccess ? Mathf.Min(before + 1, 99) : 0;
-            if (s_streak[t] != before) SendStreak(t);
+            if (s_streak[t] == before) return;
+            SendStreak(t);
+            StreakText(team, before, s_streak[t]);
+        }
+
+        /// <summary>Host: the streak's change over the team's Hot Streak chefs.</summary>
+        private static void StreakText(TeamID team, int before, int after)
+        {
+            foreach (ChefState chef in TeamWith(Special.HotStreak, team))
+            {
+                if (chef.Chef == null) continue;
+                if (after == 0)
+                {
+                    if (before > 0) SpecialFx.TextAll(chef.Chef, Lang.Both("STREAK LOST", "MẤT CHUỖI"), Special.HotStreak);
+                }
+                else if (after == StreakMax)
+                {
+                    SpecialFx.TextAll(chef.Chef, Lang.Both("MAX STREAK! +1 SKILLS", "CHUỖI TỐI ĐA! KỸ NĂNG +1"), Special.HotStreak);
+                    SpecialFx.BurstAll(chef.Position, Special.HotStreak);
+                }
+                else if (after < StreakMax) SpecialFx.TextAll(chef.Chef, Lang.Both("STREAK " + after, "CHUỖI " + after), Special.HotStreak);
+            }
         }
 
         /// <summary>Host: an order of this team expired (after the game took its points).</summary>
-        internal static void AfterExpiry(TeamMonitor.TeamScoreStats score, TeamID team)
+        internal static void AfterExpiry(TeamMonitor.TeamScoreStats score, TeamID team, OrderID orderId)
         {
             int t = Idx(team);
             if (ExpiryActive)
             {
-                if (!s_secondChanceUsed[t] && TeamHas(Special.SecondChance, team))
+                int line = 0;
+                Vector3 at = PassPoint(team) - Vector3.up * 1.7f;
+                // Each order's first expiry is free.
+                if (TeamHas(Special.SecondChance, team) && s_secondChanceOrders[t].Add(orderId.m_id))
                 {
-                    s_secondChanceUsed[t] = true;
                     score.TotalTimeExpireDeductions = ExpiryDeductions;
+                    PassText(at, ref line, SpecialFx.NameBoth(Special.SecondChance, ": NO PENALTY", ": KHÔNG BỊ PHẠT"), Special.SecondChance);
+                    SpecialFx.BurstAll(at, Special.SecondChance);
                 }
-                if (!s_comboKeeperUsed[t] && (ExpiryMultiplier > 0 || ExpiryCombo > 0) && TeamHas(Special.ComboKeeper, team))
+                if ((ExpiryMultiplier > 0 || ExpiryCombo > 0) && ComboKeeperReady(team))
                 {
-                    s_comboKeeperUsed[t] = true;
                     score.TotalMultiplier = ExpiryMultiplier;
                     score.TotalCombo = ExpiryCombo;
                     score.ComboMaintained = ExpiryMaintained;
+                    SendTeamRecharge(Special.ComboKeeper, t, ComboKeeperCooldown);
+                    PassText(at, ref line, Lang.Both("COMBO KEPT!", "GIỮ ĐƯỢC CHUỖI!"), Special.ComboKeeper);
                 }
             }
             if (s_streak[t] != 0)
             {
+                int before = s_streak[t];
                 s_streak[t] = 0;
                 SendStreak(t);
+                StreakText(team, before, 0);
             }
+        }
+
+        /// <summary>Host, inside SendDeliveryFailed: Combo Keeper keeps the tip streak through a wrong dish.</summary>
+        internal static void AfterFailedDelivery(TeamMonitor.TeamScoreStats score, TeamID team, ServerPlateStation station)
+        {
+            if (!FailActive || (FailMultiplier <= 0 && FailCombo <= 0) || !ComboKeeperReady(team)) return;
+            score.TotalMultiplier = FailMultiplier;
+            score.TotalCombo = FailCombo;
+            score.ComboMaintained = FailMaintained;
+            SendTeamRecharge(Special.ComboKeeper, Idx(team), ComboKeeperCooldown);
+            Vector3 at = station != null ? station.transform.position : PassPoint(team) - Vector3.up * 1.7f;
+            int line = 0;
+            PassText(at, ref line, Lang.Both("COMBO KEPT!", "GIỮ ĐƯỢC CHUỖI!"), Special.ComboKeeper);
+            SpecialFx.BurstAll(at, Special.ComboKeeper);
+        }
+
+        private static bool ComboKeeperReady(TeamID team)
+        {
+            return SpecialRuntime.Now >= s_comboKeeperReadyAt[Idx(team)] && TeamHas(Special.ComboKeeper, team);
         }
 
         internal static bool CloseEnoughReady(TeamID team)
@@ -771,7 +1511,29 @@ namespace ChefSkills.Specials
 
         internal static void CloseEnoughUsed(TeamID team)
         {
-            s_closeEnoughReadyAt[Idx(team)] = SpecialRuntime.Now + CloseEnoughCooldown;
+            CtxCloseEnough = true;
+            SendTeamRecharge(Special.CloseEnough, Idx(team), CloseEnoughCooldown);
+        }
+
+        /// <summary>Host: Maître d' (and other new-order effects) as an order comes in.</summary>
+        internal static void OrderAdded(TeamID teamId, OrderID orderId)
+        {
+            if (AddingDecoy || !SpecialRuntime.AnyHas(Special.MaitreD)) return;
+            TeamID team = s_versus && teamId == TeamID.Two ? TeamID.Two : TeamID.One;
+            if (!TeamHas(Special.MaitreD, team)) return;
+            // Orders that come in together (the round's first two) get one word.
+            int t = Idx(team);
+            if (Time.unscaledTime < s_maitreTextAt[t]) return;
+            s_maitreTextAt[t] = Time.unscaledTime + 1.5f;
+            SpecialFx.TextAllAt(PassPoint(team), Lang.Both("NEW ORDER +" + Mathf.RoundToInt((MaitreDLifetime - 1f) * 100f) + "% TIME", "MÓN MỚI +" + Mathf.RoundToInt((MaitreDLifetime - 1f) * 100f) + "% THỜI GIAN"), Special.MaitreD);
+        }
+
+        /// <summary>Host: Fresh Delivery's ring on a plate while its food is fresh.</summary>
+        internal static void MarkFresh(GameObject plate, float cookedAt)
+        {
+            float left = FreshSeconds - (SpecialRuntime.Now - cookedAt);
+            if (plate == null || left <= 0.5f) return;
+            SpecialFx.MarkAll(plate, Special.FreshDelivery, left, Lang.Both("FRESH", "NÓNG HỔI"));
         }
 
         /// <summary>Is this a dish of the level's (correct plate and contents), whatever was ordered?</summary>
@@ -803,7 +1565,7 @@ namespace ChefSkills.Specials
 
     // === Harmony patches (host unless noted) =======================================================
 
-    /// <summary>MAITRE D': new orders live 15% longer. Also gives a decoy its short life.</summary>
+    /// <summary>MAITRE D': new orders live 25% longer. Also gives a decoy its short life.</summary>
     [HarmonyPatch(typeof(ServerFixedTimeOrderController), "GetNextOrderLifetime")]
     internal static class OrdersLifetimePatch
     {
@@ -828,6 +1590,24 @@ namespace ChefSkills.Specials
         }
     }
 
+    /// <summary>MAITRE D': a word over the pass as each longer-lived order comes in.</summary>
+    [HarmonyPatch(typeof(ServerKitchenFlowControllerBase), "OnOrderAdded")]
+    internal static class OrdersAddedPatch
+    {
+        private static void Postfix(TeamID _teamID, OrderID _orderID)
+        {
+            try
+            {
+                if (!SpecialRuntime.InLevel || !SpecialRuntime.AnyHas(Special.MaitreD)) return;
+                OrdersModule.OrderAdded(_teamID, _orderID);
+            }
+            catch (Exception e)
+            {
+                SpecialRuntime.Fail("MaitreD.Added", e);
+            }
+        }
+    }
+
     /// <summary>
     /// FORTUNE TELLER: orders are issued one roll late, so the next one is always known. Only for
     /// plain/scripted round data (phased levels count their recipes, so rolling ahead would end a
@@ -840,7 +1620,7 @@ namespace ChefSkills.Specials
         {
             try
             {
-                if (OrdersModule.AddingDecoy || !SpecialRuntime.InLevel || !SpecialNet.IsServer) return;
+                if (OrdersModule.AddingDecoy || OrdersModule.SkipFortune || !SpecialRuntime.InLevel || !SpecialNet.IsServer) return;
                 if (!SpecialRuntime.AnyHas(Special.FortuneTeller) || !OrdersModule.ServerFlowReady()) return;
                 TeamID team = OrdersModule.ServerTeamOf(__instance);
                 if (!OrdersModule.TeamHas(Special.FortuneTeller, team)) return;
@@ -872,22 +1652,31 @@ namespace ChefSkills.Specials
     /// <summary>
     /// TIME OUT (host): the team's order timers (and next-order timer) stand still. The game's own
     /// EnableOrderExpiration switch is turned off for that one Update call; a controller left off
-    /// by an exception is switched back on at its next call.
+    /// by an exception is switched back on at the next call (and forgotten with the level).
     /// </summary>
     [HarmonyPatch(typeof(ServerOrderControllerBase), "Update")]
     internal static class OrdersServerTimeOutPatch
     {
-        private static readonly HashSet<ServerOrderControllerBase> Stopped = new HashSet<ServerOrderControllerBase>();
+        private static ServerOrderControllerBase s_stopped;
+
+        internal static void Reset()
+        {
+            s_stopped = null;
+        }
 
         private static void Prefix(ServerOrderControllerBase __instance)
         {
             try
             {
-                if (Stopped.Count > 0 && Stopped.Remove(__instance)) __instance.EnableOrderExpiration = true;
+                if (s_stopped != null)
+                {
+                    s_stopped.EnableOrderExpiration = true;
+                    s_stopped = null;
+                }
                 if (!SpecialRuntime.InLevel || !SpecialRuntime.AnyHas(Special.TimeOut) || !OrdersModule.ServerFlowReady()) return;
                 if (!__instance.EnableOrderExpiration || !OrdersModule.TimeOutActive(OrdersModule.ServerTeamOf(__instance))) return;
                 __instance.EnableOrderExpiration = false;
-                Stopped.Add(__instance);
+                s_stopped = __instance;
             }
             catch (Exception e)
             {
@@ -897,7 +1686,9 @@ namespace ChefSkills.Specials
 
         private static void Postfix(ServerOrderControllerBase __instance)
         {
-            if (Stopped.Count > 0 && Stopped.Remove(__instance)) __instance.EnableOrderExpiration = true;
+            if (s_stopped == null || s_stopped != __instance) return;
+            __instance.EnableOrderExpiration = true;
+            s_stopped = null;
         }
     }
 
@@ -905,17 +1696,26 @@ namespace ChefSkills.Specials
     [HarmonyPatch(typeof(ClientOrderControllerBase), "Update")]
     internal static class OrdersClientTimeOutPatch
     {
-        private static readonly HashSet<ClientOrderControllerBase> Stopped = new HashSet<ClientOrderControllerBase>();
+        private static ClientOrderControllerBase s_stopped;
+
+        internal static void Reset()
+        {
+            s_stopped = null;
+        }
 
         private static void Prefix(ClientOrderControllerBase __instance)
         {
             try
             {
-                if (Stopped.Count > 0 && Stopped.Remove(__instance)) __instance.EnableOrderExpiration = true;
+                if (s_stopped != null)
+                {
+                    s_stopped.EnableOrderExpiration = true;
+                    s_stopped = null;
+                }
                 if (!SpecialRuntime.InLevel || !SpecialRuntime.AnyHas(Special.TimeOut)) return;
                 if (!__instance.EnableOrderExpiration || !OrdersModule.TimeOutActive(OrdersModule.ClientTeamOf(__instance))) return;
                 __instance.EnableOrderExpiration = false;
-                Stopped.Add(__instance);
+                s_stopped = __instance;
             }
             catch (Exception e)
             {
@@ -925,13 +1725,16 @@ namespace ChefSkills.Specials
 
         private static void Postfix(ClientOrderControllerBase __instance)
         {
-            if (Stopped.Count > 0 && Stopped.Remove(__instance)) __instance.EnableOrderExpiration = true;
+            if (s_stopped == null || s_stopped != __instance) return;
+            __instance.EnableOrderExpiration = true;
+            s_stopped = null;
         }
     }
 
     /// <summary>
     /// Every hand-in at the pass: remembers who handed it in (LevelState.CurrentPlacer, set while
-    /// the host handles a placement) and the plate's cooking time, then gives the chef's buffs.
+    /// the host handles a placement; null for conveyors) and the plate's cooking time, then gives
+    /// the chef's buffs.
     /// </summary>
     [HarmonyPatch(typeof(ServerKitchenFlowControllerBase), "OnFoodDelivered")]
     internal static class OrdersDeliveredPatch
@@ -939,6 +1742,7 @@ namespace ChefSkills.Specials
         private static void Prefix(ServerPlateStation _station)
         {
             OrdersModule.CtxActive = false;
+            OrdersModule.CtxCloseEnough = false;
             try
             {
                 if (!SpecialRuntime.InLevel || !OrdersModule.AnyDeliverySpecial()) return;
@@ -978,6 +1782,7 @@ namespace ChefSkills.Specials
             finally
             {
                 OrdersModule.CtxActive = false;
+                OrdersModule.CtxCloseEnough = false;
                 OrdersModule.CtxPlacer = null;
             }
         }
@@ -1009,14 +1814,14 @@ namespace ChefSkills.Specials
     [HarmonyPatch(typeof(ServerKitchenFlowControllerBase), "SendDeliverySuccess")]
     internal static class OrdersTipPatch
     {
-        private static void Prefix(ServerKitchenFlowControllerBase __instance, TeamID _teamID, OrderID _orderID,
-            float _timePropRemainingPercentage, ref int _tip)
+        private static void Prefix(ServerKitchenFlowControllerBase __instance, TeamID _teamID, ServerPlateStation _plateStation,
+            OrderID _orderID, float _timePropRemainingPercentage, ref int _tip)
         {
             try
             {
-                if (!SpecialRuntime.InLevel || !OrdersModule.AnyDeliverySpecial()) return;
+                if (!SpecialRuntime.InLevel || (!OrdersModule.CtxCloseEnough && !OrdersModule.AnyDeliverySpecial())) return;
                 if (!OrdersModule.ServerFlowReady()) return;
-                OrdersModule.AdjustDelivery(__instance, _teamID, _orderID, _timePropRemainingPercentage, ref _tip);
+                OrdersModule.AdjustDelivery(__instance, _teamID, _plateStation, _orderID, _timePropRemainingPercentage, ref _tip);
             }
             catch (Exception e)
             {
@@ -1071,7 +1876,7 @@ namespace ChefSkills.Specials
     [HarmonyPatch(typeof(ServerKitchenFlowControllerBase), "SendOrderExpired")]
     internal static class OrdersExpirySendPatch
     {
-        private static void Prefix(ServerKitchenFlowControllerBase __instance, TeamID _teamID)
+        private static void Prefix(ServerKitchenFlowControllerBase __instance, TeamID _teamID, OrderID _orderID)
         {
             try
             {
@@ -1080,7 +1885,7 @@ namespace ChefSkills.Specials
                     !SpecialRuntime.AnyHas(Special.HotStreak)) return;
                 ServerTeamMonitor monitor = __instance.GetMonitorForTeam(_teamID);
                 if (monitor == null) return;
-                OrdersModule.AfterExpiry(monitor.Score, OrdersModule.Versus && _teamID == TeamID.Two ? TeamID.Two : TeamID.One);
+                OrdersModule.AfterExpiry(monitor.Score, OrdersModule.Versus && _teamID == TeamID.Two ? TeamID.Two : TeamID.One, _orderID);
             }
             catch (Exception e)
             {
@@ -1089,9 +1894,59 @@ namespace ChefSkills.Specials
         }
     }
 
+    /// <summary>COMBO KEEPER: remembers the tip streak before a wrong dish resets it.</summary>
+    [HarmonyPatch(typeof(ServerKitchenFlowControllerBase), "OnFailedDelivery")]
+    internal static class OrdersFailedPatch
+    {
+        private static void Prefix(ServerKitchenFlowControllerBase __instance, ServerPlateStation _plateStation)
+        {
+            OrdersModule.FailActive = false;
+            try
+            {
+                if (!SpecialRuntime.InLevel || !SpecialRuntime.AnyHas(Special.ComboKeeper) || _plateStation == null) return;
+                ServerTeamMonitor monitor = __instance.GetMonitorForTeam(_plateStation.GetTeamID());
+                if (monitor == null) return;
+                OrdersModule.FailActive = true;
+                OrdersModule.FailMultiplier = monitor.Score.TotalMultiplier;
+                OrdersModule.FailCombo = monitor.Score.TotalCombo;
+                OrdersModule.FailMaintained = monitor.Score.ComboMaintained;
+            }
+            catch (Exception e)
+            {
+                SpecialRuntime.Fail("ComboKeeper.Failed", e);
+            }
+        }
+
+        private static void Postfix()
+        {
+            OrdersModule.FailActive = false;
+        }
+    }
+
+    /// <summary>COMBO KEEPER: puts the tip streak back before the wrong dish is sent.</summary>
+    [HarmonyPatch(typeof(ServerKitchenFlowControllerBase), "SendDeliveryFailed")]
+    internal static class OrdersFailedSendPatch
+    {
+        private static void Prefix(ServerKitchenFlowControllerBase __instance, TeamID _teamID, ServerPlateStation _plateStation)
+        {
+            try
+            {
+                if (!OrdersModule.FailActive || !SpecialRuntime.InLevel) return;
+                ServerTeamMonitor monitor = __instance.GetMonitorForTeam(_teamID);
+                if (monitor == null) return;
+                OrdersModule.AfterFailedDelivery(monitor.Score, OrdersModule.Versus && _teamID == TeamID.Two ? TeamID.Two : TeamID.One,
+                    _plateStation);
+            }
+            catch (Exception e)
+            {
+                SpecialRuntime.Fail("ComboKeeper.FailedSend", e);
+            }
+        }
+    }
+
     /// <summary>
     /// CLOSE ENOUGH: a properly plated dish of the level that matches no order counts as the
-    /// oldest order (once per 60 s per team).
+    /// oldest order (once per 45 s per team).
     /// </summary>
     [HarmonyPatch(typeof(ServerTeamMonitor), "OnFoodDelivered")]
     internal static class OrdersCloseEnoughPatch
@@ -1117,7 +1972,8 @@ namespace ChefSkills.Specials
                     if (!OrdersModule.IsDecoy(t, orders[i].ID.m_id)) oldest = orders[i];
                 if (oldest == null) return;
 
-                // What ServerTeamMonitor.OnFoodDelivered does for a match.
+                // What ServerTeamMonitor.OnFoodDelivered does for a match (the DeliverySuccess the
+                // game then sends takes the order off every client's bar).
                 o_orderID = oldest.ID;
                 o_entry = oldest.RecipeListEntry;
                 o_timePropRemainingPercentage = oldest.Lifetime > 0f ? Mathf.Clamp01(oldest.Remaining / oldest.Lifetime) : 0f;
@@ -1157,7 +2013,10 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>FRESH DELIVERY: cooked food going from its pot/pan onto a plate keeps its finish time.</summary>
+    /// <summary>
+    /// FRESH DELIVERY: cooked food going from its pot/pan onto a plate keeps its finish time, and
+    /// the plate is ringed on every machine for as long as the dish stays fresh.
+    /// </summary>
     [HarmonyPatch(typeof(ServerCookableContainer), "TransferToContainer")]
     internal static class OrdersPlatedPatch
     {
@@ -1173,9 +2032,14 @@ namespace ChefSkills.Specials
                 if (handler == null || !OrdersModule.CookedAt.TryGetValue(handler.gameObject.GetInstanceID(), out cookedAt)) return;
                 int key = target.gameObject.GetInstanceID();
                 float existing;
-                // A dish is as fresh as its oldest cooked part.
-                if (!OrdersModule.PlateCookedAt.TryGetValue(key, out existing) || cookedAt < existing)
+                // A dish is as fresh as its oldest cooked part; an entry long past fresh is taken
+                // to be from an earlier dish this plate lost (binned), not part of this one.
+                float now = SpecialRuntime.Now;
+                if (!OrdersModule.PlateCookedAt.TryGetValue(key, out existing) || cookedAt < existing ||
+                    now - existing > OrdersModule.FreshSeconds * 2f)
                     OrdersModule.PlateCookedAt[key] = cookedAt;
+                if (target.GetComponent<ServerPlate>() != null)
+                    OrdersModule.MarkFresh(target.gameObject, OrdersModule.PlateCookedAt[key]);
             }
             catch (Exception e)
             {

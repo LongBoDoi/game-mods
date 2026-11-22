@@ -37,6 +37,17 @@ namespace ChefSkills
             public int[] Specials;
             /// <summary>Why the last lock-in was refused, shown in place of the description for a moment.</summary>
             public string DeniedReason;
+            /// <summary>Local cards: the key or button that uses the active special.</summary>
+            public string KeyName;
+            /// <summary>Local cards: the key or button that opens the skill details panel in the kitchen.</summary>
+            public string DetailsKeyName;
+            /// <summary>Local cards: waiting for the player to press their new skill key.</summary>
+            public bool Capturing;
+            /// <summary>The key being set is the details key.</summary>
+            public bool CapturingDetails;
+            /// <summary>A short message (the new key, or why it wasn't taken), shown in place of the description for a moment.</summary>
+            public string Notice;
+            public float NoticeAt;
         }
 
         /// <summary>One special-skill pick on a card: the slot's name and what is picked.</summary>
@@ -45,6 +56,8 @@ namespace ChefSkills
             public RectTransform Root;
             public Image Highlight;
             public Text Value;
+            public Image Disc, Picture;
+            public Text Glyph;
             public int Shown = -1;
             public float PunchAt = -10f;
         }
@@ -52,12 +65,30 @@ namespace ChefSkills
         /// <summary>Rows on a card: the nine skills, then the special picks when specials are on.</summary>
         internal static int RowCount
         {
-            get { return SkillStats.Count + (SpecialCatalog.Enabled ? SpecialCatalog.SlotCount : 0); }
+            get { return SkillStats.Count + (SpecialCatalog.Enabled ? SpecialCatalog.SlotCount + 2 : 0); }
+        }
+
+        /// <summary>The last row, under the specials: the key that uses the active (-1 with specials off).</summary>
+        internal static int KeyRow
+        {
+            get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount : -1; }
+        }
+
+        /// <summary>Under it: the key that opens the skill details panel (-1 with specials off).</summary>
+        internal static int DetailsRow
+        {
+            get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 1 : -1; }
+        }
+
+        private static bool IsKeyRow(int index)
+        {
+            return index >= 0 && (index == KeyRow || index == DetailsRow);
         }
 
         private static float RowY(int index)
         {
-            return RowTop - RowStep * index - (index >= SkillStats.Count ? SpecialGap : 0f);
+            return RowTop - RowStep * index - (index >= SkillStats.Count ? SpecialGap : 0f)
+                - (index >= SkillStats.Count + SpecialCatalog.SlotCount ? KeyGap : 0f);
         }
 
         private sealed class Row
@@ -84,6 +115,7 @@ namespace ChefSkills
             public CanvasGroup RowsGroup;
             public Row[] Rows;
             public SpecialRow[] Specials;
+            public SpecialRow KeyRowView, DetailsRowView;
             public Image Left;
             public Image Right;
             public Text Points;
@@ -138,8 +170,10 @@ namespace ChefSkills
         // A special row: its pick fills the pips and effect columns, between the arrows.
         private const float SpecialValueX = 62f;
         private const float SpecialValueWidth = 140f;
-        private const float SpecialArrowRightX = 147f;
-        private const float DescriptionY = -222f;
+        // Space between the special picks and the skill-key row.
+        private const float KeyGap = 4f;
+        private const float DescriptionY = -260f;
+        private const float DescriptionHeight = 46f;
         private const float HintY = -318f;
         // Rows fill the card art's dark interior (304 wide, measured in game) evenly, 8 in from
         // each side: name -144..-34, arrow, pips -12..84, arrow, effect 104..144.
@@ -188,6 +222,8 @@ namespace ChefSkills
         private float _openedAt;
         private string _signature;
         private GameObject _skipTrack;
+        private GameObject _peek;
+        private bool _hidden;
         private RectTransform _skipFill;
         private readonly Sprite[] _cardSprites = new Sprite[2];
         private readonly List<Card> _cards = new List<Card>();
@@ -195,6 +231,38 @@ namespace ChefSkills
         internal bool IsAlive
         {
             get { return _root != null; }
+        }
+
+        /// <summary>The screen's canvas: the special picker is built on it, over the cards.</summary>
+        internal Transform Overlay
+        {
+            get { return _root != null ? _root.transform : null; }
+        }
+
+        internal GameArt Art
+        {
+            get { return _art; }
+        }
+
+        /// <summary>The ACTIVE / PASSIVE / QUIRK row of one of this machine's cards under the mouse (its card's key and row number).</summary>
+        internal bool SpecialRowAt(Vector3 mouse, out string cardKey, out int row)
+        {
+            cardKey = null;
+            row = -1;
+            if (!IsAlive || _hidden) return false;
+            foreach (Card card in _cards)
+            {
+                if (!card.IsLocal || card.Specials == null) continue;
+                for (int i = 0; i < card.Specials.Length; i++)
+                {
+                    if (card.Specials[i].Root == null || !RectTransformUtility.RectangleContainsScreenPoint(card.Specials[i].Root, mouse, null))
+                        continue;
+                    cardKey = card.Key;
+                    row = SkillStats.Count + i;
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>Builds the frame; the legend shows <paramref name="legendPlayer"/>'s buttons.</summary>
@@ -241,7 +309,7 @@ namespace ChefSkills
             // Always one line: the dialog is made wide enough for the title (see Layout), and the
             // text is only made smaller if even the widest dialog can't fit it.
             _titleText = AddText(_title, _art.Header, (int)TitleSize, TitleColour, TextAnchor.MiddleCenter,
-                "CHOOSE YOUR SKILLS", false);
+                Lang.T("CHOOSE YOUR SKILLS", "CHỌN KỸ NĂNG"), false);
             _titleText.horizontalOverflow = HorizontalWrapMode.Overflow;
             _titleText.verticalOverflow = VerticalWrapMode.Overflow;
             _titleWidth = _titleText.preferredWidth;
@@ -388,6 +456,13 @@ namespace ChefSkills
             for (int i = 0; i < card.Rows.Length; i++) card.Rows[i] = BuildRow(rows, i, card.Tint);
             card.Specials = new SpecialRow[SpecialCatalog.Enabled ? SpecialCatalog.SlotCount : 0];
             for (int i = 0; i < card.Specials.Length; i++) card.Specials[i] = BuildSpecialRow(rows, i, card.Tint);
+            if (SpecialCatalog.Enabled)
+            {
+                card.KeyRowView = BuildSpecialRow(rows, SpecialCatalog.SlotCount, card.Tint);
+                card.KeyRowView.Value.color = TitleColour;
+                card.DetailsRowView = BuildSpecialRow(rows, SpecialCatalog.SlotCount + 1, card.Tint);
+                card.DetailsRowView.Value.color = TitleColour;
+            }
 
             // Only this machine's players get arrows: they're the ones who can change a level here.
             if (info.IsLocal)
@@ -396,7 +471,7 @@ namespace ChefSkills
                 card.Right = Arrow(card.Root, "R", arrowIndex, ArrowRightX);
             }
 
-            RectTransform description = Child("About", card.Root, new Vector2(0f, DescriptionY), new Vector2(292f, 56f));
+            RectTransform description = Child("About", card.Root, new Vector2(0f, DescriptionY), new Vector2(292f, DescriptionHeight));
             card.Description = AddText(description, _art.Body, 22, NeutralColour, TextAnchor.MiddleCenter, "", true);
             AddShadow(card.Description.gameObject);
 
@@ -405,7 +480,7 @@ namespace ChefSkills
             RectTransform badge = Child("Ready", card.Root, new Vector2(0f, HintY), new Vector2(220f, 64f));
             AddImage(badge, _art.Get(GameArt.BadgeSprite), ReadyBadgeColour).color = ReadyBadgeColour;
             RectTransform badgeText = Child("Text", badge, new Vector2(-4f, 4f), new Vector2(186f, 48f));
-            AddShadow(AddText(badgeText, _art.Header, 34, Color.white, TextAnchor.MiddleCenter, "READY!", true).gameObject);
+            AddShadow(AddText(badgeText, _art.Header, 34, Color.white, TextAnchor.MiddleCenter, Lang.T("READY!", "SẴN SÀNG!"), true).gameObject);
             card.Badge = badge.gameObject;
 
             RectTransform hint = Child("Hint", card.Root, new Vector2(0f, HintY), new Vector2(320f, 52f));
@@ -467,13 +542,27 @@ namespace ChefSkills
             row.Highlight.enabled = false;
 
             RectTransform name = Child("Name", row.Root, new Vector2(NameX, 0f), new Vector2(NameWidth, RowStep - 5f));
-            AddShadow(AddText(name, _art.Header, 21, PointsColour, TextAnchor.MiddleLeft,
-                SpecialCatalog.SlotNames[slot], true).gameObject);
+            bool key = slot >= SpecialCatalog.SlotCount;
+            AddShadow(AddText(name, _art.Header, 21, key ? NeutralColour : PointsColour, TextAnchor.MiddleLeft,
+                key ? (slot == SpecialCatalog.SlotCount ? Lang.T("SKILL KEY", "PHÍM KỸ NĂNG") : Lang.T("DETAILS KEY", "PHÍM CHI TIẾT")) : SpecialCatalog.SlotNames[slot], true).gameObject);
 
             RectTransform value = Child("Pick", row.Root, new Vector2(SpecialValueX, 0f),
                 new Vector2(SpecialValueWidth, RowStep - 5f));
             row.Value = AddText(value, _art.Header, 21, TitleColour, TextAnchor.MiddleCenter, "", true);
             AddShadow(row.Value.gameObject);
+            if (!key)
+            {
+                // The pick's icon, between the slot's name and the pick.
+                RectTransform disc = Child("Disc", row.Root, new Vector2(-21f, 0f), new Vector2(RowStep - 2f, RowStep - 2f));
+                row.Disc = AddImage(disc, SpecialFx.Disc, Color.white);
+                row.Disc.color = Color.white;
+                RectTransform picture = Child("Picture", disc, Vector2.zero, new Vector2(RowStep, RowStep));
+                row.Picture = AddImage(picture, null, Color.white);
+                row.Picture.preserveAspect = true;
+                RectTransform glyph = Child("Glyph", disc, Vector2.zero, new Vector2(RowStep, RowStep));
+                row.Glyph = AddText(glyph, _art.Header, 12, Color.white, TextAnchor.MiddleCenter, "", false);
+                disc.gameObject.SetActive(false);
+            }
             return row;
         }
 
@@ -483,6 +572,15 @@ namespace ChefSkills
             if (animate) row.PunchAt = now;
             row.Shown = pick;
             SpecialInfo info = SpecialCatalog.Info((Special)pick);
+            if (row.Disc != null)
+            {
+                row.Disc.transform.gameObject.SetActive(info != null);
+                if (info != null)
+                {
+                    row.Disc.color = SpecialFx.ColourOf((Special)pick);
+                    SpecialFx.ShowIcon(row.Picture, row.Glyph, (Special)pick);
+                }
+            }
             if (info == null)
             {
                 row.Value.text = "-";
@@ -495,18 +593,26 @@ namespace ChefSkills
         }
 
         /// <summary>The line under the rows: what the highlighted skill or pick does.</summary>
-        private static string DescriptionFor(int selected, int[] specials)
+        private static string DescriptionFor(int selected, int[] specials, bool capturing, string detailsKey)
         {
             if (selected < 0) return "";
             if (selected < SkillStats.Count) return SkillStats.Descriptions[selected];
+            if (selected == KeyRow)
+                return capturing
+                    ? Lang.T("Press the new key or button now (Esc / B: cancel, Backspace: back to emote)", "Bấm phím hoặc nút mới ngay (Esc / B: hủy, Backspace: về nút biểu cảm)")
+                    : Lang.T("The key or button that uses your active special. SELECT to change it", "Phím hoặc nút dùng kỹ năng chủ động của bạn. SELECT để đổi");
+            if (selected == DetailsRow)
+                return capturing
+                    ? Lang.T("Press the new key or button now (Esc / B: cancel, Backspace: no key)", "Bấm phím hoặc nút mới ngay (Esc / B: hủy, Backspace: bỏ phím)")
+                    : (Lang.Vi ? "Trong bếp, " + (detailsKey == null || detailsKey == "KHÔNG CÓ" || detailsKey == "NONE" ? "một phím" : detailsKey) + " hiện hoặc ẩn chi tiết kỹ năng của bạn. SELECT để đổi" : "In the kitchen, " + (detailsKey == null || detailsKey == "NONE" ? "a key" : detailsKey) + " shows or hides your skills' details. SELECT to change it");
             int slot = selected - SkillStats.Count;
             Special pick = specials != null && slot < specials.Length ? (Special)specials[slot] : Special.None;
             SpecialInfo info = SpecialCatalog.Info(pick);
             if (info == null) return SpecialCatalog.SlotHelp[slot];
             string text = info.Description;
             if (info.Kind == SpecialKind.Active)
-                text += info.Cooldown >= 999f ? " (once per level)" : " (" + Mathf.RoundToInt(info.Cooldown) + " s)";
-            if (info.TeamWide) text += ". One per kitchen";
+                text += info.Cooldown >= 999f ? Lang.T(" (once per level)", " (mỗi màn một lần)") : " (" + Mathf.RoundToInt(info.Cooldown) + " s)";
+            if (info.TeamWide) text += Lang.T(". One per kitchen", ". Mỗi bếp một người");
             return text;
         }
 
@@ -533,20 +639,35 @@ namespace ChefSkills
 
             AddDirection(row.transform, PlayerInputLookup.LogicalButtonID.UIUp, player, "UP", -90f);
             AddDirection(row.transform, PlayerInputLookup.LogicalButtonID.UIDown, player, "DOWN", 90f);
-            AddLabel(row.transform, _art.Header, 28, TitleColour, "SKILL");
+            AddLabel(row.transform, _art.Header, 28, TitleColour, Lang.T("SKILL", "KỸ NĂNG"));
             Spacer(row.transform, 28f);
             AddDirection(row.transform, PlayerInputLookup.LogicalButtonID.UILeft, player, "LEFT", 0f);
             AddDirection(row.transform, PlayerInputLookup.LogicalButtonID.UIRight, player, "RIGHT", 180f);
-            AddLabel(row.transform, _art.Header, 28, TitleColour, "CHANGE");
+            AddLabel(row.transform, _art.Header, 28, TitleColour, Lang.T("CHANGE", "ĐỔI"));
             Spacer(row.transform, 28f);
             AddIcon(row.transform, GameArt.ButtonIcon(PlayerInputLookup.LogicalButtonID.UISelectNotStart, player), 42f, "SELECT", _art);
-            AddLabel(row.transform, _art.Header, 28, TitleColour, "LOCK IN");
+            AddLabel(row.transform, _art.Header, 28, TitleColour, Lang.T("LOCK IN / PICK", "CHỐT / CHỌN"));
             Spacer(row.transform, 28f);
             AddIcon(row.transform, GameArt.ButtonIcon(PlayerInputLookup.LogicalButtonID.UICancel, player), 42f, "BACK", _art);
-            AddLabel(row.transform, _art.Header, 28, TitleColour, "UNDO");
+            AddLabel(row.transform, _art.Header, 28, TitleColour, Lang.T("UNDO", "BỎ CHỐT"));
+            Spacer(row.transform, 28f);
+            AddIcon(row.transform, GameArt.ButtonIcon(PlayerInputLookup.LogicalButtonID.UIChangeMode, player), 42f, "TAB", _art);
+            AddLabel(row.transform, _art.Header, 28, TitleColour, Lang.T("HIDE", "ẨN"));
             Spacer(row.transform, 28f);
             AddIcon(row.transform, GameArt.ButtonIcon(PlayerInputLookup.LogicalButtonID.UISkip, player), 42f, "SKIP", _art);
             Text skip = AddLabel(row.transform, _art.Header, 28, TitleColour, skipLabel);
+
+            // Shown instead of everything else while the screen is hidden to look at the kitchen.
+            RectTransform peekBar = Child("Peek", _root.transform, Vector2.zero, new Vector2(620f, 64f));
+            peekBar.anchorMin = peekBar.anchorMax = new Vector2(0.5f, 1f);
+            peekBar.anchoredPosition = new Vector2(0f, -60f);
+            AddImage(peekBar, _art.Get(GameArt.LegendSprite), new Color(0.2f, 0.42f, 0.55f, 1f));
+            RectTransform peekItems = Child("Items", peekBar, new Vector2(0f, 2f), new Vector2(600f, 56f));
+            HorizontalLayoutGroup peekRow = MakeRow(peekItems, 8f);
+            AddIcon(peekRow.transform, GameArt.ButtonIcon(PlayerInputLookup.LogicalButtonID.UIChangeMode, player), 42f, "TAB", _art);
+            AddLabel(peekRow.transform, _art.Header, 28, TitleColour, Lang.T("SHOW SKILLS", "HIỆN KỸ NĂNG"));
+            _peek = peekBar.gameObject;
+            _peek.SetActive(false);
 
             // Fills under the skip label while the button is held, like the game's cutscene skip.
             // A child of the label, so the row's layout leaves it alone.
@@ -566,6 +687,22 @@ namespace ChefSkills
             AddImage(_skipFill, null, ReadyBadgeColour);
             _skipTrack = track.gameObject;
             ShowSkipProgress(0f);
+        }
+
+        /// <summary>The screen is hidden so the players can look at the kitchen.</summary>
+        internal bool Hidden
+        {
+            get { return _hidden; }
+        }
+
+        /// <summary>Hides the dialog and the dimming (leaving a small "show skills" bar), or shows them again.</summary>
+        internal void SetHidden(bool hidden)
+        {
+            if (!IsAlive || _hidden == hidden) return;
+            _hidden = hidden;
+            _dialog.gameObject.SetActive(!hidden);
+            if (_peek != null) _peek.SetActive(hidden);
+            if (!hidden) _openedAt = Time.unscaledTime - OpenSeconds * 0.5f;
         }
 
         /// <summary>Shows how far the Skip hold has got (0 hides the bar).</summary>
@@ -591,8 +728,13 @@ namespace ChefSkills
             float scale = Mathf.LerpUnclamped(0.86f, 1f, EaseOutBack(open));
             _dialog.localScale = new Vector3(scale, scale, 1f);
             Color dim = DimColour;
-            dim.a = DimAlpha * Mathf.Clamp01(open * 2f);
+            dim.a = _hidden ? 0f : DimAlpha * Mathf.Clamp01(open * 2f);
             _dim.color = dim;
+            if (_peek != null)
+            {
+                RectTransform peek = (RectTransform)_peek.transform;
+                peek.localScale = Vector3.one * (1f + 0.04f * Mathf.Sin(now * 3f));
+            }
 
             int counted = 0, ready = 0;
             float pulse = 0.55f + 0.45f * Mathf.Abs(Mathf.Sin(now * 3f));
@@ -629,7 +771,24 @@ namespace ChefSkills
                 // a moment why the lock-in was refused.
                 float deniedAge = now - info.DeniedAt;
                 string about = !string.IsNullOrEmpty(info.DeniedReason) && deniedAge >= 0f && deniedAge < 2f
-                    ? info.DeniedReason : DescriptionFor(selected, info.Specials);
+                    ? info.DeniedReason : DescriptionFor(selected, info.Specials, info.Capturing, info.DetailsKeyName);
+                float noticeAge = now - info.NoticeAt;
+                if (!string.IsNullOrEmpty(info.Notice) && noticeAge >= 0f && noticeAge < 2.5f && !info.Capturing) about = info.Notice;
+                if (card.KeyRowView != null)
+                {
+                    card.KeyRowView.Highlight.enabled = selected == KeyRow;
+                    string key = card.IsLocal ? (info.Capturing && !info.CapturingDetails ? Lang.T("PRESS A KEY...", "BẤM PHÍM...") : info.KeyName ?? "") : "";
+                    if (card.KeyRowView.Value.text != key) card.KeyRowView.Value.text = key;
+                    card.KeyRowView.Value.color = info.Capturing && !info.CapturingDetails ? WithAlpha(PointsColour, pulse) : TitleColour;
+                }
+                if (card.DetailsRowView != null)
+                {
+                    card.DetailsRowView.Highlight.enabled = selected == DetailsRow;
+                    bool waiting = info.Capturing && info.CapturingDetails;
+                    string key = card.IsLocal ? (waiting ? Lang.T("PRESS A KEY...", "BẤM PHÍM...") : info.DetailsKeyName ?? "") : "";
+                    if (card.DetailsRowView.Value.text != key) card.DetailsRowView.Value.text = key;
+                    card.DetailsRowView.Value.color = waiting ? WithAlpha(PointsColour, pulse) : TitleColour;
+                }
                 if (!card.Initialised || card.ShownSelected != selected || card.Description.text != about)
                 {
                     card.ShownSelected = selected;
@@ -659,8 +818,9 @@ namespace ChefSkills
                 card.Points.color = flash || free < 0 ? NerfColour : free == 0 ? BuffColour : PointsColour;
                 card.Points.rectTransform.localScale = Punch(denied * PunchSeconds / DeniedSeconds, 0.18f);
 
-                card.HintText.text = HintFor(card.IsLocal, state);
-                card.HintGroup.alpha = choosing && free != 0 ? 0.4f : 1f;
+                card.HintText.text = choosing && IsKeyRow(selected) ? (info.Capturing ? Lang.T("WAITING...", "ĐANG CHỜ...") : Lang.T("SET KEY", "ĐỔI PHÍM"))
+                    : choosing && selected >= SkillStats.Count ? Lang.T("CHOOSE", "CHỌN") : HintFor(card.IsLocal, state);
+                card.HintGroup.alpha = choosing && free != 0 && selected < SkillStats.Count ? 0.4f : 1f;
                 if (!card.IsLocal && (state == SkillSync.CardState.Choosing || state == SkillSync.CardState.Loading))
                 {
                     // Other players' "choosing..." / "loading..." breathe so it reads as live.
@@ -679,19 +839,19 @@ namespace ChefSkills
             if (everyoneReady)
             {
                 ShowTag(true);
-                _tag.text = "LET'S COOK!";
+                _tag.text = Lang.T("LET'S COOK!", "VÀO BẾP THÔI!");
                 _tag.color = ReadyBadgeColour;
             }
             else if (waitingForHost)
             {
                 ShowTag(true);
-                _tag.text = "WAITING FOR HOST";
+                _tag.text = Lang.T("WAITING FOR HOST", "CHỜ CHỦ PHÒNG");
                 _tag.color = TitleColour;
             }
             else if (counted > 1)
             {
                 ShowTag(true);
-                _tag.text = "READY " + ready + "/" + counted;
+                _tag.text = Lang.T("READY ", "SẴN SÀNG ") + ready + "/" + counted;
                 _tag.color = ready > 0 ? ReadyBadgeColour : TitleColour;
             }
             else
@@ -703,31 +863,21 @@ namespace ChefSkills
         /// <summary>The coloured arrows sit either side of the highlighted skill's pips.</summary>
         private static void ShowArrows(Card card, CardInfo info, int selected, int free, float now)
         {
-            bool show = selected >= 0;
+            // Only skill rows step with Left/Right; special rows open the picker.
+            bool show = selected >= 0 && selected < SkillStats.Count;
             card.Left.enabled = show;
             card.Right.enabled = show;
             if (!show) return;
             float y = RowY(selected);
             // They nudge outwards like the game's chef-select arrows.
             float nudge = 3f * Mathf.Abs(Mathf.Sin(now * 4f));
-            if (selected >= SkillStats.Count)
-            {
-                // A special pick: Left/Right step through the choices, round and round.
-                card.Left.rectTransform.anchoredPosition = new Vector2(ArrowLeftX - nudge, y);
-                card.Right.rectTransform.anchoredPosition = new Vector2(SpecialArrowRightX + nudge, y);
-                card.Left.color = Color.white;
-                card.Right.color = Color.white;
-            }
-            else
-            {
-                int max = SkillStats.MaxLevel;
-                int level = info.Levels[selected];
-                // They fade where there's no further to go: the bottom level, or the top one.
-                card.Left.rectTransform.anchoredPosition = new Vector2(ArrowLeftX - nudge, y);
-                card.Right.rectTransform.anchoredPosition = new Vector2(ArrowRightX + nudge, y);
-                card.Left.color = new Color(1f, 1f, 1f, level > -max ? 1f : 0.3f);
-                card.Right.color = new Color(1f, 1f, 1f, level < max ? 1f : 0.3f);
-            }
+            int max = SkillStats.MaxLevel;
+            int level = info.Levels[selected];
+            // They fade where there's no further to go: the bottom level, or the top one.
+            card.Left.rectTransform.anchoredPosition = new Vector2(ArrowLeftX - nudge, y);
+            card.Right.rectTransform.anchoredPosition = new Vector2(ArrowRightX + nudge, y);
+            card.Left.color = new Color(1f, 1f, 1f, level > -max ? 1f : 0.3f);
+            card.Right.color = new Color(1f, 1f, 1f, level < max ? 1f : 0.3f);
             if (card.Left.sprite == null) card.Left.color = WithAlpha(card.Tint, card.Left.color.a);
             if (card.Right.sprite == null) card.Right.color = WithAlpha(card.Tint, card.Right.color.a);
         }
@@ -752,18 +902,18 @@ namespace ChefSkills
         private static string PointsText(int free)
         {
             if (free == UnknownPoints) return "";
-            if (free == 0) return "BALANCED";
-            if (free > 0) return free == 1 ? "1 POINT TO SPEND" : free + " POINTS TO SPEND";
-            return free == -1 ? "1 POINT OVER" : -free + " POINTS OVER";
+            if (free == 0) return Lang.T("BALANCED", "ĐÃ CÂN BẰNG");
+            if (free > 0) return Lang.Vi ? "CÒN " + free + " ĐIỂM ĐỂ CỘNG" : free == 1 ? "1 POINT TO SPEND" : free + " POINTS TO SPEND";
+            return Lang.Vi ? "LỐ " + -free + " ĐIỂM" : free == -1 ? "1 POINT OVER" : -free + " POINTS OVER";
         }
 
         private static string HintFor(bool local, SkillSync.CardState state)
         {
             switch (state)
             {
-                case SkillSync.CardState.Choosing: return local ? "LOCK IN" : "CHOOSING...";
-                case SkillSync.CardState.Loading: return "LOADING...";
-                case SkillSync.CardState.NoMod: return "NO MOD";
+                case SkillSync.CardState.Choosing: return local ? Lang.T("LOCK IN", "CHỐT") : Lang.T("CHOOSING...", "ĐANG CHỌN...");
+                case SkillSync.CardState.Loading: return Lang.T("LOADING...", "ĐANG TẢI...");
+                case SkillSync.CardState.NoMod: return Lang.T("NO MOD", "CHƯA CÀI MOD");
                 default: return "";
             }
         }

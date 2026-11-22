@@ -8,7 +8,7 @@
     <Nullable>disable</Nullable>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <DebugType>none</DebugType>
-    <Version>4.0.0</Version>
+    <Version>4.1.0</Version>
     <GameDir Condition="'$(GameDir)' == ''">E:\Steam\steamapps\common\Overcooked! 2</GameDir>
     <ManagedDir>$(GameDir)\Overcooked2_Data\Managed</ManagedDir>
     <BepInExDir>$(GameDir)\BepInEx</BepInExDir>
@@ -30,6 +30,9 @@
     <Reference Include="UnityEngine.AnimationModule"><HintPath>$(ManagedDir)\UnityEngine.AnimationModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.AudioModule"><HintPath>$(ManagedDir)\UnityEngine.AudioModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(ManagedDir)\UnityEngine.PhysicsModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.ImageConversionModule"><HintPath>$(ManagedDir)\UnityEngine.ImageConversionModule.dll</HintPath><Private>false</Private></Reference>
+    <!-- The special icons (drawn by Art/make_icons.py), one 128 px cell per Special value. -->
+    <EmbeddedResource Include="Art\SpecialIcons.png" LogicalName="ChefSkills.SpecialIcons.png" Condition="Exists('Art\SpecialIcons.png')" />
   </ItemGroup>
   <Target Name="CheckGameReferences" BeforeTargets="ResolveReferences">
     <Error Condition="!Exists('$(ManagedDir)\Assembly-CSharp.dll')" Text="Overcooked! 2 not found. Pass -p:GameDir=&quot;&lt;game folder&gt;&quot; to point at your install." />

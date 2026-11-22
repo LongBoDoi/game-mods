@@ -39,7 +39,7 @@ $dll = Join-Path $out 'ChefSkills.dll'
 $references = 'mscorlib', 'System', 'System.Core', 'Assembly-CSharp', 'Assembly-CSharp-firstpass', 'UnityEngine',
     'UnityEngine.CoreModule', 'UnityEngine.UI', 'UnityEngine.UIModule', 'UnityEngine.TextRenderingModule',
     'UnityEngine.InputModule', 'UnityEngine.IMGUIModule', 'UnityEngine.AnimationModule', 'UnityEngine.AudioModule',
-    'UnityEngine.PhysicsModule' | ForEach-Object { '/r:' + (Join-Path $managed ($_ + '.dll')) }
+    'UnityEngine.PhysicsModule', 'UnityEngine.ImageConversionModule' | ForEach-Object { '/r:' + (Join-Path $managed ($_ + '.dll')) }
 $references += '/r:' + (Join-Path $core 'BepInEx.dll')
 $references += '/r:' + (Join-Path $core '0Harmony.dll')
 

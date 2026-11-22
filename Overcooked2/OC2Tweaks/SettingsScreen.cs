@@ -191,7 +191,7 @@ namespace OC2Tweaks
                     if (fix != null && fix.GetType().Name == "SetNavigationForPlatform") UnityEngine.Object.DestroyImmediate(fix);
                 Mute(done.onClick);
                 done.onClick.AddListener(tweaks.Close);
-                SetText(confirm.GetComponentInChildren<T17Text>(true), "XONG");
+                SetText(confirm.GetComponentInChildren<T17Text>(true), Lang.T("DONE", "XONG"));
 
                 var back = screen.GetComponent<NavigateOnUICancel>();
                 if (back == null) back = screen.AddComponent<NavigateOnUICancel>();

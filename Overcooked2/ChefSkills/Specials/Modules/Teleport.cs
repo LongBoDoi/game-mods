@@ -13,14 +13,17 @@ namespace ChefSkills.Specials
     /// The host is authoritative: <see cref="ServerMove"/> puts the chef's transform and rigidbody
     /// there, and its position goes out to everyone with the chef's usual sync. A remote player's
     /// machine would only follow once that arrives (its correction snaps it when it is more than
-    /// 2.5 m off), so the player's own machine also moves its chef at once (<see cref="PredictMove"/>)
-    /// through its PositionRecorder, which keeps the jump out of the lag compensation, and holds its
-    /// correction back until the host reports the chef at the new place (or gives up), so the chef
-    /// isn't pulled back while the host hasn't moved it yet.
+    /// 2.5 m off), so the player's own machine also moves its chef at once: either ahead of the host
+    /// (<see cref="PredictMove"/>, from an active's Predict), or as soon as the host says it moved it
+    /// (<see cref="TopicMoved"/>: a teammate's Swap or Summon, a Safety Net catch). The move goes
+    /// through the chef's PositionRecorder, which keeps the jump out of the lag compensation, and the
+    /// correction is held back until the host reports the chef at the new place (or gives up), so
+    /// the chef isn't pulled back while the host hasn't moved it yet.
     ///
-    /// When the owner predicts, it sends the host the exact spot it picked (the host's view of a
-    /// remote chef lags a little); the host checks it against its own pick and uses it if close and
-    /// free (<see cref="Resolve"/>).
+    /// Actives aim from where the player's own machine had the chef at the press
+    /// (ChefState.RequestPosition/RequestForward), so the host and the owner pick the same spot.
+    /// The owner still sends the host the exact spot it predicted; the host uses it if close to its
+    /// own pick and valid (<see cref="Resolve"/>), so both end up in exactly the same place.
     /// </summary>
     internal static class Warp
     {
@@ -35,6 +38,11 @@ namespace ChefSkills.Specials
         private const float WindowSeconds = 1.2f;
         // How long the host waits for the owner's own pick before using its own.
         private const float ProposalWaitSeconds = 0.4f;
+        // Spacing of the floor cells looked at around a landing spot (less than a chef is wide, so
+        // no wall fits between two neighbouring free cells).
+        private const float CellSize = 0.4f;
+        // The kitchen's outline (counters, chefs, spawn points) is widened by this much.
+        private const float KitchenMargin = 0.3f;
 
         private sealed class Window
         {
@@ -60,45 +68,66 @@ namespace ChefSkills.Specials
             public float Start, Duration, Height;
         }
 
+        private sealed class Predicted
+        {
+            public Vector3 Target;
+            public float At;
+        }
+
         // Owner machine: chef GameObject instance ID -> its correction is held.
         private static readonly Dictionary<int, Window> s_windows = new Dictionary<int, Window>();
+        // Owner machine: chef GameObject instance ID -> where it last moved its chef itself.
+        private static readonly Dictionary<int, Predicted> s_predicted = new Dictionary<int, Predicted>();
         // Host: chef entity ID -> a move waiting for the owner's pick.
         private static readonly Dictionary<uint, Pending> s_pending = new Dictionary<uint, Pending>();
         private static readonly List<Hop> s_hops = new List<Hop>();
 
         internal static readonly ushort TopicProposal = (ushort)((int)Special.Vault * 10 + 0);
+        /// <summary>Host -> all: the host moved a remote chef (Vector1 = feet, D = keep running, E = hop).</summary>
+        internal static readonly ushort TopicMoved = (ushort)((int)Special.Vault * 10 + 1);
 
         private static bool s_masks;
-        internal static int GroundMask, BlockMask, KillMask, WorktopLayer = -1;
+        internal static int GroundMask, BlockMask, SolidMask, ArcMask, PlayersLayer = -1, WorktopLayer = -1;
 
         internal static void InitMasks()
         {
             if (s_masks) return;
             s_masks = true;
             GroundMask = LayerMask.GetMask("Ground", "SlopedGround");
-            // What blocks a chef: the game's own capsule check (CapsuleCollisionHelper), but other
-            // chefs block too.
-            int exclude = 0;
-            string[] names = { "KillPlane", "Ground", "SlopedGround", "Ignore Raycast", "PlayerTriggerZone",
-                "Attachments", "HeldAttachments", "PushedObjectBounds", "AttachedBackpack", "UI" };
+            // What a chef can't stand in: the game's own capsule check (CapsuleCollisionHelper),
+            // but other chefs count too.
+            BlockMask = ~Layers("KillPlane", "Ground", "SlopedGround", "Ignore Raycast", "PlayerTriggerZone",
+                "Attachments", "HeldAttachments", "PushedObjectBounds", "AttachedBackpack", "UI");
+            // What a chef can't hop or see past: anything solid but chefs, items (on counters or
+            // carried) and the invisible helpers stations keep items in with.
+            SolidMask = ~Layers("KillPlane", "Ground", "SlopedGround", "Ignore Raycast", "PlayerTriggerZone",
+                "Attachments", "HeldAttachments", "PushedObjectBounds", "AttachedBackpack", "UI", "Players",
+                "PlayersRespawn", "CookingStationBlock", "PlateStationBlock");
+            ArcMask = SolidMask | GroundMask;
+            PlayersLayer = LayerMask.NameToLayer("Players");
+            WorktopLayer = LayerMask.NameToLayer("Worktops");
+        }
+
+        private static int Layers(params string[] names)
+        {
+            int mask = 0;
             for (int i = 0; i < names.Length; i++)
             {
                 int layer = LayerMask.NameToLayer(names[i]);
-                if (layer >= 0) exclude |= 1 << layer;
+                if (layer >= 0) mask |= 1 << layer;
             }
-            BlockMask = ~exclude;
-            int kill = LayerMask.NameToLayer("KillPlane");
-            KillMask = kill >= 0 ? 1 << kill : 0;
-            WorktopLayer = LayerMask.NameToLayer("Worktops");
+            return mask;
         }
 
         internal static void Clear()
         {
             s_windows.Clear();
+            s_predicted.Clear();
             s_pending.Clear();
             for (int i = 0; i < s_hops.Count; i++)
                 if (s_hops[i].Model != null) s_hops[i].Model.localPosition = Vector3.zero;
             s_hops.Clear();
+            s_kitchenAt = -100f;
         }
 
         // --- geometry --------------------------------------------------------------------------
@@ -108,6 +137,12 @@ namespace ChefSkills.Specials
         {
             v.y = 0f;
             return v.sqrMagnitude > 1e-4f ? v.normalized : Vector3.forward;
+        }
+
+        internal static float FlatDistance(Vector3 a, Vector3 b)
+        {
+            a.y = b.y = 0f;
+            return Vector3.Distance(a, b);
         }
 
         /// <summary>Floor under <paramref name="p"/> within <paramref name="tolerance"/> of height <paramref name="refY"/>.</summary>
@@ -143,7 +178,7 @@ namespace ChefSkills.Specials
             top = feet + Vector3.up * Mathf.Max(centre + half, radius + 0.06f);
         }
 
-        /// <summary>The chef could stand at <paramref name="feet"/> (nothing solid, no kill volume).</summary>
+        /// <summary>Nothing solid where the chef would stand at <paramref name="feet"/> (other chefs count).</summary>
         internal static bool Free(ChefState chef, Vector3 feet, GameObject alsoIgnore)
         {
             InitMasks();
@@ -155,22 +190,93 @@ namespace ChefSkills.Specials
             Transform other = alsoIgnore != null ? alsoIgnore.transform : null;
             for (int i = 0; i < hits.Length; i++)
             {
+                if (hits[i] == null) continue;
                 Transform t = hits[i].transform;
                 if (self != null && t.IsChildOf(self)) continue;
                 if (other != null && t.IsChildOf(other)) continue;
                 return false;
             }
-            if (KillMask != 0 && Physics.CheckCapsule(bottom - Vector3.up * 0.3f, top, radius, KillMask, QueryTriggerInteraction.Collide))
-                return false;
             return true;
+        }
+
+        /// <summary>
+        /// A chef standing at <paramref name="feet"/> would be in a volume that kills or respawns it
+        /// (pit, water, the level's outer bounds), whatever layer the volume is on.
+        /// </summary>
+        internal static bool Deadly(Vector3 feet)
+        {
+            InitMasks();
+            // Only where the chef's body would be, above the floor: every level has a kill plane (a
+            // RespawnCollider) a little under its floor, so reaching below the feet found it under
+            // every spot and refused them all.
+            Collider[] hits = Physics.OverlapCapsule(feet + Vector3.up * 0.3f, feet + Vector3.up * 1.2f, 0.25f, ~0,
+                QueryTriggerInteraction.Collide);
+            for (int i = 0; i < hits.Length; i++)
+            {
+                if (hits[i] == null) continue;
+                RespawnCollider volume = hits[i].GetComponent<RespawnCollider>();
+                if (volume == null) volume = hits[i].GetComponentInParent<RespawnCollider>();
+                if (volume == null || !volume.enabled) continue;
+                if (PlayersLayer >= 0 && (volume.m_respawnFilter.value & (1 << PlayersLayer)) == 0) continue;                return true;
+            }
+            return false;
+        }
+
+        /// <summary>The nearest solid thing along a ray that isn't a chef (or anything a chef carries).</summary>
+        internal static bool SolidRay(Vector3 from, Vector3 direction, float range, int mask, out RaycastHit nearest)
+        {
+            nearest = new RaycastHit();
+            if (range <= 0f) return false;
+            RaycastHit[] hits = Physics.RaycastAll(from, direction, range, mask, QueryTriggerInteraction.Ignore);
+            float best = float.MaxValue;
+            bool found = false;
+            for (int i = 0; i < hits.Length; i++)
+            {
+                Collider collider = hits[i].collider;
+                if (collider == null || hits[i].distance >= best) continue;
+                if (IsChefPart(collider)) continue;
+                best = hits[i].distance;
+                nearest = hits[i];
+                found = true;
+            }
+            return found;
+        }
+
+        internal static bool SolidRay(Vector3 from, Vector3 direction, float range, int mask)
+        {
+            RaycastHit hit;
+            return SolidRay(from, direction, range, mask, out hit);
+        }
+
+        /// <summary>Something solid (not a chef) right at <paramref name="p"/>.</summary>
+        internal static bool InsideSolid(Vector3 p)
+        {
+            InitMasks();
+            Collider[] hits = Physics.OverlapSphere(p, 0.05f, SolidMask, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < hits.Length; i++)
+                if (hits[i] != null && !IsChefPart(hits[i])) return true;
+            return false;
+        }
+
+        internal static bool IsChefPart(Collider collider)
+        {
+            return collider.GetComponentInParent<PlayerControls>() != null;
         }
 
         /// <summary>A counter: a worktop, or anything items can be put on.</summary>
         internal static bool IsCounter(Collider collider)
         {
             if (collider == null) return false;
+            InitMasks();
             if (WorktopLayer >= 0 && collider.gameObject.layer == WorktopLayer) return true;
             return collider.GetComponentInParent<AttachStation>() != null;
+        }
+
+        /// <summary>A free, safe, in-kitchen floor spot right where <paramref name="feet"/> is.</summary>
+        internal static bool Landable(ChefState chef, Vector3 feet)
+        {
+            Vector3 floor;
+            return Floor(feet, feet.y, 0.35f, out floor) && Free(chef, floor, null) && !Deadly(floor) && InKitchen(floor);
         }
 
         /// <summary>A free spot next to <paramref name="centre"/> for <paramref name="mover"/>.</summary>
@@ -187,7 +293,7 @@ namespace ChefSkills.Specials
             for (int i = 0; i < offsets.Length; i++)
             {
                 Vector3 floor;
-                if (Floor(centre + offsets[i] * 1.0f, centre.y, 0.6f, out floor) && Free(mover, floor, null))
+                if (Floor(centre + offsets[i], centre.y, 0.6f, out floor) && Free(mover, floor, null) && !Deadly(floor))
                 {
                     spot = floor;
                     return true;
@@ -197,26 +303,164 @@ namespace ChefSkills.Specials
             return false;
         }
 
+        // --- the playable kitchen --------------------------------------------------------------
+
+        private static float s_kitchenAt = -100f;
+        private static bool s_kitchenKnown;
+        private static float s_minX, s_maxX, s_minZ, s_maxZ;
+
+        /// <summary>
+        /// Inside the playable kitchen: within the level's bounds (when it has them) and within the
+        /// outline of its counters and stations, the chefs and their spawn points. Keeps teleports
+        /// off the scenery floor behind the kitchen's outer walls.
+        /// </summary>
+        internal static bool InKitchen(Vector3 p)
+        {
+            float now = Time.unscaledTime;
+            if (now - s_kitchenAt > 1f || now < s_kitchenAt)
+            {
+                s_kitchenAt = now;
+                s_kitchenKnown = MeasureKitchen();
+            }
+            if (s_levelBounds && !LevelBounds.ActiveBoundsContain(p + Vector3.up * 0.5f)) return false;
+            if (!s_kitchenKnown) return true;
+            return p.x >= s_minX && p.x <= s_maxX && p.z >= s_minZ && p.z <= s_maxZ;
+        }
+
+        // The level's own bounds are only trusted while every chef standing in the kitchen is inside them.
+        private static bool s_levelBounds;
+
+        private static bool MeasureKitchen()
+        {
+            bool stations = false, any = false;
+            s_levelBounds = true;
+            float minX = float.MaxValue, maxX = float.MinValue, minZ = float.MaxValue, maxZ = float.MinValue;
+            float minY = float.MaxValue, maxY = float.MinValue;
+            IList<ChefState> chefs = SpecialRuntime.Chefs;
+            for (int i = 0; i < chefs.Count; i++)
+            {
+                if (chefs[i].Chef == null || chefs[i].Controls == null || chefs[i].Controls.m_bRespawning) continue;
+                Vector3 p = chefs[i].Position;
+                if (chefs[i].Controls.GroundCollider != null && !LevelBounds.ActiveBoundsContain(p + Vector3.up * 0.5f))
+                    s_levelBounds = false;
+                Grow(p, 0.5f, ref minX, ref maxX, ref minZ, ref maxZ);
+                minY = Mathf.Min(minY, p.y);
+                maxY = Mathf.Max(maxY, p.y);
+                any = true;
+            }
+            foreach (PlayerRespawnBehaviour spawn in UnityEngine.Object.FindObjectsOfType<PlayerRespawnBehaviour>())
+            {
+                Vector3 p = spawn.m_startParent != null ? spawn.m_startParent.TransformPoint(spawn.m_startLocation) : spawn.m_startLocation;
+                Grow(p, 0.5f, ref minX, ref maxX, ref minZ, ref maxZ);
+                any = true;
+            }
+            foreach (AttachStation station in UnityEngine.Object.FindObjectsOfType<AttachStation>())
+            {
+                Vector3 p = station.transform.position;
+                // Stations parked far below or above the kitchen don't count.
+                if (minY <= maxY && (p.y < minY - 5f || p.y > maxY + 5f)) continue;
+                // A counter is a tile (1.2 m) wide.
+                Grow(p, 0.6f, ref minX, ref maxX, ref minZ, ref maxZ);
+                stations = true;
+            }
+            if (!stations || !any) return false;
+            s_minX = minX - KitchenMargin;
+            s_maxX = maxX + KitchenMargin;
+            s_minZ = minZ - KitchenMargin;
+            s_maxZ = maxZ + KitchenMargin;
+            return true;
+        }
+
+        private static void Grow(Vector3 p, float half, ref float minX, ref float maxX, ref float minZ, ref float maxZ)
+        {
+            minX = Mathf.Min(minX, p.x - half);
+            maxX = Mathf.Max(maxX, p.x + half);
+            minZ = Mathf.Min(minZ, p.z - half);
+            maxZ = Mathf.Max(maxZ, p.z + half);
+        }
+
+        /// <summary>
+        /// The spot at <paramref name="feet"/> opens onto some floor (at least <paramref name="need"/>
+        /// free cells within <paramref name="radius"/> m, joined to it): not a closed-in pocket between
+        /// counters and walls the chef couldn't get out of. Cells are remembered in <paramref name="memo"/>
+        /// for the whole search.
+        /// </summary>
+        internal static bool Roomy(ChefState chef, Vector3 feet, float refY, Dictionary<long, bool> memo, int need, float radius)
+        {
+            int cx = Mathf.FloorToInt(feet.x / CellSize), cz = Mathf.FloorToInt(feet.z / CellSize);
+            int reach = Mathf.CeilToInt(radius / CellSize);
+            var queue = new Queue<long>();
+            var seen = new HashSet<long>();
+            // Seeds: the free cells around the spot itself (close enough that nothing fits between).
+            for (int dx = 0; dx <= 1; dx++)
+                for (int dz = 0; dz <= 1; dz++)
+                {
+                    long key = Key(cx + dx, cz + dz);
+                    if (seen.Add(key) && CellFree(chef, cx + dx, cz + dz, refY, memo)) queue.Enqueue(key);
+                }
+            int count = 0;
+            while (queue.Count > 0)
+            {
+                long key = queue.Dequeue();
+                if (++count >= need) return true;
+                int x = (int)(key >> 32), z = (int)(key & 0xFFFFFFFFL);
+                for (int n = 0; n < 4; n++)
+                {
+                    int nx = x + (n == 0 ? 1 : n == 1 ? -1 : 0), nz = z + (n == 2 ? 1 : n == 3 ? -1 : 0);
+                    if (Mathf.Abs(nx - cx) > reach || Mathf.Abs(nz - cz) > reach) continue;
+                    long next = Key(nx, nz);
+                    if (!seen.Add(next)) continue;
+                    if (CellFree(chef, nx, nz, refY, memo)) queue.Enqueue(next);
+                }
+            }
+            return false;
+        }
+
+        private static long Key(int x, int z)
+        {
+            return ((long)x << 32) | (uint)z;
+        }
+
+        private static bool CellFree(ChefState chef, int x, int z, float refY, Dictionary<long, bool> memo)
+        {
+            long key = Key(x, z);
+            bool free;
+            if (memo.TryGetValue(key, out free)) return free;
+            Vector3 floor;
+            free = Floor(new Vector3(x * CellSize, refY, z * CellSize), refY, 0.5f, out floor) && Free(chef, floor, null);
+            memo[key] = free;
+            return free;
+        }
+
         // --- who can be moved ------------------------------------------------------------------
 
-        internal static bool Movable(ChefState chef)
+        /// <summary>Why the chef can't be moved now (null: it can).</summary>
+        internal static string Blocked(ChefState chef)
         {
-            if (chef == null || chef.Chef == null || chef.Controls == null) return false;
+            if (chef == null || chef.Chef == null || chef.Controls == null || !chef.Chef.activeInHierarchy) return Lang.Both("CAN'T MOVE NOW", "GIỜ CHƯA ĐI ĐƯỢC");
             PlayerControls controls = chef.Controls;
-            if (!controls.enabled || controls.m_bRespawning || controls.IsSuppressed()) return false;
-            if (controls.GetCurrentlyInteracting() != null) return false;
+            if (controls.m_bRespawning) return Lang.Both("RESPAWNING", "ĐANG HỒI SINH");
+            if (!controls.enabled) return Lang.Both("CAN'T MOVE NOW", "GIỜ CHƯA ĐI ĐƯỢC");
+            // Suppression (respawn pause, menus) is only known on the chef's own machine.
+            if (chef.Local && controls.IsSuppressed()) return Lang.Both("CAN'T MOVE NOW", "GIỜ CHƯA ĐI ĐƯỢC");
+            if (controls.GetCurrentlyInteracting() != null) return Lang.Both("BUSY", "ĐANG BẬN");
             // On the host a chef is only kinematic while something else moves it (cannon, portal).
             if (SpecialNet.IsServer)
             {
                 Rigidbody body = chef.Chef.GetComponent<Rigidbody>();
-                if (body == null || body.isKinematic) return false;
+                if (body == null || body.isKinematic) return Lang.Both("CAN'T MOVE NOW", "GIỜ CHƯA ĐI ĐƯỢC");
             }
-            return true;
+            return null;
+        }
+
+        internal static bool Movable(ChefState chef)
+        {
+            return Blocked(chef) == null;
         }
 
         // --- moving ----------------------------------------------------------------------------
 
-        /// <summary>Host: put the chef at <paramref name="feet"/>.</summary>
+        /// <summary>Host: put the chef at <paramref name="feet"/> (and tell its owner at once).</summary>
         internal static void ServerMove(ChefState chef, Vector3 feet, bool keepRun, float hop)
         {
             if (chef == null || chef.Chef == null) return;
@@ -233,6 +477,12 @@ namespace ChefSkills.Specials
             GroundCast ground = chef.Chef.GetComponent<GroundCast>();
             if (ground != null) ground.ForceUpdateNow();
             if (hop > 0f) StartHop(chef, from, feet, hop);
+            // To the owner (who follows at once) and, for a hop, to everyone else (who draw the arc).
+            if (chef.Id != 0 && SpecialNet.Online && (!chef.Local || hop > 0f))
+                SpecialNet.SendToAll(new SpecialMessage
+                {
+                    Topic = TopicMoved, Chef = chef.Id, Vector1 = feet, D = keepRun ? 1f : 0f, E = hop
+                });
         }
 
         /// <summary>Owner machine (not the host): move its own chef now, ahead of the host.</summary>
@@ -259,15 +509,43 @@ namespace ChefSkills.Specials
             }
             GroundCast ground = chef.Chef.GetComponent<GroundCast>();
             if (ground != null) ground.ForceUpdateNow();
+            int key = chef.Chef.GetInstanceID();
             if (sync != null)
-                s_windows[chef.Chef.GetInstanceID()] = new Window { From = from, Target = feet, Until = SpecialRuntime.Now + WindowSeconds };
+                s_windows[key] = new Window { From = from, Target = feet, Until = SpecialRuntime.Now + WindowSeconds };
+            s_predicted[key] = new Predicted { Target = feet, At = SpecialRuntime.Now };
             if (hop > 0f) StartHop(chef, from, feet, hop);
         }
 
         /// <summary>Owner machine: the host refused, so let the correction take the chef back.</summary>
         internal static void CancelPrediction(ChefState chef)
         {
-            if (chef != null && chef.Chef != null) s_windows.Remove(chef.Chef.GetInstanceID());
+            if (chef == null || chef.Chef == null) return;
+            s_windows.Remove(chef.Chef.GetInstanceID());
+            s_predicted.Remove(chef.Chef.GetInstanceID());
+        }
+
+        /// <summary>
+        /// Clients: the host moved a chef. Its owner follows now unless it already did; the other
+        /// machines see the chef glide there (the game's own sync), so they only add the hop.
+        /// </summary>
+        internal static void OnMoved(SpecialMessage message)
+        {
+            if (SpecialNet.IsServer) return;
+            ChefState chef = SpecialRuntime.StateById(message.Chef);
+            if (chef != null && !chef.Local && chef.Chef != null && message.E > 0f)
+            {
+                // No sideways part: the chef itself is still on its way to the new spot here.
+                StartHop(chef, chef.Position, chef.Position, message.E);
+                return;
+            }
+            if (chef == null || !chef.Local || chef.Chef == null || chef.Controls == null || chef.Controls.m_bRespawning) return;
+            Vector3 feet = message.Vector1;
+            Predicted predicted;
+            if (s_predicted.TryGetValue(chef.Chef.GetInstanceID(), out predicted) &&
+                SpecialRuntime.Now - predicted.At < 2.5f && Vector3.Distance(predicted.Target, feet) < 1.2f)
+                return;
+            if (Vector3.Distance(chef.Position, feet) < 0.8f) return;
+            PredictMove(chef, feet, message.D > 0.5f, message.E);
         }
 
         /// <summary>
@@ -351,6 +629,8 @@ namespace ChefSkills.Specials
         {
             try
             {
+                // The chef may have fallen or been destroyed meanwhile.
+                if (pending.Chef.Chef == null || (pending.Chef.Controls != null && pending.Chef.Controls.m_bRespawning)) return;
                 pending.Apply(target);
             }
             catch (Exception error)
@@ -438,7 +718,11 @@ namespace ChefSkills.Specials
     /// </summary>
     internal sealed class TeleportSpecials : ISpecialModule
     {
-        private const float BlinkDistance = 3f;
+        private const float BlinkRange = 6f;
+        private const float BlinkMinimum = 1f;
+        private const float VaultReach = 1.6f;
+        private const float VaultRange = 4f;
+
         private const float GrappleRange = 6f;
         private const float RecallSeconds = 20f;
         private const float SafetyNetCooldown = 30f;
@@ -448,17 +732,20 @@ namespace ChefSkills.Specials
         private const float QuickRespawnTime = 1.5f;
         private const float MedicRespawnTime = 1f;
         internal const float DriverSpeed = 1.5f;
-        // The host's view of a remote chef lags its owner's a little: search a bit further there.
-        private const float LagMargin = 0.6f;
+
+        private static readonly float[] VaultAngles = { 0f, 15f, -15f, 30f, -30f };
+        private static readonly float[] GrappleAngles = { 0f, 8f, -8f, 16f, -16f };
 
         private static readonly ushort TopicRecall = (ushort)((int)Special.Recall * 10 + 0);
         private static readonly ushort TopicSafetyNet = (ushort)((int)Special.SafetyNet * 10 + 0);
+        private static readonly ushort TopicHover = (ushort)((int)Special.Hover * 10 + 0);
 
-        private const int RecallPlanted = 1, RecallReturned = 2, RecallMoved = 4;
+        private const int RecallPlanted = 1, RecallReturned = 2;
 
         private const string FlagKey = "Recall.Flag", FlagUntilKey = "Recall.Until", FlagModeKey = "Recall.Mode";
         private const string HoverUntilKey = "Hover.Until", HoverReadyKey = "Hover.Ready";
         private const string NetReadyKey = "SafetyNet.Ready", CaughtKey = "Teleport.Caught";
+        private const string LatestKey = "SafetyNet.Latest", SafeKey = "SafetyNet.Safe";
 
         private struct SafePoint
         {
@@ -481,17 +768,27 @@ namespace ChefSkills.Specials
             public float Until;
         }
 
-        // Host: where each chef last stood safely (latest sample, and the one before it).
-        private static readonly Dictionary<uint, SafePoint> s_latest = new Dictionary<uint, SafePoint>();
-        private static readonly Dictionary<uint, SafePoint> s_safe = new Dictionary<uint, SafePoint>();
+        private sealed class Flag
+        {
+            public GameObject Marker;
+            public Transform Parent;
+            public Vector3 Local;
+
+            public Vector3 Position
+            {
+                get { return Parent != null ? Parent.TransformPoint(Local) : Local; }
+            }
+        }
+
         private static float s_nextSafeSample;
 
-        // Every machine: respawn times as the level had them, respawns sent to a medic, spawn points moved.
+        // Every machine: respawn times as the level had them, respawns sent to a medic or shortened
+        // by a special, spawn points moved, planted Recall flags.
         private static readonly Dictionary<int, float> s_baseRespawn = new Dictionary<int, float>();
-        private static readonly Dictionary<int, uint> s_medicFor = new Dictionary<int, uint>();
+        private static readonly Dictionary<int, ChefState> s_medicFor = new Dictionary<int, ChefState>();
+        private static readonly Dictionary<int, Special> s_quickFor = new Dictionary<int, Special>();
         private static readonly List<SpawnOverride> s_overrides = new List<SpawnOverride>();
-
-        private static float s_nextStatus;
+        private static readonly Dictionary<ChefState, Flag> s_flags = new Dictionary<ChefState, Flag>();
 
         public void Register()
         {
@@ -506,8 +803,10 @@ namespace ChefSkills.Specials
             SpecialRuntime.RegisterActive(Special.Summon, new ActiveHandler { Execute = SummonExecute });
 
             SpecialNet.Register(Warp.TopicProposal, Warp.OnProposal);
+            SpecialNet.Register(Warp.TopicMoved, Warp.OnMoved);
             SpecialNet.Register(TopicRecall, OnRecallMessage);
             SpecialNet.Register(TopicSafetyNet, OnSafetyNetMessage);
+            SpecialNet.Register(TopicHover, OnHoverMessage);
             SpecialNet.Register(SpecialNet.Topic.Denied, OnDenied);
 
             SpecialRuntime.Tick += OnTick;
@@ -518,11 +817,13 @@ namespace ChefSkills.Specials
         private static void OnLevelEnded()
         {
             Warp.Clear();
-            s_latest.Clear();
-            s_safe.Clear();
             s_baseRespawn.Clear();
             s_medicFor.Clear();
+            s_quickFor.Clear();
             s_overrides.Clear();
+            foreach (KeyValuePair<ChefState, Flag> pair in s_flags)
+                if (pair.Value.Marker != null) UnityEngine.Object.Destroy(pair.Value.Marker);
+            s_flags.Clear();
             s_nextSafeSample = 0f;
             CannonState.Clear();
             PortalState.Clear();
@@ -543,15 +844,22 @@ namespace ChefSkills.Specials
             float now = SpecialRuntime.Now;
 
             // Recall flags run out on every machine.
-            IList<ChefState> chefs = SpecialRuntime.Chefs;
-            for (int i = 0; i < chefs.Count; i++)
+            if (s_flags.Count > 0)
             {
-                ChefState chef = chefs[i];
-                if (chef.Data.ContainsKey(FlagUntilKey) && now > chef.Get(FlagUntilKey, 0f))
-                {
-                    chef.Data.Remove(FlagUntilKey);
-                    chef.Data.Remove(FlagKey);
-                }
+                List<ChefState> gone = null;
+                foreach (KeyValuePair<ChefState, Flag> pair in s_flags)
+                    if (pair.Key.Chef == null || now > pair.Key.Get(FlagUntilKey, 0f))
+                    {
+                        if (gone == null) gone = new List<ChefState>();
+                        gone.Add(pair.Key);
+                    }
+                if (gone != null)
+                    foreach (ChefState chef in gone)
+                    {
+                        Flag flag = s_flags[chef];
+                        SpecialFx.Burst(flag.Position, SpecialFx.ColourOf(Special.Recall), 0.8f, 0.4f);
+                        DropFlag(chef);
+                    }
             }
 
             for (int i = s_overrides.Count - 1; i >= 0; i--)
@@ -567,131 +875,153 @@ namespace ChefSkills.Specials
                 s_nextSafeSample = now + 0.1f;
                 SampleSafePoints(now);
             }
-
-            if (Time.unscaledTime >= s_nextStatus)
-            {
-                s_nextStatus = Time.unscaledTime + 0.25f;
-                UpdateStatus(now);
-            }
-        }
-
-        /// <summary>The HUD line under a local chef's active: flag, hover and safety net timers.</summary>
-        private static void UpdateStatus(float now)
-        {
-            IList<ChefState> chefs = SpecialRuntime.Chefs;
-            for (int i = 0; i < chefs.Count; i++)
-            {
-                ChefState chef = chefs[i];
-                if (!chef.Local) continue;
-                string text = null;
-                if (chef.Has(Special.Recall) && chef.Data.ContainsKey(FlagUntilKey))
-                    text = Join(text, "Flag " + Mathf.CeilToInt(chef.Get(FlagUntilKey, 0f) - now) + "s");
-                if (chef.Has(Special.Hover) && now < chef.Get(HoverReadyKey, 0f))
-                    text = Join(text, "Hover " + Mathf.CeilToInt(chef.Get(HoverReadyKey, 0f) - now) + "s");
-                if (chef.Has(Special.SafetyNet) && now < chef.Get(NetReadyKey, 0f))
-                    text = Join(text, "Net " + Mathf.CeilToInt(chef.Get(NetReadyKey, 0f) - now) + "s");
-                chef.SetStatus("Teleport", text);
-            }
-        }
-
-        private static string Join(string a, string b)
-        {
-            return string.IsNullOrEmpty(a) ? b : a + "  " + b;
         }
 
         // --- Vault -----------------------------------------------------------------------------
+        // Over whatever is in front, whatever its height (a counter, a crate, a wall, a tall unit):
+        // look a little to either side of the facing too, ignore chefs and the items sitting on
+        // counters, and land on the first free, safe floor in the kitchen beyond it.
 
-        /// <summary>The free floor beyond the counter the chef faces.</summary>
-        private static bool FindVault(ChefState chef, Vector3 position, Vector3 forward, float margin, out Vector3 landing)
+        /// <summary>The nearest solid thing ahead, from knee to above head height, within <paramref name="reach"/>.</summary>
+        private static bool Obstacle(Vector3 origin, Vector3 direction, float reach, out float distance)
+        {
+            distance = float.MaxValue;
+            bool found = false;
+            float[] heights = { 0.3f, 0.6f, 0.9f, 1.4f, 1.9f };
+            for (int i = 0; i < heights.Length; i++)
+            {
+                RaycastHit hit;
+                if (Warp.SolidRay(origin + Vector3.up * heights[i], direction, reach, Warp.SolidMask, out hit) && hit.distance < distance)
+                {
+                    distance = hit.distance;
+                    found = true;
+                }
+            }
+            return found;
+        }
+
+        private static bool FindVault(ChefState chef, Vector3 origin, Vector3 forward, out Vector3 landing, out string reason)
         {
             Warp.InitMasks();
-            landing = position;
+            landing = origin;
+            reason = Lang.Both("NOTHING TO VAULT OVER", "KHÔNG CÓ GÌ ĐỂ NHẢY QUA");
             forward = Warp.Flat(forward);
-            RaycastHit hit;
-            if (!Physics.Raycast(position + Vector3.up * 0.5f, forward, out hit, 1.3f + margin, Warp.BlockMask, QueryTriggerInteraction.Ignore))
-                return false;
-            if (hit.collider.transform.IsChildOf(chef.Chef.transform) || !Warp.IsCounter(hit.collider)) return false;
-            // Something low enough to hop over, with nothing above it on the way.
-            float top = hit.collider.bounds.max.y;
-            if (top - position.y > 1.6f) return false;
-            float arc = Mathf.Max(top, position.y + 0.5f) + 0.35f;
-            for (float d = hit.distance + 0.45f; d <= hit.distance + 3.2f; d += 0.15f)
+            var memo = new Dictionary<long, bool>();
+            for (int a = 0; a < VaultAngles.Length; a++)
             {
-                Vector3 floor;
-                if (!Warp.Floor(position + forward * d, position.y, 0.6f, out floor) || !Warp.Free(chef, floor, null)) continue;
-                Vector3 high = new Vector3(position.x, arc, position.z);
-                if (Physics.Raycast(high, forward, d, Warp.BlockMask & ~PlayersMask(), QueryTriggerInteraction.Ignore)) return false;
-                landing = floor;
-                return true;
+                Vector3 direction = Quaternion.Euler(0f, VaultAngles[a], 0f) * forward;
+                float near;
+                if (!Obstacle(origin, direction, VaultReach, out near)) continue;
+                reason = Lang.Both("NO FLOOR BEHIND IT", "PHÍA SAU KHÔNG CÓ SÀN");
+                for (float d = near + 0.45f; d <= VaultRange + 0.01f; d += 0.15f)
+                {
+                    Vector3 floor;
+                    if (!Warp.Floor(origin + direction * d, origin.y, 0.6f, out floor)) continue;
+                    if (!Warp.Free(chef, floor, null) || Warp.Deadly(floor) || !Warp.InKitchen(floor)) continue;
+                    // Not into a closed-in pocket the chef couldn't get out of.
+                    if (!Warp.Roomy(chef, floor, origin.y, memo, 4, 1.2f)) continue;
+                    landing = floor;
+                    return true;
+                }
             }
             return false;
         }
 
-        private static int s_players = -2;
-
-        private static int PlayersMask()
-        {
-            if (s_players == -2)
-            {
-                int layer = LayerMask.NameToLayer("Players");
-                s_players = layer >= 0 ? 1 << layer : 0;
-            }
-            return s_players;
-        }
-
         private static bool VaultExecute(ChefState chef)
         {
-            if (!Warp.Movable(chef)) return false;
-            Vector3 landing = chef.Position;
-            if (!FindVault(chef, chef.Position, chef.Forward, chef.Local ? 0f : LagMargin, out landing)) return false;
-            Warp.Resolve(chef, Special.Vault, landing, 2.5f, delegate(Vector3 p) { return Warp.Free(chef, p, null); },
-                delegate(Vector3 p) { Warp.ServerMove(chef, p, false, 0.9f); });
+            string why = Warp.Blocked(chef);
+            if (why != null) return chef.Refuse(why);
+            Vector3 from = chef.RequestPosition, landing;
+            string reason;
+            if (!FindVault(chef, from, chef.RequestForward, out landing, out reason)) return chef.Refuse(reason);
+            Warp.Resolve(chef, Special.Vault, landing, 1.5f, delegate(Vector3 p) { return Warp.Landable(chef, p); },
+                delegate(Vector3 p)
+                {
+                    Warp.ServerMove(chef, p, false, 0.9f);
+                    SpecialFx.BeamAll(from, p, Special.Vault, 0.45f);
+                    SpecialFx.BurstAll(p, Special.Vault);
+                });
             return true;
         }
 
         private static void VaultPredict(ChefState chef)
         {
             Vector3 landing = chef.Position;
-            bool found = Warp.Movable(chef) && FindVault(chef, chef.Position, chef.Forward, 0f, out landing);
+            string reason;
+            bool found = Warp.Movable(chef) && FindVault(chef, chef.RequestPosition, chef.RequestForward, out landing, out reason);
             if (!found) landing = chef.Position;
             else Warp.PredictMove(chef, landing, false, 0.9f);
             Warp.Propose(chef, Special.Vault, found, landing);
         }
 
         // --- Blink -----------------------------------------------------------------------------
+        // Straight through anything (counters, walls, crates, chefs): the farthest free floor up to
+        // 6 m ahead at about the same height, never in a pit or water, never outside the kitchen and
+        // never into a closed-in pocket.
 
-        /// <summary>As far as 3 m ahead as the chef can go: stops before anything solid or an edge.</summary>
-        private static bool FindBlink(ChefState chef, Vector3 position, Vector3 forward, float minimum, out Vector3 landing)
+        private static bool FindBlink(ChefState chef, Vector3 origin, Vector3 forward, out Vector3 landing)
         {
+            string reason;
+            return FindBlink(chef, origin, forward, out landing, out reason);
+        }
+
+        private static bool FindBlink(ChefState chef, Vector3 origin, Vector3 forward, out Vector3 landing, out string reason)
+        {
+            Warp.InitMasks();
             forward = Warp.Flat(forward);
-            landing = position;
-            float reached = 0f;
-            float refY = position.y;
-            for (float d = 0.2f; d <= BlinkDistance + 0.01f; d += 0.2f)
+            Vector3 right = new Vector3(forward.z, 0f, -forward.x);
+            var memo = new Dictionary<long, bool>();
+            // Why each spot tried was turned down, for the refusal and the log.
+            int noFloor = 0, blocked = 0, deadly = 0, outside = 0, pocket = 0;
+            reason = Lang.Both("NO FLOOR TO BLINK TO", "KHÔNG CÓ SÀN ĐỂ ĐÁP");
+            for (float d = BlinkRange; d >= BlinkMinimum - 0.01f; d -= 0.25f)
             {
-                Vector3 floor;
-                if (!Warp.Floor(position + forward * d, refY, 0.45f, out floor) || !Warp.Free(chef, floor, null)) break;
-                landing = floor;
-                refY = floor.y;
-                reached = d;
+                for (int s = 0; s < 3; s++)
+                {
+                    float side = s == 0 ? 0f : s == 1 ? 0.35f : -0.35f;
+                    Vector3 floor;
+                    if (!Warp.Floor(origin + forward * d + right * side, origin.y, 0.5f, out floor)) { noFloor++; continue; }
+                    if (!Warp.Free(chef, floor, null)) { blocked++; continue; }
+                    if (Warp.Deadly(floor)) { deadly++; continue; }
+                    if (!Warp.InKitchen(floor)) { outside++; continue; }
+                    if (!Warp.Roomy(chef, floor, origin.y, memo, 6, 1.6f)) { pocket++; continue; }
+                    landing = floor;
+                    return true;
+                }
             }
-            return reached >= minimum;
+            landing = origin;
+            Plugin.Log.LogInfo(string.Format(
+                "BLINK: không có chỗ đáp (không có sàn {0}, bị chắn {1}, vùng chết {2}, ngoài bếp {3}, chỗ kẹt {4})",
+                noFloor, blocked, deadly, outside, pocket));
+            int most = Mathf.Max(Mathf.Max(blocked, deadly), Mathf.Max(outside, pocket));
+            if (most > 0)
+                reason = most == blocked ? Lang.Both("NO ROOM TO LAND", "KHÔNG CÓ CHỖ ĐÁP") : most == deadly ? Lang.Both("ONLY PITS AHEAD", "PHÍA TRƯỚC TOÀN HỐ")
+                    : most == outside ? Lang.Both("EDGE OF THE KITCHEN", "MÉP BẾP RỒI") : Lang.Both("NO ROOM TO LAND", "KHÔNG CÓ CHỖ ĐÁP");
+            return false;
         }
 
         private static bool BlinkExecute(ChefState chef)
         {
-            if (!Warp.Movable(chef)) return false;
-            Vector3 landing = chef.Position;
-            if (!FindBlink(chef, chef.Position, chef.Forward, chef.Local ? 0.6f : 0.4f, out landing)) return false;
-            Warp.Resolve(chef, Special.Blink, landing, 2f, delegate(Vector3 p) { return Warp.Free(chef, p, null); },
-                delegate(Vector3 p) { Warp.ServerMove(chef, p, true, 0f); });
+            string why = Warp.Blocked(chef);
+            if (why != null) return chef.Refuse(why);
+            Vector3 from = chef.RequestPosition, landing;
+            string reason;
+            if (!FindBlink(chef, from, chef.RequestForward, out landing, out reason)) return chef.Refuse(reason);
+            Warp.Resolve(chef, Special.Blink, landing, 2.5f, delegate(Vector3 p) { return Warp.Landable(chef, p); },
+                delegate(Vector3 p)
+                {
+                    Warp.ServerMove(chef, p, true, 0f);
+                    SpecialFx.BeamAll(from, p, Special.Blink, 0.6f);
+                    SpecialFx.BurstAll(from, Special.Blink);
+                    SpecialFx.BurstAll(p, Special.Blink);
+                });
             return true;
         }
 
         private static void BlinkPredict(ChefState chef)
         {
             Vector3 landing = chef.Position;
-            bool found = Warp.Movable(chef) && FindBlink(chef, chef.Position, chef.Forward, 0.6f, out landing);
+            bool found = Warp.Movable(chef) && FindBlink(chef, chef.RequestPosition, chef.RequestForward, out landing);
             if (!found) landing = chef.Position;
             else Warp.PredictMove(chef, landing, true, 0f);
             Warp.Propose(chef, Special.Blink, found, landing);
@@ -700,44 +1030,74 @@ namespace ChefSkills.Specials
         // --- Grapple ---------------------------------------------------------------------------
 
         /// <summary>The floor just in front of the counter the chef faces, up to 6 m away.</summary>
-        private static bool FindGrapple(ChefState chef, Vector3 position, Vector3 forward, float margin, out Vector3 landing)
+        private static bool FindGrapple(ChefState chef, Vector3 origin, Vector3 forward, out Vector3 landing,
+            out Vector3 anchor, out string reason)
         {
             Warp.InitMasks();
-            landing = position;
+            landing = anchor = origin;
+            reason = Lang.Both("NO COUNTER WITHIN 6 M", "KHÔNG CÓ BÀN TRONG 6 M");
             forward = Warp.Flat(forward);
-            RaycastHit hit;
-            if (!Physics.Raycast(position + Vector3.up * 0.5f, forward, out hit, GrappleRange + margin, Warp.BlockMask & ~PlayersMask(),
-                    QueryTriggerInteraction.Ignore))
-                return false;
-            if (hit.collider.transform.IsChildOf(chef.Chef.transform) || !Warp.IsCounter(hit.collider) || hit.distance < 1.3f)
-                return false;
-            // Back off from the counter until there's floor to stand on (gaps in between are flown over).
-            for (float d = hit.distance - 0.45f; d >= 0.9f; d -= 0.15f)
+            for (int a = 0; a < GrappleAngles.Length; a++)
             {
-                Vector3 floor;
-                if (Warp.Floor(position + forward * d, position.y, 1f, out floor) && Warp.Free(chef, floor, null))
+                Vector3 direction = Quaternion.Euler(0f, GrappleAngles[a], 0f) * forward;
+                RaycastHit hit = new RaycastHit();
+                bool found = false;
+                float[] heights = { 0.5f, 0.85f };
+                for (int h = 0; h < heights.Length; h++)
                 {
-                    landing = floor;
-                    return true;
+                    RaycastHit candidate;
+                    if (Warp.SolidRay(origin + Vector3.up * heights[h], direction, GrappleRange, Warp.SolidMask, out candidate) &&
+                        (!found || candidate.distance < hit.distance))
+                    {
+                        hit = candidate;
+                        found = true;
+                    }
                 }
+                if (!found || !Warp.IsCounter(hit.collider)) continue;
+                if (hit.distance < 1.3f)
+                {
+                    reason = Lang.Both("ALREADY AT THE COUNTER", "ĐÃ Ở SÁT BÀN");
+                    continue;
+                }
+                // Back off from the counter until there's floor to stand on (gaps in between are flown over).
+                for (float d = hit.distance - 0.45f; d >= 0.9f; d -= 0.15f)
+                {
+                    Vector3 floor;
+                    if (Warp.Floor(origin + direction * d, origin.y, 1f, out floor) && Warp.Free(chef, floor, null) &&
+                        !Warp.Deadly(floor) && Warp.InKitchen(floor))
+                    {
+                        landing = floor;
+                        anchor = hit.point;
+                        return true;
+                    }
+                }
+                reason = Lang.Both("NO FLOOR BY THE COUNTER", "CẠNH BÀN KHÔNG CÓ SÀN");
             }
             return false;
         }
 
         private static bool GrappleExecute(ChefState chef)
         {
-            if (!Warp.Movable(chef)) return false;
-            Vector3 landing = chef.Position;
-            if (!FindGrapple(chef, chef.Position, chef.Forward, chef.Local ? 0f : LagMargin, out landing)) return false;
-            Warp.Resolve(chef, Special.Grapple, landing, 2.5f, delegate(Vector3 p) { return Warp.Free(chef, p, null); },
-                delegate(Vector3 p) { Warp.ServerMove(chef, p, false, 0.35f); });
+            string why = Warp.Blocked(chef);
+            if (why != null) return chef.Refuse(why);
+            Vector3 from = chef.RequestPosition, landing, anchor;
+            string reason;
+            if (!FindGrapple(chef, from, chef.RequestForward, out landing, out anchor, out reason)) return chef.Refuse(reason);
+            Warp.Resolve(chef, Special.Grapple, landing, 1.5f, delegate(Vector3 p) { return Warp.Landable(chef, p); },
+                delegate(Vector3 p)
+                {
+                    Warp.ServerMove(chef, p, false, 0.35f);
+                    SpecialFx.BeamAll(from + Vector3.up * 0.9f, anchor, Special.Grapple, 0.5f);
+                    SpecialFx.BurstAll(p, Special.Grapple);
+                });
             return true;
         }
 
         private static void GrapplePredict(ChefState chef)
         {
-            Vector3 landing = chef.Position;
-            bool found = Warp.Movable(chef) && FindGrapple(chef, chef.Position, chef.Forward, 0f, out landing);
+            Vector3 landing = chef.Position, anchor;
+            string reason;
+            bool found = Warp.Movable(chef) && FindGrapple(chef, chef.RequestPosition, chef.RequestForward, out landing, out anchor, out reason);
             if (!found) landing = chef.Position;
             else Warp.PredictMove(chef, landing, false, 0.35f);
             Warp.Propose(chef, Special.Grapple, found, landing);
@@ -746,91 +1106,169 @@ namespace ChefSkills.Specials
         // --- Recall ----------------------------------------------------------------------------
         // The host decides plant or return and tells everyone first (TopicRecall), so that when the
         // activation is confirmed every machine knows which it was: a plant puts the cooldown back
-        // to 0.5 s, so the real cooldown only starts with the return.
+        // to 0.5 s (the button shows the flag's time running out instead), so the real cooldown
+        // only starts with the return. The flag sticks to the floor it was planted on (rafts,
+        // moving platforms) and is marked with a ring on every machine.
 
         private static bool HasFlag(ChefState chef, float spare)
         {
-            return chef.Data.ContainsKey(FlagKey) && chef.Get(FlagUntilKey, 0f) > SpecialRuntime.Now + spare;
+            return s_flags.ContainsKey(chef) && chef.Get(FlagUntilKey, 0f) > SpecialRuntime.Now + spare;
+        }
+
+        private static Vector3 FlagPosition(ChefState chef)
+        {
+            Flag flag;
+            return s_flags.TryGetValue(chef, out flag) ? flag.Position : chef.Get(FlagKey, chef.Position);
+        }
+
+        /// <summary>Where a return to the flag puts the chef: the flag, or next to it if that's taken.</summary>
+        private static bool ReturnSpot(ChefState chef, Vector3 forward, out Vector3 spot)
+        {
+            Vector3 flag = FlagPosition(chef), floor;
+            if (Warp.Floor(flag, flag.y, 0.5f, out floor) && Warp.Free(chef, floor, null) && !Warp.Deadly(floor))
+            {
+                spot = floor;
+                return true;
+            }
+            return Warp.SpotNear(flag, forward, chef, out spot);
         }
 
         private static bool RecallExecute(ChefState chef)
         {
-            if (!Warp.Movable(chef)) return false;
+            string why = Warp.Blocked(chef);
+            if (why != null) return chef.Refuse(why);
             if (HasFlag(chef, 0f))
             {
-                Vector3 flag = chef.Get(FlagKey, chef.Position);
-                SendRecall(chef, RecallReturned, flag);
-                Warp.ServerMove(chef, flag, false, 0f);
+                Vector3 spot;
+                if (!ReturnSpot(chef, chef.RequestForward, out spot)) return chef.Refuse(Lang.Both("FLAG SPOT IS BLOCKED", "CHỖ CẮM CỜ BỊ CHẶN"));
+                SendRecall(chef, RecallReturned, spot, chef.RequestPosition);
+                Warp.ServerMove(chef, spot, false, 0f);
                 return true;
             }
-            Vector3 here = chef.Position;
-            SendRecall(chef, RecallPlanted, here);
-            // The owner's own position is more exact than the host's view of it.
-            Warp.Resolve(chef, Special.Recall, here, 2.5f, null, delegate(Vector3 p)
-            {
-                if ((p - here).sqrMagnitude > 1e-4f) SendRecall(chef, RecallMoved, p);
-            });
+            // The owner's own position at the press: no need to wait for its proposal.
+            Vector3 here = chef.RequestPosition, ground;
+            if (!Warp.Floor(here, here.y, 0.4f, out ground) || Warp.Deadly(ground)) return chef.Refuse(Lang.Both("NOT ON SOLID FLOOR", "KHÔNG ĐỨNG TRÊN SÀN VỮNG"));
+            SendRecall(chef, RecallPlanted, ground, ground);
             return true;
         }
 
         private static void RecallPredict(ChefState chef)
         {
             // Only predict a return that the host will surely still see as one.
-            if (HasFlag(chef, 0.4f))
-            {
-                if (Warp.Movable(chef)) Warp.PredictMove(chef, chef.Get(FlagKey, chef.Position), false, 0f);
-                return;
-            }
-            Warp.Propose(chef, Special.Recall, true, chef.Position);
+            if (!HasFlag(chef, 0.4f) || !Warp.Movable(chef)) return;
+            Vector3 spot;
+            if (ReturnSpot(chef, chef.RequestForward, out spot)) Warp.PredictMove(chef, spot, false, 0f);
         }
 
-        private static void SendRecall(ChefState chef, int what, Vector3 position)
+        private static void SendRecall(ChefState chef, int what, Vector3 position, Vector3 from)
         {
-            SpecialNet.SendToAll(new SpecialMessage { Topic = TopicRecall, Chef = chef.Id, I = what, Vector1 = position });
+            if (chef.Id == 0)
+            {
+                // Offline without an entity ID: just this machine.
+                ApplyRecall(chef, what, position, from);
+                return;
+            }
+            SpecialNet.SendToAll(new SpecialMessage { Topic = TopicRecall, Chef = chef.Id, I = what, Vector1 = position, Vector2 = from });
         }
 
         private static void OnRecallMessage(SpecialMessage message)
         {
             ChefState chef = SpecialRuntime.StateById(message.Chef);
-            if (chef == null) return;
-            switch (message.I)
+            if (chef != null) ApplyRecall(chef, message.I, message.Vector1, message.Vector2);
+        }
+
+        private static void ApplyRecall(ChefState chef, int what, Vector3 position, Vector3 from)
+        {
+            Color colour = SpecialFx.ColourOf(Special.Recall);
+            switch (what)
             {
                 case RecallPlanted:
-                    chef.Set(FlagKey, message.Vector1);
+                {
+                    DropFlag(chef);
+                    var flag = new Flag { Local = position };
+                    // Stick to the floor it is on, so it rides along on a moving platform.
+                    RaycastHit hit;
+                    Warp.InitMasks();
+                    if (Physics.Raycast(position + Vector3.up * 0.5f, Vector3.down, out hit, 1.2f, Warp.GroundMask, QueryTriggerInteraction.Ignore))
+                    {
+                        flag.Parent = hit.collider.transform;
+                        flag.Local = flag.Parent.InverseTransformPoint(position);
+                    }
+                    flag.Marker = new GameObject("ChefSkills_RecallFlag");
+                    if (flag.Parent != null) flag.Marker.transform.SetParent(flag.Parent, false);
+                    flag.Marker.transform.position = position;
+                    s_flags[chef] = flag;
+                    chef.Set(FlagKey, position);
                     chef.Set(FlagUntilKey, SpecialRuntime.Now + RecallSeconds);
                     chef.Set(FlagModeKey, RecallPlanted);
+                    SpecialFx.Mark(flag.Marker, colour, RecallSeconds, Lang.T("FLAG", "CỜ"), 0.55f);
+                    SpecialFx.Burst(position, colour, 1f, 0.45f);
                     break;
-                case RecallMoved:
-                    if (chef.Data.ContainsKey(FlagKey)) chef.Set(FlagKey, message.Vector1);
-                    break;
+                }
                 case RecallReturned:
-                    chef.Data.Remove(FlagKey);
-                    chef.Data.Remove(FlagUntilKey);
+                    DropFlag(chef);
                     chef.Set(FlagModeKey, RecallReturned);
+                    SpecialFx.Beam(from, position, colour, 0.55f);
+                    SpecialFx.Burst(from, colour, 1.2f, 0.5f);
+                    SpecialFx.Burst(position, colour, 1.4f, 0.55f);
                     break;
             }
+        }
+
+        private static void DropFlag(ChefState chef)
+        {
+            Flag flag;
+            if (s_flags.TryGetValue(chef, out flag))
+            {
+                s_flags.Remove(chef);
+                if (flag.Marker != null)
+                {
+                    SpecialFx.Unmark(flag.Marker);
+                    UnityEngine.Object.Destroy(flag.Marker);
+                }
+            }
+            chef.Data.Remove(FlagKey);
+            chef.Data.Remove(FlagUntilKey);
         }
 
         private static void RecallActivated(ChefState chef)
         {
             if (chef.Get(FlagModeKey, 0) != RecallPlanted) return;
-            // Planting is free: only a short pause so a double tap doesn't return at once.
-            chef.CooldownUntil = SpecialRuntime.Now + 0.5f;
+            // Planting is free: only a short pause so a double tap doesn't return at once. The
+            // button shows the flag's time running out instead (its "effect").
+            float now = SpecialRuntime.Now;
+            chef.CooldownUntil = now + 0.5f;
             chef.CooldownTotal = 0.5f;
+            chef.ActiveUntil = Mathf.Max(now + 0.5f, chef.Get(FlagUntilKey, now + RecallSeconds));
             chef.Set(FlagModeKey, 0);
         }
 
-        // --- Swap and Summon (host only; the moved chefs' owners are snapped by their correction) ---
+        // --- Swap and Summon (host; the moved chefs' owners follow at once with TopicMoved) ----
 
-        private static ChefState PickTeammate(ChefState chef)
+        private static bool CanBeMoved(ChefState mate)
+        {
+            if (mate == null || mate.Chef == null || mate.Controls == null || !mate.Chef.activeInHierarchy) return false;
+            if (mate.Controls.m_bRespawning || !mate.Controls.enabled) return false;
+            if (SpecialNet.IsServer)
+            {
+                Rigidbody body = mate.Chef.GetComponent<Rigidbody>();
+                if (body == null || body.isKinematic) return false;
+            }
+            return true;
+        }
+
+        private static ChefState PickTeammate(ChefState chef, Vector3 position, Vector3 forward, out bool anyMate)
         {
             ChefState faced = null, nearest = null;
             float facedDistance = float.MaxValue, nearestDistance = float.MaxValue;
-            Vector3 forward = Warp.Flat(chef.Forward);
+            forward = Warp.Flat(forward);
+            anyMate = false;
             foreach (ChefState other in SpecialRuntime.Teammates(chef))
             {
-                if (!Warp.Movable(other)) continue;
-                Vector3 offset = other.Position - chef.Position;
+                if (other.Chef == null) continue;
+                anyMate = true;
+                if (!CanBeMoved(other)) continue;
+                Vector3 offset = other.Position - position;
                 offset.y = 0f;
                 float distance = offset.magnitude;
                 if (distance < nearestDistance)
@@ -849,27 +1287,38 @@ namespace ChefSkills.Specials
 
         private static bool SwapExecute(ChefState chef)
         {
-            if (!Warp.Movable(chef)) return false;
-            ChefState mate = PickTeammate(chef);
-            if (mate == null) return false;
-            Vector3 mine = chef.Position, theirs = mate.Position;
-            if ((mine - theirs).sqrMagnitude < 0.25f) return false;
+            string why = Warp.Blocked(chef);
+            if (why != null) return chef.Refuse(why);
+            bool anyMate;
+            ChefState mate = PickTeammate(chef, chef.RequestPosition, chef.RequestForward, out anyMate);
+            if (mate == null) return chef.Refuse(anyMate ? Lang.Both("TEAMMATE CAN'T MOVE NOW", "ĐỒNG ĐỘI CHƯA ĐI ĐƯỢC") : Lang.Both("NO TEAMMATE", "KHÔNG CÓ ĐỒNG ĐỘI"));
+            Vector3 mine = chef.RequestPosition, theirs = mate.Position;
+            if (Warp.FlatDistance(mine, theirs) < 0.6f) return chef.Refuse(Lang.Both("TEAMMATE TOO CLOSE", "ĐỒNG ĐỘI Ở QUÁ GẦN"));
             Warp.ServerMove(chef, theirs, false, 0f);
             Warp.ServerMove(mate, mine, false, 0f);
+            SpecialFx.BeamAll(mine, theirs, Special.Swap, 0.6f);
+            SpecialFx.BurstAll(mine, Special.Swap);
+            SpecialFx.BurstAll(theirs, Special.Swap);
+            SpecialFx.TextAllAt(mine + Vector3.up * 2.1f, Lang.Both("SWAPPED!", "ĐỔI CHỖ!"), Special.Swap);
             return true;
         }
 
         private static bool SummonExecute(ChefState chef)
         {
-            if (!Warp.Movable(chef)) return false;
-            ChefState mate = PickTeammate(chef);
-            if (mate == null) return false;
-            Vector3 offset = mate.Position - chef.Position;
-            offset.y = 0f;
-            if (offset.magnitude < 1.6f) return false;
+            string why = Warp.Blocked(chef);
+            if (why != null) return chef.Refuse(why);
+            bool anyMate;
+            ChefState mate = PickTeammate(chef, chef.RequestPosition, chef.RequestForward, out anyMate);
+            if (mate == null) return chef.Refuse(anyMate ? Lang.Both("TEAMMATE CAN'T MOVE NOW", "ĐỒNG ĐỘI CHƯA ĐI ĐƯỢC") : Lang.Both("NO TEAMMATE", "KHÔNG CÓ ĐỒNG ĐỘI"));
+            Vector3 from = mate.Position;
+            if (Warp.FlatDistance(from, chef.RequestPosition) < 1.6f) return chef.Refuse(Lang.Both("TEAMMATE ALREADY HERE", "ĐỒNG ĐỘI ĐÃ Ở ĐÂY"));
             Vector3 spot;
-            if (!Warp.SpotNear(chef.Position, chef.Forward, mate, out spot)) return false;
+            if (!Warp.SpotNear(chef.RequestPosition, chef.RequestForward, mate, out spot)) return chef.Refuse(Lang.Both("NO ROOM NEXT TO YOU", "CẠNH BẠN HẾT CHỖ"));
             Warp.ServerMove(mate, spot, false, 0f);
+            SpecialFx.BeamAll(from, spot, Special.Summon, 0.6f);
+            SpecialFx.BurstAll(from, Special.Summon);
+            SpecialFx.BurstAll(spot, Special.Summon);
+            SpecialFx.TextAllAt(spot + Vector3.up * 2.1f, Lang.Both("SUMMONED!", "TRIỆU HỒI!"), Special.Summon);
             return true;
         }
 
@@ -881,26 +1330,83 @@ namespace ChefSkills.Specials
             for (int i = 0; i < chefs.Count; i++)
             {
                 ChefState chef = chefs[i];
-                if (chef.Id == 0 || chef.Controls == null || chef.Chef == null) continue;
+                if (chef.Controls == null || chef.Chef == null) continue;
                 PlayerControls controls = chef.Controls;
                 if (!controls.enabled || controls.m_bRespawning) continue;
                 Collider ground = controls.GroundCollider;
                 if (ground == null) continue;
                 Vector3 position = chef.Position;
-                SafePoint latest;
+                SafePoint latest = chef.Get(LatestKey, new SafePoint());
                 // Keep the point from a moment ago: the latest one may be right at the edge.
-                if (s_latest.TryGetValue(chef.Id, out latest) && latest.Set && now - latest.Time >= 0.3f)
-                    s_safe[chef.Id] = latest;
+                if (latest.Set && now - latest.Time >= 0.3f) chef.Set(SafeKey, latest);
                 if (!latest.Set || now - latest.Time >= 0.3f)
                 {
                     Transform parent = ground.transform;
-                    s_latest[chef.Id] = new SafePoint
+                    var point = new SafePoint
                     {
                         Parent = parent, Local = parent.InverseTransformPoint(position), World = position, Time = now, Set = true
                     };
-                    if (!s_safe.ContainsKey(chef.Id)) s_safe[chef.Id] = s_latest[chef.Id];
+                    chef.Set(LatestKey, point);
+                    if (!chef.Data.ContainsKey(SafeKey)) chef.Set(SafeKey, point);
                 }
             }
+        }
+
+        /// <summary>Firm footing: floor under the spot and a little way around it, nothing in the way.</summary>
+        private static bool Firm(ChefState chef, Vector3 p, out Vector3 floor)
+        {
+            if (!Warp.Floor(p, p.y, 0.4f, out floor)) return false;
+            Vector3 around;
+            if (!Warp.Floor(floor + new Vector3(0.3f, 0f, 0f), floor.y, 0.3f, out around) ||
+                !Warp.Floor(floor + new Vector3(-0.3f, 0f, 0f), floor.y, 0.3f, out around) ||
+                !Warp.Floor(floor + new Vector3(0f, 0f, 0.3f), floor.y, 0.3f, out around) ||
+                !Warp.Floor(floor + new Vector3(0f, 0f, -0.3f), floor.y, 0.3f, out around))
+                return false;
+            return Warp.Free(chef, floor, null) && !Warp.Deadly(floor);
+        }
+
+        /// <summary>Where to put a falling chef back: where it last stood firmly, near where it stepped off.</summary>
+        private static bool SafeSpot(ChefState chef, out Vector3 spot)
+        {
+            spot = chef.Position;
+            SafePoint latest = chef.Get(LatestKey, new SafePoint());
+            SafePoint safe = chef.Get(SafeKey, new SafePoint());
+            if (!latest.Set && !safe.Set) return false;
+            Vector3 a = latest.Set ? latest.Position : safe.Position;
+            Vector3 b = safe.Set ? safe.Position : a;
+            // From the latest point back towards the older one.
+            for (int i = 0; i <= 4; i++)
+                if (Firm(chef, Vector3.Lerp(a, b, i / 4f), out spot)) return true;
+            // Nothing firm all round (a narrow bridge): any floor, from the older point forwards.
+            Vector3 floor;
+            for (int i = 4; i >= 0; i--)
+            {
+                Vector3 p = Vector3.Lerp(a, b, i / 4f);
+                if (Warp.Floor(p, p.y, 0.4f, out floor) && Warp.Free(chef, floor, null) && !Warp.Deadly(floor))
+                {
+                    spot = floor;
+                    return true;
+                }
+            }
+            if (Warp.Floor(b, b.y, 0.5f, out floor) && Warp.SpotNear(floor, Vector3.forward, chef, out spot)) return true;
+            return false;
+        }
+
+        private static ChefState FindLifeguard(ChefState chef, Vector3 back)
+        {
+            ChefState best = null;
+            float bestDistance = float.MaxValue;
+            foreach (ChefState mate in SpecialRuntime.Teammates(chef))
+            {
+                if (!mate.Has(Special.Lifeguard) || mate.Chef == null || mate.Controls == null || mate.Controls.m_bRespawning) continue;
+                float distance = Mathf.Min(Warp.FlatDistance(mate.Position, chef.Position), Warp.FlatDistance(mate.Position, back));
+                if (distance <= LifeguardRange && distance < bestDistance)
+                {
+                    best = mate;
+                    bestDistance = distance;
+                }
+            }
+            return best;
         }
 
         private static readonly FieldInfo RespawnColliderField =
@@ -918,42 +1424,48 @@ namespace ChefSkills.Specials
             ChefState chef = SpecialRuntime.StateOf(fallen);
             if (chef == null) return false;
             float now = SpecialRuntime.Now;
+            float caught = chef.Get(CaughtKey, -100f);
+            // The same fall touching a second volume in the same moment: already caught.
+            if (now - caught < 0.25f) return true;
             // Never twice in a row: a spot that drops the chef again lets it respawn normally.
-            if (now - chef.Get(CaughtKey, -100f) < 2f) return false;
-            SafePoint safe, latest;
-            if (!s_safe.TryGetValue(chef.Id, out safe) || !safe.Set) return false;
-            Vector3 back = safe.Position;
-            // The last grounded point is nearer where the chef stepped off; use it while it is
-            // still floor (it stops there, the fall's speed is dropped).
-            Vector3 floor;
-            if (s_latest.TryGetValue(chef.Id, out latest) && latest.Set &&
-                Warp.Floor(latest.Position, latest.Position.y, 0.3f, out floor) && Warp.Free(chef, floor, null))
-                back = floor;
+            if (now - caught < 2f) return false;
 
             bool net = chef.Has(Special.SafetyNet) && now >= chef.Get(NetReadyKey, 0f);
-            bool guarded = false;
+            bool lifeguardNear = false;
             if (!net)
             {
                 foreach (ChefState mate in SpecialRuntime.Teammates(chef))
-                {
-                    if (!mate.Has(Special.Lifeguard) || mate.Controls == null || mate.Controls.m_bRespawning) continue;
-                    Vector3 a = mate.Position, b = chef.Position, c = back;
-                    a.y = b.y = c.y = 0f;
-                    if (Vector3.Distance(a, b) <= LifeguardRange || Vector3.Distance(a, c) <= LifeguardRange)
+                    if (mate.Has(Special.Lifeguard))
                     {
-                        guarded = true;
+                        lifeguardNear = true;
                         break;
                     }
-                }
+                if (!lifeguardNear) return false;
             }
-            if (!net && !guarded) return false;
+            Vector3 back;
+            if (!SafeSpot(chef, out back)) return false;
+            ChefState guard = net ? null : FindLifeguard(chef, back);
+            if (!net && guard == null) return false;
 
+            Vector3 fellAt = chef.Position;
             chef.Set(CaughtKey, now);
             Warp.ServerMove(chef, back, false, 0f);
             if (net)
             {
                 chef.Set(NetReadyKey, now + SafetyNetCooldown);
-                SpecialNet.SendToAll(new SpecialMessage { Topic = TopicSafetyNet, Chef = chef.Id, A = SafetyNetCooldown });
+                chef.SetTimer(Special.SafetyNet, now + SafetyNetCooldown, SafetyNetCooldown);
+                if (chef.Id != 0)
+                    SpecialNet.SendToAll(new SpecialMessage { Topic = TopicSafetyNet, Chef = chef.Id, A = SafetyNetCooldown });
+                SpecialFx.BeamAll(fellAt, back, Special.SafetyNet, 0.5f);
+                SpecialFx.BurstAll(back, Special.SafetyNet);
+                SpecialFx.TextAllAt(back + Vector3.up * 2.1f, Lang.Both("SAVED!", "CỨU KỊP!"), Special.SafetyNet);
+            }
+            else
+            {
+                SpecialFx.BeamAll(guard.Position, back, Special.Lifeguard, 0.6f);
+                SpecialFx.BurstAll(back, Special.Lifeguard);
+                SpecialFx.MarkAll(guard.Chef, Special.Lifeguard, 1.2f, SpecialFx.NameBoth(Special.Lifeguard, "", ""));
+                SpecialFx.TextAllAt(back + Vector3.up * 2.1f, Lang.Both("SAVED!", "CỨU KỊP!"), Special.Lifeguard);
             }
             return true;
         }
@@ -961,13 +1473,26 @@ namespace ChefSkills.Specials
         private static void OnSafetyNetMessage(SpecialMessage message)
         {
             ChefState chef = SpecialRuntime.StateById(message.Chef);
-            if (chef != null && !SpecialNet.IsServer) chef.Set(NetReadyKey, SpecialRuntime.Now + message.A);
+            if (chef == null || SpecialNet.IsServer) return;
+            chef.Set(NetReadyKey, SpecialRuntime.Now + message.A);
+            chef.SetTimer(Special.SafetyNet, SpecialRuntime.Now + message.A, SafetyNetCooldown);
         }
 
         // --- respawn time and place (every machine runs the respawn itself) ---------------------
 
         private static readonly FieldInfo BehaviourField =
             AccessTools.Field(typeof(ClientPlayerRespawnBehaviour), "m_PlayerRespawnBehaviour");
+
+        internal static bool AnyRespawnSpecial()
+        {
+            return SpecialRuntime.AnyHas(Special.QuickRespawn) || SpecialRuntime.AnyHas(Special.Medic) ||
+                SpecialRuntime.AnyHas(Special.Fragile) || s_baseRespawn.Count > 0;
+        }
+
+        internal static bool AnySpawnPending()
+        {
+            return s_medicFor.Count > 0 || s_quickFor.Count > 0;
+        }
 
         /// <summary>A chef starts respawning on this machine: set how long it takes.</summary>
         internal static void OnRespawnBegin(ClientPlayerRespawnBehaviour client)
@@ -988,18 +1513,42 @@ namespace ChefSkills.Specials
                 s_baseRespawn[key] = baseTime;
             }
             s_medicFor.Remove(key);
+            s_quickFor.Remove(key);
             float time = baseTime;
             ChefState chef = SpecialRuntime.StateOf(client.gameObject);
             if (chef != null)
             {
-                if (chef.Has(Special.QuickRespawn)) time = Mathf.Min(time, QuickRespawnTime);
+                float now = SpecialRuntime.Now;
+                Special by = Special.None;
+                if (chef.Has(Special.QuickRespawn) && QuickRespawnTime < time)
+                {
+                    time = QuickRespawnTime;
+                    by = Special.QuickRespawn;
+                }
                 ChefState medic = FindMedic(chef);
                 if (medic != null)
                 {
-                    time = Mathf.Min(time, MedicRespawnTime);
-                    s_medicFor[key] = medic.Id;
+                    if (MedicRespawnTime < time)
+                    {
+                        time = MedicRespawnTime;
+                        by = Special.Medic;
+                    }
+                    s_medicFor[key] = medic;
                 }
-                if (chef.Has(Special.Fragile)) time *= 2f;
+                if (chef.Has(Special.Fragile))
+                {
+                    time *= 2f;
+                    chef.SetTimer(Special.Fragile, now + time, time);
+                    SpecialFx.Text(chef.Chef, SpecialCatalog.NameOf(Special.Fragile), SpecialFx.ColourOf(Special.Fragile));
+                }
+                if (by == Special.QuickRespawn) s_quickFor[key] = by;
+                if (chef.Has(Special.QuickRespawn)) chef.SetTimer(Special.QuickRespawn, now + time, time);
+                if (medic != null)
+                {
+                    // Everyone sees where the chef will come back.
+                    SpecialFx.Mark(medic.Chef, Special.Medic, time + 0.4f, SpecialCatalog.NameOf(Special.Medic));
+                    medic.SetTimer(Special.Medic, now + time, time);
+                }
             }
             behaviour.m_respawnTime = time;
         }
@@ -1009,7 +1558,7 @@ namespace ChefSkills.Specials
             ChefState best = null;
             foreach (ChefState mate in SpecialRuntime.Teammates(chef))
             {
-                if (!mate.Has(Special.Medic) || mate.Controls == null || mate.Controls.m_bRespawning) continue;
+                if (!mate.Has(Special.Medic) || mate.Chef == null || mate.Controls == null || mate.Controls.m_bRespawning) continue;
                 // The same pick on every machine.
                 if (best == null || mate.Id < best.Id) best = mate;
             }
@@ -1022,23 +1571,43 @@ namespace ChefSkills.Specials
             PlayerRespawnBehaviour behaviour = BehaviourField != null ? BehaviourField.GetValue(client) as PlayerRespawnBehaviour : null;
             if (behaviour == null) return;
             int key = behaviour.GetInstanceID();
-            uint medicId;
-            if (!s_medicFor.TryGetValue(key, out medicId)) return;
-            s_medicFor.Remove(key);
-            ChefState medic = SpecialRuntime.StateById(medicId);
-            ChefState chef = SpecialRuntime.StateOf(client.gameObject);
-            if (medic == null || medic.Chef == null || medic.Controls == null || medic.Controls.m_bRespawning) return;
-            Vector3 spot;
-            // World axes rather than the medic's facing, so every machine picks the same spot.
-            if (!Warp.SpotNear(medic.Position, Vector3.forward, chef, out spot)) return;
-            s_overrides.Add(new SpawnOverride
+            Special by;
+            bool quick = s_quickFor.TryGetValue(key, out by) && by == Special.QuickRespawn;
+            s_quickFor.Remove(key);
+            ChefState medic;
+            if (s_medicFor.TryGetValue(key, out medic))
             {
-                Behaviour = behaviour, Location = behaviour.m_startLocation, Parent = behaviour.m_startParent, Spot = spot,
-                Until = SpecialRuntime.Now + 4f
-            });
-            // The spawn routine reads these right after this; put back a few seconds later.
-            behaviour.m_startParent = null;
-            behaviour.m_startLocation = spot;
+                s_medicFor.Remove(key);
+                ChefState chef = SpecialRuntime.StateOf(client.gameObject);
+                Vector3 spot;
+                // World axes rather than the medic's facing, so every machine picks the same spot.
+                if (medic != null && medic.Chef != null && medic.Controls != null && !medic.Controls.m_bRespawning &&
+                    Warp.SpotNear(medic.Position, Vector3.forward, chef, out spot))
+                {
+                    s_overrides.Add(new SpawnOverride
+                    {
+                        Behaviour = behaviour, Location = behaviour.m_startLocation, Parent = behaviour.m_startParent, Spot = spot,
+                        Until = SpecialRuntime.Now + 4f
+                    });
+                    // The spawn routine reads these right after this; put back a few seconds later.
+                    behaviour.m_startParent = null;
+                    behaviour.m_startLocation = spot;
+                    Color colour = SpecialFx.ColourOf(Special.Medic);
+                    SpecialFx.Beam(medic.Position, spot, colour, 0.6f);
+                    SpecialFx.Burst(spot, colour, 1.4f, 0.6f);
+                    SpecialFx.Text(spot + Vector3.up * 2.1f, SpecialCatalog.NameOf(Special.Medic) + "!", colour);
+                    return;
+                }
+            }
+            if (quick)
+            {
+                Vector3 at = behaviour.m_startParent != null
+                    ? behaviour.m_startParent.TransformPoint(behaviour.m_startLocation)
+                    : behaviour.m_startLocation;
+                Color colour = SpecialFx.ColourOf(Special.QuickRespawn);
+                SpecialFx.Burst(at, colour, 1.4f, 0.6f);
+                SpecialFx.Text(at + Vector3.up * 2.1f, SpecialCatalog.NameOf(Special.QuickRespawn) + "!", colour);
+            }
         }
 
         private static void RestoreSpawn(SpawnOverride entry)
@@ -1081,7 +1650,43 @@ namespace ChefSkills.Specials
                 return false;
             chef.Set(HoverUntilKey, now + HoverSeconds);
             chef.Set(HoverReadyKey, now + HoverRecharge);
+            if (chef.Local) chef.SetTimer(Special.Hover, now + HoverRecharge, HoverRecharge);
+            HoverFx(chef);
             return true;
+        }
+
+        /// <summary>
+        /// Shows a hover starting: the owner draws its own at once; the host tells everyone else
+        /// (the owner skips that, it already drew it).
+        /// </summary>
+        private static void HoverFx(ChefState chef)
+        {
+            if (!SpecialNet.IsServer)
+            {
+                if (chef.Local) DrawHover(chef);
+                return;
+            }
+            if (chef.Id == 0 || !SpecialNet.Online)
+            {
+                DrawHover(chef);
+                return;
+            }
+            SpecialNet.SendToAll(new SpecialMessage { Topic = TopicHover, Chef = chef.Id });
+        }
+
+        private static void OnHoverMessage(SpecialMessage message)
+        {
+            ChefState chef = SpecialRuntime.StateById(message.Chef);
+            if (chef == null || chef.Chef == null || (chef.Local && !SpecialNet.IsServer)) return;
+            DrawHover(chef);
+        }
+
+        private static void DrawHover(ChefState chef)
+        {
+            Color colour = SpecialFx.ColourOf(Special.Hover);
+            SpecialFx.Burst(chef.Position, colour, 1.2f, 0.5f);
+            SpecialFx.Mark(chef.Chef, colour, HoverSeconds + 0.3f, null, 0.75f);
+            SpecialFx.Text(chef.Chef, SpecialCatalog.NameOf(Special.Hover) + "!", colour);
         }
 
         /// <summary>After the movement update: no falling, and keep going across once the dash ends.</summary>
@@ -1107,13 +1712,22 @@ namespace ChefSkills.Specials
 
         // --- Driver (host: vehicles only move on the host) -------------------------------------
 
-        internal static bool IsDriver(PlayerControls.ControlSchemeData scheme)
+        internal static ChefState DriverOf(PlayerControls.ControlSchemeData scheme)
         {
-            if (scheme == null) return false;
+            if (scheme == null) return null;
             IList<ChefState> chefs = SpecialRuntime.Chefs;
             for (int i = 0; i < chefs.Count; i++)
-                if (chefs[i].Controls != null && chefs[i].Controls.ControlScheme == scheme) return chefs[i].Has(Special.Driver);
-            return false;
+                if (chefs[i].Controls != null && chefs[i].Controls.ControlScheme == scheme)
+                    return chefs[i].Has(Special.Driver) ? chefs[i] : null;
+            return null;
+        }
+
+        /// <summary>Host: a ring under a Driver while their vehicle is moving (throttled).</summary>
+        internal static void MarkDriver(ChefState driver)
+        {
+            // MarkAll holds back repeats per chef, so two Drivers at once both keep their ring.
+            if (driver.Chef == null) return;
+            SpecialFx.MarkAll(driver.Chef, Special.Driver, 1f, null);
         }
     }
 
@@ -1164,7 +1778,7 @@ namespace ChefSkills.Specials
         {
             try
             {
-                if (!SpecialRuntime.InLevel) return;
+                if (!SpecialRuntime.InLevel || !TeleportSpecials.AnyRespawnSpecial()) return;
                 RespawnMessage message = serialisable as RespawnMessage;
                 if (message == null || message.m_Phase != RespawnMessage.Phase.Begin || __instance.IsRespawning) return;
                 TeleportSpecials.OnRespawnBegin(__instance);
@@ -1184,7 +1798,7 @@ namespace ChefSkills.Specials
         {
             try
             {
-                if (!SpecialRuntime.InLevel || !SpecialRuntime.AnyHas(Special.Medic)) return;
+                if (!SpecialRuntime.InLevel || !TeleportSpecials.AnySpawnPending()) return;
                 TeleportSpecials.OnSpawn(__instance);
             }
             catch (Exception error)
@@ -1297,19 +1911,23 @@ namespace ChefSkills.Specials
     [HarmonyPatch(typeof(ServerTeleportalPlayerReceiver), "OnAnimationFinished")]
     internal static class PortalExitPatch
     {
+        private const float Seconds = 2f;
+
         private static void Postfix(ServerTeleportalPlayerReceiver __instance, string _animName)
         {
             try
             {
-                if (!SpecialRuntime.InLevel || _animName != "Receive") return;
+                if (!SpecialRuntime.InLevel || _animName != "Receive" || PortalState.Arriving.Count == 0) return;
                 GameObject chefObject;
                 int key = __instance.GetInstanceID();
                 if (!PortalState.Arriving.TryGetValue(key, out chefObject)) return;
                 PortalState.Arriving.Remove(key);
                 ChefState chef = SpecialRuntime.StateOf(chefObject);
                 if (chef == null || !chef.Has(Special.PortalPro)) return;
-                SpecialRuntime.BroadcastBuff(chef, BuffId.NoDashCooldown, 2f, 1f, chef);
-                SpecialRuntime.BroadcastBuff(chef, BuffId.RunSpeed, 2f, 0.4f, chef);
+                SpecialRuntime.BroadcastBuff(chef, BuffId.NoDashCooldown, Seconds, 1f, chef);
+                SpecialRuntime.BroadcastBuff(chef, BuffId.RunSpeed, Seconds, 0.4f, chef);
+                SpecialFx.MarkAll(chef.Chef, Special.PortalPro, Seconds, null);
+                SpecialFx.TextAll(chef.Chef, Lang.Both("SPEED UP!", "TĂNG TỐC!"), Special.PortalPro);
             }
             catch (Exception error)
             {
@@ -1347,7 +1965,8 @@ namespace ChefSkills.Specials
         {
             try
             {
-                if (!SpecialRuntime.InLevel || LoadedField == null || FlyingField == null || ReadyField == null || CannonField == null) return;
+                if (!SpecialRuntime.InLevel || !SpecialRuntime.AnyHas(Special.Cannoneer)) return;
+                if (LoadedField == null || FlyingField == null || ReadyField == null || CannonField == null) return;
                 GameObject loaded = LoadedField.GetValue(__instance) as GameObject;
                 if (loaded == null || !SpecialRuntime.Has(loaded, Special.Cannoneer)) return;
                 if ((bool)FlyingField.GetValue(__instance) || !(bool)ReadyField.GetValue(__instance)) return;
@@ -1363,7 +1982,11 @@ namespace ChefSkills.Specials
                     CannonState.Firing = false;
                 }
                 if ((bool)FlyingField.GetValue(__instance))
+                {
                     CannonState.Swallow[__instance.GetInstanceID()] = SpecialRuntime.Now + 4f;
+                    SpecialFx.BurstAll(__instance.transform.position, Special.Cannoneer);
+                    SpecialFx.TextAllAt(__instance.transform.position + Vector3.up * 2.2f, Lang.Both("FIRE!", "BẮN!"), Special.Cannoneer);
+                }
             }
             catch (Exception error)
             {
@@ -1417,12 +2040,14 @@ namespace ChefSkills.Specials
                 if (!SpecialRuntime.InLevel || SchemeField == null || PilotField == null) return;
                 if (!SpecialRuntime.AnyHas(Special.Driver)) return;
                 var scheme = SchemeField.GetValue(__instance) as PlayerControls.ControlSchemeData;
-                if (!TeleportSpecials.IsDriver(scheme)) return;
+                ChefState driver = TeleportSpecials.DriverOf(scheme);
+                if (driver == null) return;
                 PilotMovement pilot = PilotField.GetValue(__instance) as PilotMovement;
                 if (pilot == null) return;
                 _changed = pilot;
                 _speed = pilot.MoveSpeed;
                 pilot.MoveSpeed *= TeleportSpecials.DriverSpeed;
+                if (pilot.HasMoved()) TeleportSpecials.MarkDriver(driver);
             }
             catch (Exception error)
             {

@@ -1,0 +1,1362 @@
+# Overcooked! 2 in Vietnamese: Tag<TAB>English (reference only)<TAB>Vietnamese
+# \n is a line break. Keep [tokens], <markup> and [A]/[B]/[X]/[Y] exactly as in the English.
+# Check against the game with: tools\table.py check "<game dir>"
+StartScreen.Campaign	CAMPAIGN	CỐT TRUYỆN
+Text.Menu.Versus	VERSUS	ĐỐI KHÁNG
+StartScreen.Options	OPTIONS	CÀI ĐẶT
+StartScreen.Quit	QUIT	THOÁT
+StartScreen.Options.Graphics	GRAPHICS SETTINGS	CÀI ĐẶT ĐỒ HỌA
+StartScreen.Options.Audio	AUDIO SETTINGS	CÀI ĐẶT ÂM THANH
+StartScreen.Options.SafeArea	SCREEN AREA ADJUSTMENT	CĂN CHỈNH VÙNG MÀN HÌNH
+StartScreen.Options.ClearSave	CLEAR SAVE	XÓA DỮ LIỆU LƯU
+Text.Button.Continue	CONTINUE	TIẾP TỤC
+Text.Button.NewGame	NEW GAME	CHƠI MỚI
+StartScreen.Credits	CREDITS	DANH ĐỀ
+StartScreen.AreYouSure	ARE YOU SURE?	BẠN CHẮC CHỨ?
+StartScreen.NewGameWarning	(Starting a New Game will delete your current Campaign progress)	(Bắt đầu Chơi mới sẽ xóa tiến trình Cốt truyện hiện tại của bạn)
+StartScreen.Confirm	CONFIRM	XÁC NHẬN
+Text.Button.Confirm	CONFIRM	XÁC NHẬN
+Text.Button.Cancel	CANCEL	HỦY
+StartScreen.DeleteSaveWarning1	This will delete all your save data	Thao tác này sẽ xóa toàn bộ dữ liệu lưu của bạn
+StartScreen.DeleteSaveWarning2	"No really, all of it."	"Thật đấy, xóa sạch luôn."
+StartScreen.DeleteSaveTitle2	REALLY??	THẬT Á??
+OptionType.Resolution	RESOLUTION	ĐỘ PHÂN GIẢI
+OptionType.Windowed	WINDOWED	CHẾ ĐỘ CỬA SỔ
+OptionType.Quality	QUALITY	CHẤT LƯỢNG
+OptionValue.On	ON	BẬT
+OptionValue.Off	OFF	TẮT
+OptionType.MusicVolume	MUSIC VOLUME	ÂM LƯỢNG NHẠC
+OptionType.SFXVolume	SFX VOLUME	ÂM LƯỢNG HIỆU ỨNG
+StartScreen.NoSavePrompt	PLAYING AS GUEST	ĐANG CHƠI DƯỚI DẠNG KHÁCH
+StartScreen.NoSaveExplanation	Your progress will not be saved	Tiến trình của bạn sẽ không được lưu
+LoadingScreen.Title	CONTROLS	ĐIỀU KHIỂN
+CompetitiveLevel.City1	City 1	Thành phố 1
+CompetitiveLevel.City2	City 2	Thành phố 2
+CompetitiveLevel.City3	City 3	Thành phố 3
+CompetitiveLevel.City4	City 4	Thành phố 4
+CompetitiveLevel.Horror1	Haunted House 1	Nhà ma 1
+CompetitiveLevel.Horror2	Haunted House 2	Nhà ma 2
+CompetitiveLevel.Arctic1	Arctic	Bắc Cực
+CompetitiveLevel.Boat1	Boat	Thuyền
+CompetitiveLevel.Space1	Space	Vũ trụ
+CompetitiveLevel.Boat2	Boat 2	Thuyền 2
+OnionHouse1.Entry.Line0	Greetings friends	Chào các bạn
+OnionHouse1.Entry.Line1	It is clear to me now that you were not ready to take on The Beast	Giờ ta đã rõ, các bạn chưa sẵn sàng để đối đầu với Quái Vật
+OnionHouse1.Entry.Line2	Your cooking skills were lacking and your co-operation was woeful	Tay nghề nấu nướng còn non, còn khả năng phối hợp thì thảm hại
+OnionHouse1.Entry.Line3	That is why I have brought you back to the year 1993!	Vì thế ta đã đưa các bạn quay về năm 1993!
+OnionHouse1.Entry.Line4	You must strike out into the Onion Kingdom	Các bạn phải lên đường khám phá Vương quốc Hành
+OnionHouse1.Entry.Line5	"Travel far and wide, hone your skills, master the ancient art of cooking"	"Hãy đi khắp muôn nơi, rèn giũa kỹ năng, làm chủ nghệ thuật nấu ăn cổ xưa"
+OnionHouse1.Entry.Line6	Only then will you be ready to save this world from it's dark future	Chỉ khi đó các bạn mới sẵn sàng cứu thế giới này khỏi tương lai đen tối
+OnionHouse1.Entry.Line7	Be brave my friends....	Hãy dũng cảm lên các bạn....
+OnionHouse1.Entry.Line8	...and good luck.	...và chúc may mắn.
+OnionHouse1.Entry.Line9	You're stuggling to find the exit? Well that's not a great start...	Các bạn không tìm thấy lối ra à? Chà, khởi đầu chẳng mấy suôn sẻ nhỉ...
+OnionHouse1.Entry.Line10	"it's just down there, can't miss it."	"nó ở ngay dưới kia thôi, không lạc được đâu."
+OnionHouse2.Entry.Line0	Greetings my small friends	Chào các bạn nhỏ của ta
+OnionHouse2.Entry.Line1	The year is now 1995. It's been two years since we last met	Giờ là năm 1995. Đã hai năm kể từ lần cuối chúng ta gặp nhau
+OnionHouse2.Entry.Line2	The time really flew by didn't it....	Thời gian trôi nhanh thật nhỉ....
+OnionHouse2.Entry.Line3	You are progressing well on your quest	Hành trình của các bạn đang tiến triển tốt
+OnionHouse2.Entry.Line4	But you will need to work on your skills of co-operation if you are to face the challenges ahead 	Nhưng các bạn cần rèn thêm khả năng phối hợp nếu muốn vượt qua những thử thách phía trước 
+OnionHouse2.Entry.Line5	"Travel eastward, where more kitchens await"	"Hãy đi về phía đông, nơi còn nhiều căn bếp đang chờ"
+OnionHouse2.Entry.Line6	Onward my friends!	Tiến lên nào các bạn!
+OnionHouse2.Entry.Line7	Travel Eastwards my friends	Hãy đi về phía đông các bạn ơi
+OnionHouse2.Entry.Line8	Your culinary quest is just beginning!	Hành trình ẩm thực của các bạn chỉ mới bắt đầu!
+OnionHouse3.Entry.Line0	Excellent you made it!	Tuyệt, các bạn đến rồi!
+OnionHouse3.Entry.Line1	The year is now 1999	Giờ là năm 1999
+OnionHouse3.Entry.Line2	I have been following your progress quite closely	Ta đã theo dõi tiến trình của các bạn rất sát sao
+OnionHouse3.Entry.Line3	You did well to survive the perils of the inner city	Các bạn đã sống sót qua hiểm nguy của nội thành, giỏi lắm
+OnionHouse3.Entry.Line4	but now you must venture into all together more perilous territory	nhưng giờ các bạn phải tiến vào vùng đất còn hiểm nguy hơn nhiều
+OnionHouse3.Entry.Line5	The frozen realm awaits when you are ready	Cõi băng giá đang chờ khi các bạn sẵn sàng
+OnionHouse3.Entry.Line6	Wrap up warm my friends and remember to work together	Mặc thật ấm vào các bạn, và nhớ làm việc cùng nhau nhé
+OnionHouse3.Entry.Line7	Good luck 	Chúc may mắn 
+OnionHouse3.Entry.Line8	What are you waiting for?	Còn chờ gì nữa?
+OnionHouse3.Entry.Line9	Time to head into the frozen realm	Đến lúc tiến vào cõi băng giá rồi
+OnionHouse4.Entry.Line0	Welcome friends!	Chào mừng các bạn!
+OnionHouse4.Entry.Line1	You have done well to reach this far	Đi được đến đây là giỏi lắm rồi
+OnionHouse4.Entry.Line2	Your culinary skills are indeed improving	Tay nghề nấu nướng của các bạn quả thật đang tiến bộ
+OnionHouse4.Entry.Line3	The year is now 2002	Giờ là năm 2002
+OnionHouse4.Entry.Line4	I have heard rumours in the west of the Beast's return	Ta nghe đồn ở phía tây rằng Quái Vật sắp trở lại
+OnionHouse4.Entry.Line5	You must work quickly if you are to stand a chance of defeating it	Các bạn phải thật nhanh tay nếu muốn có cơ hội đánh bại nó
+OnionHouse4.Entry.Line6	"Head North, into the forbidden realm..."	"Hãy đi về phía bắc, vào vùng đất cấm..."
+OnionHouse4.Entry.Line7	"...but tread carefully, for those lands are dark and full of mystery"	"...nhưng hãy cẩn thận, vì vùng đất ấy tăm tối và đầy bí ẩn"
+OnionHouse4.Entry.Line8	Until next time friends	Hẹn gặp lại các bạn
+OnionHouse4.Entry.Line9	Good luck.	Chúc may mắn.
+OnionHouse4.Entry.Line10	The North West of the map is dark and full of perils	Phía tây bắc bản đồ tăm tối và đầy hiểm nguy
+OnionHouse4.Entry.Line11	tread carefully my friends...	cẩn thận nhé các bạn...
+OnionHouse5.Entry.Line0	"Well, well, well"	"Chà, chà, chà"
+OnionHouse5.Entry.Line1	You have performed admirally to have made it so far	Các bạn đã thể hiện xuất sắc khi đi được xa đến thế
+OnionHouse5.Entry.Line2	The year is now 2008	Giờ là năm 2008
+OnionHouse5.Entry.Line3	"The rumours were true, the beast's return is now certain"	"Lời đồn là thật, Quái Vật chắc chắn sẽ trở lại"
+OnionHouse5.Entry.Line4	Wheels are in motion now which cannot be stopped	Bánh xe định mệnh đã quay, không gì ngăn lại được nữa
+OnionHouse5.Entry.Line5	You must travel beyond the edge of our world	Các bạn phải đi ra ngoài rìa thế giới của chúng ta
+OnionHouse5.Entry.Line6	The stars await you young chefs	Các vì sao đang chờ các bạn, những đầu bếp trẻ
+OnionHouse5.Entry.Line7	Your skills will truly be put to the test now	Giờ kỹ năng của các bạn mới thật sự bị thử thách
+OnionHouse5.Entry.Line8	Good luck my friends...	Chúc may mắn các bạn...
+OnionHouse5.Entry.Line9	The stars await you young chefs	Các vì sao đang chờ các bạn, những đầu bếp trẻ
+OnionHouse5.Entry.Line10	Onwards!	Tiến lên!
+OnionHouse6.Entry.Line0	You did it!	Các bạn làm được rồi!
+OnionHouse6.Entry.Line1	Wonderful work!	Làm tốt lắm!
+OnionHouse6.Entry.Line2	The beast is stirring and you are ready to take on the final trials	Quái Vật đang cựa mình và các bạn đã sẵn sàng cho những thử thách cuối cùng
+OnionHouse6.Entry.Line3	Each realm now has one final challenge which must be conquered	Mỗi cõi giờ còn một thử thách cuối cùng cần chinh phục
+OnionHouse6.Entry.Line4	Best these kitchens and you will be ready to take on the Beast	Chinh phục được những căn bếp này là các bạn sẵn sàng đối đầu Quái Vật
+OnionHouse6.Entry.Line5	Good luck small friends!	Chúc may mắn các bạn nhỏ!
+OnionHouse6.Entry.Line6	You are ready for the final trials	Các bạn đã sẵn sàng cho những thử thách cuối cùng
+OnionHouse6.Entry.Line7	Good luck to you brave chefs!	Chúc các đầu bếp dũng cảm may mắn!
+OnionHouse7.Entry.Line0	Welcome back brave friends	Chào mừng trở lại, những người bạn dũng cảm
+OnionHouse7.Entry.Line1	I think you're finally ready	Ta nghĩ cuối cùng các bạn đã sẵn sàng
+OnionHouse7.Entry.Line2	You have proven yourself to be a formidable team	Các bạn đã chứng tỏ mình là một đội đáng gờm
+OnionHouse7.Entry.Line3	but now the time has finally come...	nhưng giờ thời khắc ấy cuối cùng đã đến...
+OnionHouse7.Entry.Line4	The beast has risen and now 	Quái Vật đã trỗi dậy và giờ 
+OnionHouse7.Entry.Line5	you must face your greatest challenge	các bạn phải đối mặt với thử thách lớn nhất
+OnionHouse7.Entry.Line6	there isn't a moment to lose	không còn giây phút nào để phí
+OnionHouse7.Entry.Line7	let's go save the world...	đi cứu thế giới thôi...
+OnionHouseDLC.Entry.Line1	Blasted Time Portal is on the blink again...	Cái Cổng Thời Gian chết tiệt lại trục trặc nữa rồi...
+OnionHouseDLC.Entry.Line2	Looks like it's brought us back a little further than I'd hoped	Có vẻ nó đưa chúng ta lùi xa hơn ta mong đợi một chút
+OnionHouseDLC.Entry.Line3	Hope you're brushed up on your cooking skills because there seems to be some rather tricksy kitchens waiting for you here 	Mong là các bạn đã ôn lại tay nghề, vì có vẻ có vài căn bếp khá hóc búa đang chờ các bạn ở đây 
+OnionHouseDLC.Entry.Line4	If you're feeling brave I suggest you pack up your utensils and go explore your surroundings	Nếu thấy đủ can đảm, ta khuyên các bạn gói ghém dụng cụ và đi khám phá xung quanh
+OnionHouseDLC.Entry.Line5	Kevin and I would come and help you but I fear my old tennis injury has flared up again and Kevin... 	Ta và Kevin cũng muốn đến giúp, nhưng e là vết thương tennis cũ của ta lại tái phát, còn Kevin... 
+OnionHouseDLC.Entry.Line6	...well Kevin just doesn't want to.	...ừ thì Kevin chỉ đơn giản là không muốn.
+OnionHouseDLC.Entry.Line7	He does say you can borrow his helicopter however	Nhưng nó bảo các bạn có thể mượn trực thăng của nó
+OnionHouseDLC.Entry.Line8	Good luck my friends!	Chúc may mắn các bạn!
+OnionHouseDLC.Entry.Line9	Thankfully you've already tackled the main campaign so this shouldn't be a problem for you	May mà các bạn đã hoàn thành cốt truyện chính nên chuyện này chẳng làm khó được các bạn
+OnionHouseDLC.Entry.Line10	You have completed the main campaign already haven't you?	Các bạn đã hoàn thành cốt truyện chính rồi, đúng không?
+OnionHouseDLC2.Entry.Line1	Welcome!	Chào mừng!
+OnionHouseDLC2.Entry.Line2	"As part of the onion kingdom's cultural outreach programme, "	"Trong khuôn khổ chương trình giao lưu văn hóa của Vương quốc Hành, "
+OnionHouseDLC2.Entry.Line3	I have brought you here to investigate an extraordinary thing that Kevin found on the internet	ta đã đưa các bạn đến đây để tìm hiểu một điều phi thường mà Kevin tìm thấy trên mạng
+OnionHouseDLC2.Entry.Line4	It's some kind of festive season	Đó là một mùa lễ hội gì đó
+OnionHouseDLC2.Entry.Line5	Have you heard about it? Kevin says it could be the greatest food festival of all time. 	Các bạn nghe nói về nó chưa? Kevin bảo đó có thể là lễ hội ẩm thực vĩ đại nhất mọi thời đại. 
+OnionHouseDLC2.Entry.Line6	We must know more! 	Chúng ta phải tìm hiểu thêm! 
+OnionHouseDLC2.Entry.Line7	"You are my finest chefs, so go, explore the many kitchens of the festive realm and cook me some holiday cheer!"	"Các bạn là những đầu bếp giỏi nhất của ta, vậy hãy đi khám phá những căn bếp của cõi lễ hội và nấu cho ta chút niềm vui ngày lễ!"
+OnionHouseDLC2.Entry.Line10	What a feast! 	Đúng là một bữa tiệc thịnh soạn! 
+OnionHouseDLC2.Entry.Line11	"But now I see, this season isn't about food at all! It's about you, my friends. "	"Nhưng giờ ta hiểu rồi, mùa lễ này chẳng hề nói về đồ ăn! Mà là về các bạn, những người bạn của ta. "
+OnionHouseDLC2.Entry.Line12	Together you've cooked up every dish that was thrown at you. 	Cùng nhau, các bạn đã nấu xong mọi món ăn dồn tới. 
+OnionHouseDLC2.Entry.Line13	"With each other's help, you are unstoppable! "	"Khi giúp đỡ lẫn nhau, các bạn là không thể cản nổi! "
+OnionHouseDLC2.Entry.Line14	So here's to all the chefs in their little kitchens throughout the realm. 	Vậy xin nâng ly chúc mừng tất cả đầu bếp trong những căn bếp nhỏ khắp vương quốc. 
+OnionHouseDLC2.Entry.Line15	"Mmmm, I think I have a warm fuzzy feeling. "	"Ừmmm, ta thấy trong lòng ấm áp lạ thường. "
+OnionHouseDLC2.Entry.Line16	Now let's eat! 	Giờ thì ăn thôi! 
+CampaignLevel.Level0	Intro Apocalypse	Tận thế mở đầu
+CampaignLevel.Level1	Level 1-1	Màn 1-1
+CampaignLevel.Level2	Level 1-3	Màn 1-3
+CampaignLevel.Level3	Level 1-4	Màn 1-4
+CampaignLevel.Level4	Level 1-5	Màn 1-5
+CampaignLevel.Level5	Level 1-6	Màn 1-6
+CampaignLevel.Level6	Level 2-1	Màn 2-1
+CampaignLevel.Level7	Level 2-2	Màn 2-2
+CampaignLevel.Level8	Level 2-3	Màn 2-3
+CampaignLevel.Level9	Level 2-4	Màn 2-4
+CampaignLevel.Level10	Level 3-1	Màn 3-1
+CampaignLevel.Level11	Level 3-2	Màn 3-2
+CampaignLevel.Level12	Level 3-3	Màn 3-3
+CampaignLevel.Level13	Level 3-4	Màn 3-4
+CampaignLevel.Level14	Level 4-1	Màn 4-1
+CampaignLevel.Level15	Level 4-2	Màn 4-2
+CampaignLevel.Level16	Level 4-3	Màn 4-3
+CampaignLevel.Level17	Level 4-4	Màn 4-4
+CampaignLevel.Level18	Level 5-1	Màn 5-1
+CampaignLevel.Level19	Level 5-2	Màn 5-2
+CampaignLevel.Level20	Level 5-3	Màn 5-3
+CampaignLevel.Level21	Level 5-4	Màn 5-4
+CampaignLevel.Level22	Level 5-5	Màn 5-5
+CampaignLevel.Level23	Level 5-6	Màn 5-6
+CampaignLevel.Level24	Level 6-1	Màn 6-1
+CampaignLevel.Level25	Level 6-2	Màn 6-2
+CampaignLevel.Level26	Level 6-3	Màn 6-3
+CampaignLevel.Level27	Level 6-4	Màn 6-4
+CampaignLevel.Level30	Level 1-2	Màn 1-2
+CampaignLevel.LastLevel	The Peckening	The Peckening
+CampaignLevel.OnionHouse0	Intro Onion House	Nhà Hành mở đầu
+CampaignLevel.OnionHouse1	Onion Cabin 1	Lều Hành 1
+CampaignLevel.OnionHouse2	Onion Cabin 2	Lều Hành 2
+CampaignLevel.OnionHouse3	Onion Cabin 3	Lều Hành 3
+CampaignLevel.OnionHouse4	Onion Cabin 4	Lều Hành 4
+CampaignLevel.OnionHouse5	Onion Cabin 5	Lều Hành 5
+CampaignLevel.OnionHouse6	Onion Cabin 6	Lều Hành 6
+IntroLevel.IntroMessage	In the not-so-distant future...	Trong một tương lai không xa lắm...
+IntroLevel.Dialogue1.Line0	Well this is it	Vậy là đến lúc rồi
+IntroLevel.Dialogue1.Line1	The end of times...	Ngày tận thế...
+IntroLevel.Dialogue1.Line2	The beast is approaching and so we must act!	Quái Vật đang đến gần, chúng ta phải hành động!
+IntroLevel.Dialogue2.Line0	You are all that stands between the Onion Kingdom and total annihilation	Chỉ còn các bạn đứng giữa Vương quốc Hành và sự hủy diệt hoàn toàn
+IntroLevel.Dialogue3.Line0	Arf!	Gâu!
+IntroLevel.Dialogue4.Line0	"Kevin is right, we must work together to feed the bea-..."	"Kevin nói đúng, chúng ta phải cùng nhau nấu cho Quái Vậ-..."
+IntroLevel.Dialogue5.Line0	...did you feel that...?	...các bạn có cảm thấy không...?
+IntroLevel.Dialogue6.Line0	THE EVER PECKISH HAS AWOKEN!!	KẺ ĐÓI MUÔN ĐỜI ĐÃ THỨC GIẤC!!
+IntroLevel.Dialogue6.Line1	We must act quickly...	Chúng ta phải hành động nhanh...
+IntroLevel.Dialogue10.Line0	It's no good. The beast cannot be satisfied...	Vô ích rồi. Quái Vật không thể nào no được...
+IntroLevel.Dialogue10.Line1	"Quickly, into the time portal!!"	"Nhanh lên, vào cổng thời gian!!"
+FinalLevel.Dialogue1.Line0	Well this is it...	Vậy là đến lúc rồi...
+FinalLevel.Dialogue1.Line1	again...	lần nữa...
+FinalLevel.Dialogue1.Line2	The beast approaches and so we must act!	Quái Vật đang đến, chúng ta phải hành động!
+FinalLevel.Dialogue2.Line0	"Your skills are honed, your knives are sharp"	"Kỹ năng đã được mài giũa, dao đã được mài sắc"
+FinalLevel.Dialogue2.Line1	I'm... 70% sure you're ready this time.	Ta... chắc khoảng 70% là lần này các bạn đã sẵn sàng.
+FinalLevel.Dialogue3.Line0	Arf!	Gâu!
+FinalLevel.Dialogue4.Line0	Kevin!	Kevin!
+FinalLevel.Dialogue4.Line1	He'll help you out with supplies	Nó sẽ giúp các bạn tiếp tế nguyên liệu
+FinalLevel.Dialogue4.Line2	the rest is up to you...	phần còn lại trông cả vào các bạn...
+FinalLevel.Dialogue4.Line3	Good luck my friends!	Chúc may mắn các bạn!
+FinalLevel.Dialogue5.Line0	...did you feel that...?	...các bạn có cảm thấy không...?
+FinalLevel.Dialogue6.Line0	THE EVER PECKISH HAS AWOKEN!!	KẺ ĐÓI MUÔN ĐỜI ĐÃ THỨC GIẤC!!
+FinalLevel.Dialogue6.Line1	We must act quickly...	Chúng ta phải hành động nhanh...
+FinalLevel.Dialogue10.Line0	By Brussel's Sprouts! The Beast... it is full!!!	Ôi cải Brussels ơi! Quái Vật... nó no rồi!!!
+FinalLevel.Dialogue10.Line1	Quick! Take cover!	Nhanh! Nấp đi!
+Tutorial.NewRecipe	NEW\n RECIPE	CÔNG THỨC\n MỚI
+Tutorial.Soup.Title	SOUP!	SÚP!
+Tutorial.Soup.Desc	How to make basic Soup!	Cách nấu Súp cơ bản!
+Tutorial.Washing.Desc	Dirty plates need to be\n washed up in the sink	Đĩa bẩn cần được\n rửa ở bồn rửa
+Tutorial.RecipeUI.Title	Recipe Changes	Đổi công thức
+Tutorial.RecipeUI.Desc	New orders appear at the top of the screen	Món gọi mới hiện ở phía trên màn hình
+Tutorial.FishAndChips.Title	FISH AND CHIPS!	CÁ VÀ KHOAI TÂY CHIÊN!
+Tutorial.Pizza.Title	PIZZA!	PIZZA!
+Tutorial.Pizza.Desc	How to make basic Pizza!	Cách làm Pizza cơ bản!
+Tutorial.Burrito.Title	BURRITO!	BURRITO!
+Tutorial.Burger.Title	BURGERS!	BURGER!
+Tutorial.Burger.Desc	How to make a basic Burger!	Cách làm Burger cơ bản!
+Tutorial.Turkey.Title	TURKEY DINNER!	BỮA TỐI GÀ TÂY!
+Tutorial.Turkey.Desc	A fast way to cook Turkey!	Cách nấu Gà tây thật nhanh!
+Tutorial.Stew.Title	STEW!	MÓN HẦM!
+Tutorial.Stew.Desc	How to make Winter Stew!	Cách nấu Món hầm mùa đông!
+LevelStart.Ready	READY?	SẴN SÀNG?
+LevelStart.Go	GO!	CHIẾN!
+SummaryScreen.Title	KITCHEN COMPLETE	HOÀN THÀNH BẾP
+SummaryScreen.TimesUp	TIME'S UP!	HẾT GIỜ!
+SummaryScreen.AvatarAward.Title	NEW CHEF \nUNLOCKED!	MỞ KHÓA \nĐẦU BẾP MỚI!
+SummaryScreen.CompetitiveLevelAward.Title	NEW COMPETITIVE LEVEL UNLOCKED!	MỞ KHÓA MÀN ĐỐI KHÁNG MỚI!
+SummaryScreen.Competitive.Draw	NO-ONE!!	KHÔNG AI CẢ!!
+SummaryScreen.Competitive.TeamOneTitle	RED TEAM	ĐỘI ĐỎ
+SummaryScreen.Competitive.TeamTwoTitle	BLUE TEAM	ĐỘI XANH
+SummaryScreen.Competitive.TeamOneWins	RED TEAM!!	ĐỘI ĐỎ!!
+SummaryScreen.Competitive.TeamTwoWins	BLUE TEAM!!	ĐỘI XANH!!
+SummaryScreen.Competitive.WinnerIs	AND THE WINNER IS...	VÀ BÊN THẮNG LÀ...
+Text.Menu.Tips	Tips	Tiền boa
+Text.Menu.Total	TOTAL:	TỔNG:
+SummaryScreen.Campaign.Record	Record	Kỷ lục
+SummaryScreen.Campaign.NextStar	Next Star	Sao tiếp theo
+Credits.Title	Credits	Danh đề
+Credits.PrototypeTitle	Prototype By	Bản mẫu bởi
+Credits.DevelopersTitle	Developers	Nhà phát triển
+Credits.AddedQATitle	Additional QA	Kiểm thử bổ sung
+Credits.SpecialTitle	Special Thanks	Lời cảm ơn đặc biệt
+Credits.ChineseLocalisationTitle	Chinese Localisation	Bản địa hóa tiếng Trung
+Credits.CatsTitle	Production Cats	Mèo sản xuất
+Credits.SFXTitle	SFX	SFX
+Credits.Music.Title	Music	Âm nhạc
+Credits.Music.CreatedBy	Created By	Sáng tác bởi
+Credits.Music.Disclaimer	All music (except for GoodKill Music ) was distributed under the Audio Network Production Licence	Toàn bộ âm nhạc (trừ GoodKill Music ) được phân phối theo Giấy phép Sản xuất của Audio Network
+Credits.AlsoTitle	Also	Cùng với
+Credits.Thanks	Thanks for playing!	Cảm ơn bạn đã chơi!
+PauseMenu.Title	PAUSE	TẠM DỪNG
+PauseMenu.Resume	RESUME	TIẾP TỤC
+PauseMenu.Controls	CONTROLS	ĐIỀU KHIỂN
+PauseMenu.Restart	RESTART	CHƠI LẠI
+PauseMenu.Quit	QUIT	THOÁT
+Tutorial.Tips	 +%VALUE% Tip!	 +%VALUE% tiền boa!
+Tutorial.NeedsPlate	Needs Plate!	Cần đĩa!
+LobbyScreen.YourScore	Score :	Điểm :
+LobbyScreen.MaxChefs	Maximum of 4 chefs	Tối đa 4 đầu bếp
+StartScreen.ControlPrompt.Move	Move	Di chuyển
+StartScreen.ControlPrompt.Cancel	Back	Quay lại
+StartScreen.ControlPrompt.Accept	Select	Chọn
+StartScreen.ControlPrompt.Exit	Exit	Thoát
+IntroLevel.Tutorial.AButton.Buttonless	Quickly! Pick up an ingredient!	Nhanh lên! Nhặt một nguyên liệu nào!
+IntroLevel.Tutorial.AButtonLettuce.Buttonless	Resplendant! Now we need a lettuce.	Tuyệt diệu! Giờ cần một cây xà lách.
+IntroLevel.Tutorial.AButtonRepeat.Buttonless	Wait.. that can't be right. We need both lettuce and tomato!	Khoan.. thế không đúng. Ta cần cả xà lách lẫn cà chua!
+IntroLevel.Tutorial.AButtonTomato.Buttonless	Resplendant! Now we need a tomato.	Tuyệt diệu! Giờ cần một quả cà chua.
+IntroLevel.Tutorial.ChopLettuce.Buttonless	Yes that's it! Now the lettuce must be chopped.	Đúng rồi! Giờ phải thái xà lách.
+IntroLevel.Tutorial.ChopTomato.Buttonless	Yes that's it! Now the tomato must be chopped.	Đúng rồi! Giờ phải thái cà chua.
+Preview.CompleteTitle	Thanks for playing our preview of Overcooked	Cảm ơn bạn đã chơi bản xem trước của Overcooked
+Preview.CompleteExplanation	Coming soon to a cooperative couch near you	Sắp có mặt trên chiếc sofa chơi chung gần bạn
+DLCLevel.Level1	Level 1-1	Màn 1-1
+DLCLevel.Level2	Level 1-2	Màn 1-2
+DLCLevel.Level3	Level 1-3	Màn 1-3
+DLCLevel.Level4	Level 1-4	Màn 1-4
+DLCLevel.Level5	Level 1-5	Màn 1-5
+DLCLevel.Level6	Level 1-6	Màn 1-6
+DLCLevel.Level7	Intro Onion House	Nhà Hành mở đầu
+DLC2Level.Level7	Level 1-7	Màn 1-7
+DLC2Level.Level8	Level 1-8	Màn 1-8
+DLC2Level.OnionHouse0	Base Camp	Trại chính
+DLC2Level.OnionHouse1	Happy Holidays	Lễ hội vui vẻ
+StartScreen.AvailableNow	Available Now!	Đã ra mắt!
+StartScreen.AvailableNowFree	Available Now! Free!	Đã ra mắt! Miễn phí!
+StartScreen.Options.System	SYSTEM SETTINGS	CÀI ĐẶT HỆ THỐNG
+OptionType.VibrationVolume	VIBRATION	RUNG
+StartScreen.AutosaveWarning	This game uses an autosave feature. \nPlease do not turn off the game when you see this icon.	Trò chơi này dùng tính năng tự động lưu. \nVui lòng không tắt trò chơi khi thấy biểu tượng này.
+Text.Warning	WARNING	CẢNH BÁO
+Text.PleaseWait	PLEASE WAIT…	VUI LÒNG CHỜ…
+Save.ConfirmOverwrite.Title	CONFIRM	XÁC NHẬN
+MainMenu.Kitchen.Leave	LEAVE SESSION	RỜI PHIÊN
+MainMenu.Kitchen.Invite	INVITE	MỜI
+MainMenu.Kitchen.SplitPad	SPLIT CONTROLLER	CHIA TAY CẦM
+MainMenu.Kitchen.Kick	KICK	ĐUỔI
+MainMenu.Kitchen.Remove	REMOVE	LOẠI BỎ
+MainMenu.Kitchen.ChangeProfile	CHANGE PROFILE	ĐỔI HỒ SƠ
+MainMenu.Kitchen.Friends	FRIENDS	BẠN BÈ
+MainMenu.Kitchen.Invite.WarnRemoveLocals	You are about to go online. Any local guests will be removed from your session.	Bạn sắp chơi trực tuyến. Mọi khách chơi chung máy sẽ bị loại khỏi phiên của bạn.
+Online.Privileges.CheckFailed	[NAME] does not have the correct privileges to play online.	[NAME] không có quyền phù hợp để chơi trực tuyến.
+Online.Disconnection.Generic	A network error has occurred. Please check your internet connection and try again.	Đã xảy ra lỗi mạng. Vui lòng kiểm tra kết nối internet và thử lại.
+Online.Disconnection.LostNetwork	A network error has occurred. Please check your internet connection and try again.	Đã xảy ra lỗi mạng. Vui lòng kiểm tra kết nối internet và thử lại.
+Online.Disconnection.GoneOffline	A network error has occurred. Please check your internet connection and try again.	Đã xảy ra lỗi mạng. Vui lòng kiểm tra kết nối internet và thử lại.
+Online.Disconnection.Kicked	You have been removed by the host from the session.	Bạn đã bị chủ phòng loại khỏi phiên.
+Online.Disconnection.HostDisconnected	This session is no longer available.	Phiên này không còn khả dụng.
+Online.Invite.JoinFailed	The game could not be joined.	Không thể tham gia trò chơi.
+Online.ConnectionMode.Progress.Complete	Switching connection mode complete.	Đã chuyển chế độ kết nối xong.
+Online.ConnectionMode.Result.Success	Success.	Thành công.
+Online.ConnectionMode.CreateSession.InProgress	[NAME] is creating a session…	[NAME] đang tạo phiên…
+Online.ConnectionMode.CreateSession.Result.eSuccess	Successfully created session.	Đã tạo phiên thành công.
+Online.ConnectionMode.CreateSession.Result.eGenericFailure	A network error has occurred. Please check your internet connection and try again.	Đã xảy ra lỗi mạng. Vui lòng kiểm tra kết nối internet và thử lại.
+Online.ConnectionMode.CreateSession.Result.eLostNetwork	A network error has occurred. Please check your internet connection and try again.	Đã xảy ra lỗi mạng. Vui lòng kiểm tra kết nối internet và thử lại.
+Online.ConnectionMode.CreateSession.Result.eGoneOffline	A network error has occurred. Please check your internet connection and try again.	Đã xảy ra lỗi mạng. Vui lòng kiểm tra kết nối internet và thử lại.
+Online.ConnectionMode.JoinSession.InProgress	[NAME] is joining a session…	[NAME] đang tham gia phiên…
+Online.ConnectionMode.JoinSession.Result.eSuccess	Successfully joined session.	Đã tham gia phiên thành công.
+Online.ConnectionMode.JoinSession.Result.eClosed	You are unable to join the game session because it is closed.	Bạn không thể tham gia phiên chơi vì phiên đã đóng.
+Online.ConnectionMode.JoinSession.Result.eFullOrNoLongerExists	You are unable to join the game session because it is full or no longer exists.	Bạn không thể tham gia phiên chơi vì phiên đã đầy hoặc không còn tồn tại.
+Online.ConnectionMode.JoinSession.Result.eNoHostConnection	The game could not be joined.	Không thể tham gia trò chơi.
+Online.ConnectionMode.JoinSession.Result.eLostNetwork	A network error has occurred. Please check your internet connection and try again.	Đã xảy ra lỗi mạng. Vui lòng kiểm tra kết nối internet và thử lại.
+Online.ConnectionMode.JoinSession.Result.eGoneOffline	A network error has occurred. Please check your internet connection and try again.	Đã xảy ra lỗi mạng. Vui lòng kiểm tra kết nối internet và thử lại.
+Online.ConnectionMode.JoinSession.Result.eCodeVersionMismatch	The player you are trying to join has a different application version.	Người chơi bạn muốn tham gia đang dùng phiên bản ứng dụng khác.
+Online.ConnectionMode.JoinSession.Result.eGenericFailure	The game could not be joined.	Không thể tham gia trò chơi.
+Online.ConnectionMode.LeaveSession.InProgress	Leaving session…	Đang rời phiên…
+Online.ConnectionMode.Offline.InProgress	Going offline…	Đang chuyển sang ngoại tuyến…
+Online.ConnectionMode.Search.InProgress	Searching…	Đang tìm…
+Online.ConnectionMode.Privilege.InProgress	Checking [NAME]'s online privileges…	Đang kiểm tra quyền trực tuyến của [NAME]…
+Online.ConnectionMode.Privilege.Result.eSuccess	Successfully checked privileges.	Đã kiểm tra quyền thành công.
+Online.ConnectionMode.Privilege.Result.eNoNetwork	A network error has occurred. Please check your internet connection and try again.	Đã xảy ra lỗi mạng. Vui lòng kiểm tra kết nối internet và thử lại.
+Online.ConnectionMode.Privilege.Result.eApplicationSuspended	A network error has occurred. Please try again.	Đã xảy ra lỗi mạng. Vui lòng thử lại.
+Online.ConnectionMode.Privilege.Result.eGenericFailure	A network error has occurred. Please try again.	Đã xảy ra lỗi mạng. Vui lòng thử lại.
+Online.Disconnecton.GameLevelNetworking	A network error has occurred. Please check your internet connection and try again.	Đã xảy ra lỗi mạng. Vui lòng kiểm tra kết nối internet và thử lại.
+Online.ConnectionMode.JoinSession.Result.eFull	You are unable to join the game session because it is full.	Bạn không thể tham gia phiên chơi vì phiên đã đầy.
+Online.ConnectionMode.JoinSession.Result.eNoLongerExists	You are unable to join the game session because it no longer exists.	Bạn không thể tham gia phiên chơi vì phiên không còn tồn tại.
+Text.Menu.Story	STORY	CỐT TRUYỆN
+Text.Menu.Party	ARCADE	ARCADE
+Text.Menu.Chef	CHEF	ĐẦU BẾP
+Text.Menu.Settings	SETTINGS	CÀI ĐẶT
+Text.Menu.CouchPlay	COUCH	CHUNG MÁY
+Text.Menu.PublicPlay	ONLINE PUBLIC	PHÒNG CÔNG KHAI
+Text.Menu.PrivatePlay	ONLINE PRIVATE	PHÒNG RIÊNG
+Text.Menu.SelectChef	SELECT CHEF	CHỌN ĐẦU BẾP
+Text.Menu.SaveSlot01	SLOT 01	Ô LƯU 01
+Text.Menu.SaveSlot02	SLOT 02	Ô LƯU 02
+Text.Menu.SaveSlot03	SLOT 03	Ô LƯU 03
+Text.Menu.ControlSettings	CONTROLS	ĐIỀU KHIỂN
+Text.Menu.GameSettings	GAME	TRÒ CHƠI
+Text.Tutorial.NewRecipe	NEW RECIPE	CÔNG THỨC MỚI
+Text.Tutorial.Alert	!!!	!!!
+Text.Tutorial.DirtyPlates.Title	DIRTY PLATES	ĐĨA BẨN
+Text.Tutorial.DirtyPlates.Body	DIRTY PLATES NEED TO BE WASHED UP IN THE SINK!	ĐĨA BẨN CẦN ĐƯỢC RỬA Ở BỒN RỬA!
+Text.Tutorial.Sashimi.Title	SASHIMI	SASHIMI
+Text.Tutorial.Sashimi.Body	HOW TO MAKE SASHIMI!	CÁCH LÀM SASHIMI!
+Text.Tutorial.Sushi.Title	SUSHI	SUSHI
+Text.Tutorial.Sushi.Body	"COMBINE CHOPPED FISH, COOKED RICE AND NORI TOGETHER ON A PLATE!"	"KẾT HỢP CÁ ĐÃ THÁI, CƠM CHÍN VÀ RONG BIỂN NORI TRÊN MỘT CHIẾC ĐĨA!"
+Text.Tutorial.Throwing.Title	THROW	NÉM
+Text.Tutorial.Throwing.BodyV2	PRESS <quad material=0 size=40 /> TO THROW!	NHẤN <quad material=0 size=40 /> ĐỂ NÉM!
+Text.Tutorial.Burger.Title	BURGER	BURGER
+Text.Tutorial.Burger.Body	"COMBINE BUN, FRIED PATTIE, CHOPPED LETTUCE, TOMATO, CHEESE TOGETHER ON A PLATE!"	"KẾT HỢP VỎ BÁNH, THỊT RÁN, XÀ LÁCH THÁI, CÀ CHUA, PHÔ MAI TRÊN MỘT CHIẾC ĐĨA!"
+Text.Tutorial.Dash.Title	DASH	LƯỚT
+Text.Tutorial.Dash.Body	PRESS <quad material=1 size=40 /> FOR YOUR CHEF TO DASH!	NHẤN <quad material=1 size=40 /> ĐỂ ĐẦU BẾP LƯỚT!
+Text.Tutorial.Burritos.Title	BURRITOS	BURRITO
+Text.Tutorial.Cakes.Title	CAKE	BÁNH NGỌT
+Text.Tutorial.Cakes.Body	"MIX FLOUR AND EGG WITH CHOPPED HONEY, CARROT OR CHOCOLATE AND BAKE THE LOT!"	"TRỘN BỘT VÀ TRỨNG VỚI MẬT ONG, CÀ RỐT HOẶC SÔ-CÔ-LA ĐÃ THÁI RỒI NƯỚNG TẤT CẢ!"
+Text.Tutorial.NuggetChips.Title	CHICKEN NUGGETS AND CHIPS	GÀ VIÊN VÀ KHOAI TÂY CHIÊN
+Text.Tutorial.Chips.Body	"CHOP AND FRY CHICKEN, GIVE THE POTATO THE SAME TREATMENT!"	"THÁI RỒI CHIÊN GÀ, LÀM Y HỆT VỚI KHOAI TÂY!"
+Text.Tutorial.Pancakes.Title	PANCAKE	BÁNH KẾP
+Text.Tutorial.Pancakes.Body	"MIX FLOUR AND EGG, ADD CHOPPED CHOCOLATE IF YOU'VE A SWEET TOOTH!"	"TRỘN BỘT VÀ TRỨNG, THÊM SÔ-CÔ-LA THÁI NẾU BẠN HẢO NGỌT!"
+Text.Tutorial.Steamed.Title	STEAMED	MÓN HẤP
+Text.Tutorial.Steamed.Body	"CHOP MEAT OR VEG, MIX WITH FLOUR AND THEN STEAM TOGETHER!"	"THÁI THỊT HOẶC RAU, TRỘN VỚI BỘT RỒI ĐEM HẤP!"
+Text.Tutorial.SwapChef.Title	SWAPPING CHEFS	ĐỔI ĐẦU BẾP
+Text.Tutorial.SwapChef.Body	PRESS <quad material=2 size=40 /> TO SWAP CHEFS	NHẤN <quad material=2 size=40 /> ĐỂ ĐỔI ĐẦU BẾP
+Text.Tutorial.Pasta.Title	PASTA	MÌ Ý
+Text.Tutorial.Pasta.Body	"BOIL PASTA, ADD CHOPPED TOMATO, MEAT, MUSHROOM OR FISH AND PRAWNS!"	"LUỘC MÌ, THÊM CÀ CHUA THÁI, THỊT, NẤM HOẶC CÁ VÀ TÔM!"
+Text.Tutorial.Pizza.Title	PIZZA	PIZZA
+Text.Tutorial.Pizza.Body	"PREPARE  DOUGH WITH KNIFE AND CHOP CHEESE, TOMATO AND POSSIBLY SOME PEPPERONI OR CHICKEN!"	"CHUẨN BỊ BỘT BẰNG DAO RỒI THÁI PHÔ MAI, CÀ CHUA VÀ CÓ THỂ THÊM XÚC XÍCH PEPPERONI HOẶC GÀ!"
+Text.Menu.BlueTeamWin	BLUE TEAM WINS	ĐỘI XANH THẮNG
+Text.Menu.RedTeamWin	RED TEAM WINS	ĐỘI ĐỎ THẮNG
+Text.Menu.Draw	DRAW	HÒA
+Text.Menu.ChooseTheme	VOTE FOR A THEME!	BÌNH CHỌN CHỦ ĐỀ!
+Text.Menu.WaitingPlayers	WAITING FOR OTHER PLAYERS CHOICES	ĐANG CHỜ NGƯỜI CHƠI KHÁC CHỌN
+Text.Menu.PickingLevel	PICKING RANDOM STAGE	ĐANG CHỌN MÀN NGẪU NHIÊN
+Text.Menu.CoopLobby	ARCADE LOBBY	PHÒNG CHỜ ARCADE
+Text.Menu.VersusLobby	VERSUS LOBBY	PHÒNG CHỜ ĐỐI KHÁNG
+Text.Menu.2PlayerRequired	2 Players Required	Cần 2 người chơi
+Text.Menu.NetworkPlayerRequired	Additional Online Player Required	Cần thêm người chơi trực tuyến
+Text.Menu.SearchingPlayer	Searching…	Đang tìm…
+Text.Menu.Empty	Empty	Trống
+Text.Lobby.Leave.Title	LEAVE LOBBY	RỜI PHÒNG CHỜ
+Text.Lobby.Leave.Message	Are you sure you want to leave this lobby?	Bạn có chắc muốn rời phòng chờ này?
+Text.Button.Leave	LEAVE	RỜI
+Text.Pause.Restart.Title	RESTART LEVEL	CHƠI LẠI MÀN
+Text.Pause.Restart.Message	Are you sure you want to restart this level?	Bạn có chắc muốn chơi lại màn này?
+Text.Pause.Quit.Title	QUIT	THOÁT
+Text.Pause.Quit.Message	Are you sure you want to quit?	Bạn có chắc muốn thoát?
+Text.Button.Restart	RESTART	CHƠI LẠI
+Text.Button.Quit	QUIT	THOÁT
+Text.Theme.Sushi	SUSHI CITY	THÀNH PHỐ SUSHI
+Text.Theme.Balloon	BUFFET BALLOONS	KHINH KHÍ CẦU BUFFET
+Text.Theme.Wizard	CONJURERS' KITCHEN	BẾP PHÙ THỦY
+Text.Theme.Alien	GOURMET GALAXY	THIÊN HÀ ẨM THỰC
+Text.Theme.Rapids	RAVENOUS RAPIDS	THÁC GHỀNH ĐÓI MEO
+Text.Theme.Mine	MOREISH MINES	HẦM MỎ NGON MIỆNG
+Text.Theme.Random	RANDOM	NGẪU NHIÊN
+Text.Versus.NotEnoughPlayers.Title	NO PLAYERS	THIẾU NGƯỜI CHƠI
+Text.Versus.NotEnoughPlayers.Message	There were not enough players in the session to play a Versus game.	Phiên không có đủ người chơi để chơi một trận Đối kháng.
+MetaSave.NoSpace.Title	NO SPACE	HẾT DUNG LƯỢNG
+MetaSave.NoSpace.Body	"Not enough space for save data, please clear some space and retry."	"Không đủ dung lượng để lưu dữ liệu, vui lòng giải phóng bớt dung lượng rồi thử lại."
+Text.Button.Retry	RETRY	THỬ LẠI
+SaveSlot.NoSpace.Title	NO SPACE	HẾT DUNG LƯỢNG
+SaveSlot.NoSpace.Body	"Not enough space for save data, please clear some space and retry."	"Không đủ dung lượng để lưu dữ liệu, vui lòng giải phóng bớt dung lượng rồi thử lại."
+MetaSave.CorruptedConfirmDelete.Title	CORRUPTED	BỊ HỎNG
+MetaSave.CorruptedConfirmDelete.Body	Would you like to delete the corrupt save data and try again?	Bạn có muốn xóa dữ liệu lưu bị hỏng và thử lại không?
+Text.Button.Delete	DELETE	XÓA
+Save.CorruptedConfirmDelete.Title	CORRUPTED	BỊ HỎNG
+Save.CorruptedConfirmDelete.Body	"This save slot is corrupted, would you like to delete it?"	"Ô lưu này bị hỏng, bạn có muốn xóa nó không?"
+Save.Spinner.RetryingMetaSave.Title	SAVING META	ĐANG LƯU META
+Save.Spinner.RetryingMetaSave.Body	Attempting to save meta data…	Đang thử lưu siêu dữ liệu…
+Save.Spinner.RetryingSaveSlot.Title	SAVING SLOT	ĐANG LƯU Ô
+Save.Spinner.RetryingSaveSlot.Body	Attempting to save data…	Đang thử lưu dữ liệu…
+Text.Tutorial.SwapChef.Label	Swap Chef	Đổi đầu bếp
+Text.Tutorial.NewMechanic	!!!	!!!
+LoadingScreen.BestScore	BEST SCORE: [Score]	ĐIỂM CAO NHẤT: [Score]
+Text.Menu.HostTooltip	View Player Settings	Xem cài đặt người chơi
+Text.Menu.ClientTooltip	View Player Settings	Xem cài đặt người chơi
+Text.Menu.LocalTooltip	View Player Settings	Xem cài đặt người chơi
+Text.Menu.ControllerTooltip	Set Player's Controls	Đặt điều khiển người chơi
+Text.Menu.LeaveTooltip	Quit the Current Session	Thoát phiên hiện tại
+Text.Menu.InviteTooltip	Invite a Friend	Mời một người bạn
+Text.Menu.SplitPadTooltip	Add Split Controller	Thêm tay cầm chia đôi
+Text.Menu.KickTooltip	Remove Player from Session	Loại người chơi khỏi phiên
+Text.Menu.RemoveTooltip	Remove Player from Session	Loại người chơi khỏi phiên
+Text.Menu.ProfileTooltip	Change Profile	Đổi hồ sơ
+Text.Menu.FriendsTooltip	View Online Friends List	Xem danh sách bạn bè trực tuyến
+Text.Menu.SearchTooltip	Search for Nearby Games	Tìm trận chơi ở gần
+Text.Menu.WaitingForHost	Waiting for the Host to Pick a Game Mode…	Đang chờ chủ phòng chọn chế độ chơi…
+Text.OverwriteSlot.Title	OVERWRITE SAVE	GHI ĐÈ TỆP LƯU
+Text.OverwriteSlot.Body	Are you sure you want to overwrite this save file?	Bạn có chắc muốn ghi đè tệp lưu này?
+Text.SelectSave.Header.NewGame	NEW GAME	CHƠI MỚI
+Text.SelectSave.Header.LoadGame	LOAD GAME	TẢI TRÒ CHƠI
+Text.Button.LoadGame	LOAD GAME	TẢI TRÒ CHƠI
+Text.Menu.Legend02	<quad material=0 size=35 /> ACCEPT <quad material=1 size=35 /> CANCEL	<quad material=0 size=35 /> ĐỒNG Ý <quad material=1 size=35 /> HỦY
+Text.Menu.Legend04	<quad material=0 size=35 /> CONTINUE	<quad material=0 size=35 /> TIẾP TỤC
+StartScreen.Options.SafeArea.Explanation	Move the edges of the screen so that all corners are fully visible. Press <quad material=0 size=60 /> to confirm.	Di chuyển các cạnh màn hình sao cho nhìn thấy rõ cả bốn góc. Nhấn <quad material=0 size=60 /> để xác nhận.
+MainMenu.Kitchen.MoreUsersNeeded	Local Versus requires at least 2 local players to play.	Đối kháng chung máy cần ít nhất 2 người chơi chung máy.
+MainMenu.Kitchen.NoOnlineUsers	Online Private requires at least 2 online players to play.	Trực tuyến riêng cần ít nhất 2 người chơi trực tuyến.
+MainMenu.Kitchen.FullKitchen	Too many local players to play this online mode.	Quá nhiều người chơi chung máy cho chế độ trực tuyến này.
+Text.Button.Okay	OK	OK
+Text.Error	ERROR	LỖI
+Text.Menu.Controls01	Chop/Throw	Thái/Ném
+Text.Menu.Controls02	Pick Up/Drop	Nhặt/Đặt
+Text.Menu.Controls03	Dash	Lướt
+Text.Menu.Controls04	Move	Di chuyển
+Text.Menu.Controls05	Emote	Biểu cảm
+Text.Menu.Controls06	Move/Emote	Di chuyển/Biểu cảm
+Text.Menu.OrdersDelivered	Orders Delivered x [Count]	Món đã giao x [Count]
+Text.Menu.OrdersFailed	Orders Failed x [Count]	Món bị lỡ x [Count]
+LegalIdent.Copyright	"Overcooked 2. Developed by Team17 Digital Ltd and Ghost Town Games Ltd © 2018. Published by Team17 Digital Ltd. Team17 is a trademark or registered trademark of Team17 Digital Limited. All other trademarks, copyrights and logos are property of their respective owners."	"Overcooked 2. Phát triển bởi Team17 Digital Ltd và Ghost Town Games Ltd © 2018. Phát hành bởi Team17 Digital Ltd. Team17 là nhãn hiệu hoặc nhãn hiệu đã đăng ký của Team17 Digital Limited. Mọi nhãn hiệu, bản quyền và logo khác thuộc về chủ sở hữu tương ứng."
+Text.Menu.Local	WIRELESS	KHÔNG DÂY
+Text.Menu.HoldButton	HOLD TO SKIP	GIỮ ĐỂ BỎ QUA
+Text.Menu.UnsavedChanges.Body	You have made unsaved changes. Would you like to save them now?	Bạn có thay đổi chưa được lưu. Bạn có muốn lưu ngay không?
+Text.Button.Discard	DISCARD	BỎ
+Text.Button.Save	SAVE	LƯU
+Text.Menu.ResolutionChanges.Body	Do you wish to keep these settings? Reverting in [Time]...	Giữ các cài đặt này chứ? Sẽ hoàn tác sau [Time]...
+OptionValue.SuperQuick	Super Low	Rất thấp
+OptionValue.Quick	Low	Thấp
+OptionValue.Standard	Medium	Trung bình
+OptionValue.Dreamy	High	Cao
+Text.Menu.MusicVolume	Music Volume	Âm lượng nhạc
+Text.Menu.SFXVolume	SFX Volume	Âm lượng SFX
+Text.Menu.ScreenAdjuster	Screen Area Adjustment	Chỉnh vùng màn hình
+Text.Menu.Resolution	Resolution	Độ phân giải
+Text.Menu.Windowed	Windowed	Cửa sổ
+Text.Menu.VSync	V-Sync	V-Sync
+Text.Menu.Quality	Quality	Chất lượng
+Text.Menu.AutosaveWarning	This game saves data automatically.\nDo not turn off the game when the saving icon is visible.	Trò chơi tự động lưu dữ liệu.\nĐừng tắt trò chơi khi biểu tượng lưu đang hiện.
+Text.IntroCutscene.01	"The following is based on actual events. Only the names, places and vegetables have been changed…"	"Câu chuyện sau đây dựa trên sự kiện có thật. Chỉ có tên người, địa danh và rau củ đã được thay đổi…"
+Text.IntroCutscene.02	Just after tea time…	Ngay sau giờ trà chiều…
+Text.IntroCutscene.03	At last!	Cuối cùng!
+Text.IntroCutscene.04a	How long I’ve waited for this moment. The trials we’ve been through to win this noble prize.	Ta đã chờ khoảnh khắc này lâu biết bao. Bao gian nan thử thách mới giành được bảo vật cao quý này.
+Text.IntroCutscene.04b	"Look at it Kevin, look. The fabled… NECRO-NOMNOM-ICON!"	"Nhìn này Kevin, nhìn đi. Cuốn sách huyền thoại… NECRO-NOMNOM-ICON!"
+Text.IntroCutscene.05	BARK!!	GÂU!!
+Text.IntroCutscene.06	What?	Gì cơ?
+Text.IntroCutscene.07	BARK!	GÂU!
+Text.IntroCutscene.08a	"What do you mean, it’s dangerous? Don’t be silly!"	"Ý Kevin là nó nguy hiểm á? Đừng ngốc thế!"
+Text.IntroCutscene.08b	This book holds the secret to everlasting culinary greatness!	Cuốn sách này chứa bí mật của sự vĩ đại ẩm thực vĩnh cửu!
+Text.IntroCutscene.09	"In a large bowl, dissolve the sugar in warm water, and then stir in yeast…"	"Trong một bát lớn, hòa tan đường vào nước ấm, rồi khuấy men vào…"
+Text.IntroCutscene.10	Allow to proof until yeast resembles a…rich…creamy…foam.	Ủ cho đến khi men trông như một lớp…bọt…kem…béo ngậy.
+Text.IntroCutscene.11	BARK!!!!!	GÂU!!!!!
+Text.IntroCutscene.12	"Wait, Kevin… Come back!"	"Khoan, Kevin… Quay lại đây!"
+Text.IntroCutscene.13	"Mix in salt and oil, then mix in the flour."	"Trộn muối và dầu vào, rồi trộn tiếp bột mì."
+Text.IntroCutscene.14	Knead the dough… cover with a damp cloth.	Nhào bột… phủ khăn ẩm lên.
+Text.IntroCutscene.15	And allow…to…RISE!!!	Và để bột…trỗi…DẬY!!!
+Text.IntroCutscene.16	RISE! RISE!!! AHAHAHA!!- huh??	TRỖI DẬY! TRỖI DẬY!!! AHAHAHA!!- hả??
+Text.IntroCutscene.17	"No, no, no! This wasn’t supposed to happen! It can’t be, it’s…"	"Không, không, không! Chuyện này đâu được phép xảy ra! Không thể nào, đó là…"
+Text.IntroCutscene.18	…THE UNBREAD!	…LŨ XÁC BÁNH MÌ!
+Text.IntroCutscene.19a	"As my best chefs (or conveniently, the ones that happen to be here) - see if you can fend them off…"	"Hỡi các đầu bếp giỏi nhất của ta (hay đúng hơn là những ai tình cờ có mặt ở đây) - thử đẩy lùi chúng xem nào…"
+Text.IntroCutscene.19b	They seem so hungry! Set to it!	Trông chúng đói lắm! Bắt tay vào việc đi!
+Text.TutorialOutro.01	The horde is too ravenous!	Cả bầy này đói ngấu quá!
+Text.TutorialOutro.02	BARK! BARK!!	GÂU! GÂU!!
+Text.TutorialOutro.03	"No, don’t be a hero Kevin!"	"Không, đừng làm anh hùng, Kevin!"
+Text.TutorialOutro.04	Quick! Back to the Castle. Retreat!	Nhanh! Về Lâu đài. Rút lui!
+Text.FirstCastleVisit.01	"You may be my best chefs, but you have much to learn if you’re to conquer that appetite!"	"Các bạn có thể là đầu bếp giỏi nhất của ta, nhưng còn phải học nhiều lắm mới chế ngự được cơn đói ấy!"
+Text.FirstCastleVisit.02	Me and Kevin can keep those fiends from entering the castle…for now.	Ta và Kevin có thể chặn lũ quỷ đó không cho vào lâu đài…tạm thời thôi.
+Text.FirstCastleVisit.03	"But if the un-bread spread out from the castle grounds, I fear for the Onion Kingdom! We must act quickly…"	"Nhưng nếu lũ xác bánh mì tràn ra khỏi khuôn viên lâu đài, ta lo cho Vương quốc Hành lắm! Chúng ta phải hành động nhanh…"
+Text.FirstCastleVisit.04	BARK!	GÂU!
+Text.FirstCastleVisit.06	It seems that once again it’s up to you Chefs to save our Kingdom.	Có vẻ một lần nữa, việc cứu Vương quốc lại trông cậy cả vào các Đầu bếp.
+Text.FirstCastleVisit.07	"So take my wheels, hit the road, learn some new recipes, and, for the love of onions, LEARN TO COOPERATE BETTER!!!"	"Vậy hãy lấy xe của ta, lên đường, học thêm công thức mới, và, vì tình yêu với hành, HÃY HỌC CÁCH PHỐI HỢP TỐT HƠN ĐI!!!"
+Text.FirstCastleVisit.Return	What are you waiting for? Go!	Còn chờ gì nữa? Đi đi!
+Text.SecondCastleVisit.01	"Well my word, what an adventure you’ve been on! And you’ve only just begun."	"Ôi trời đất, các bạn vừa trải qua một chuyến phiêu lưu ra trò! Mà đây mới chỉ là khởi đầu."
+Text.SecondCastleVisit.02	You still have much to learn about cooperation and we can only keep the Unbread at bay for so long.	Các bạn vẫn còn nhiều điều phải học về tinh thần đồng đội, và bọn ta chỉ cầm chân được Lũ Xác Bánh Mì thêm ít lâu nữa thôi.
+Text.SecondCastleVisit.03	Head out into the wild country - I hear there are flavours there that can satiate the most ravenous appetite.	Hãy tiến ra vùng hoang dã - nghe nói ở đó có những hương vị đủ sức thỏa mãn cả cơn đói cồn cào nhất.
+Text.SecondCastleVisit.04	BARK!	GÂU!
+Text.SecondCastleVisit.05	Don’t hurry me!	Đừng hối ta!
+Text.SecondCastleVisit.06	But he’s right. You must go now. And bring back more delicious team-work. 	Nhưng nó nói đúng. Các bạn phải đi ngay. Và mang về thêm thật nhiều tinh thần đồng đội ngon lành. 
+Text.SecondCastleVisit.07	BARK!	GÂU!
+Text.SecondCastleVisit.08	There’s no time to lose!	Không còn thời gian để phí đâu!
+Text.SecondCastleVisit.Return	There’s no time for chatter. Go now! 	Không có thời gian tán gẫu. Đi ngay! 
+Text.ThirdCastleVisit.01	My brave chefs! You’re in one piece - Kevin didn’t think you’d make it!	Các đầu bếp dũng cảm của ta! Các bạn vẫn lành lặn - Kevin cứ tưởng các bạn không qua nổi!
+Text.ThirdCastleVisit.02	BARK!	GÂU!
+Text.ThirdCastleVisit.03	What?! You didn’t! But I knew you’d pull through.	Gì?! Không đời nào! Nhưng ta biết các bạn sẽ vượt qua mà.
+Text.ThirdCastleVisit.04	And look how your skills have grown. It’s not just your balloon that’s on the up and up!	Mà xem kỹ năng các bạn tiến bộ chưa kìa. Đâu chỉ có khinh khí cầu của các bạn mới đang bay cao!
+Text.ThirdCastleVisit.05	But there’s still much to do.  The un-bread are getting hungrier with each passing moment.	Nhưng vẫn còn nhiều việc lắm.  Lũ xác bánh mì càng lúc càng đói hơn.
+Text.ThirdCastleVisit.06	Maybe the Strange Lands to the East will hold the secret to moderating their munchies.	Có lẽ Vùng đất Kỳ lạ ở phía Đông sẽ có bí quyết làm dịu cơn thèm ăn của chúng.
+Text.ThirdCastleVisit.07	But there are curious rumours about the place…many myths and legends.	Nhưng có những tin đồn kỳ quái về nơi đó…vô số thần thoại và truyền thuyết.
+Text.ThirdCastleVisit.08	Do you dare?!	Các bạn có dám không?!
+Text.ThirdCastleVisit.09	You do?! Oh my gutsy gastronomers!	Dám á?! Ôi những đầu bếp gan dạ của ta!
+Text.ThirdCastleVisit.10	"Well make sure you stick together. And remember, not everything is as it seems in the Onion Kingdom... "	"Vậy nhớ sát cánh bên nhau nhé. Và hãy nhớ, ở Vương quốc Hành không phải thứ gì cũng như vẻ bề ngoài đâu... "
+Text.ThirdCastleVisit.Return	Those recipes won’t make themselves. Hit the road! 	Mấy công thức đó không tự nấu được đâu. Lên đường thôi! 
+Text.FourthCastleVisit.01	BARK!	GÂU!
+Text.FourthCastleVisit.02	Who’s there?! Come at me if you want a…!	Ai đó?! Lại đây nếu muốn ăn một…!
+Text.FourthCastleVisit.03	"Oh thank Goodness, it’s you! And look at you. So United. So…co-operative."	"Ôi tạ ơn trời, là các bạn! Nhìn các bạn kìa. Thật đoàn kết. Thật…ăn ý."
+Text.FourthCastleVisit.04	"You’re going from strength to strength at rapid speed, but the Unbread are still too powerful…"	"Các bạn đang mạnh lên với tốc độ chóng mặt, nhưng Lũ Xác Bánh Mì vẫn còn quá mạnh…"
+Text.FourthCastleVisit.05	BARK!	GÂU!
+Text.FourthCastleVisit.06	You think? Oh dear…it seems we must send you through the haunted swamps to the South.	Kevin nghĩ vậy à? Ôi trời…có vẻ ta phải cử các bạn băng qua đầm lầy ma ám ở phía Nam rồi.
+Text.FourthCastleVisit.07	"I know, I know…no-one ever returns from the Swamps. But these are desperate times."	"Ta biết, ta biết…chưa ai từng trở về từ Đầm lầy. Nhưng thời thế đang nguy cấp lắm rồi."
+Text.FourthCastleVisit.08	And you are brave. You are bold. You are the greatest band who ever lived!	Nhưng các bạn dũng cảm. Các bạn táo bạo. Các bạn là nhóm bạn vĩ đại nhất từng tồn tại!
+Text.FourthCastleVisit.09	Nothing can stop you.	Không gì cản được các bạn.
+Text.FourthCastleVisit.10	Except maybe the possessed baguette that’s been chasing Kevin around all morning…	Có lẽ trừ cái bánh mì baguette bị quỷ ám đã rượt Kevin suốt cả sáng nay…
+Text.FourthCastleVisit.11	Bark...	Gâu...
+Text.FourthCastleVisit.12	We will hold off the horde. Now go!	Bọn ta sẽ cầm chân lũ chúng. Giờ thì đi đi!
+Text.FourthCastleVisit.Return	The Swamp awaits!	Đầm lầy đang chờ!
+Text.FifthCastleVisit.01	My chefs! You’re back! However did you get through the horde?!	Các đầu bếp của ta! Các bạn về rồi! Làm sao các bạn vượt qua được cả bầy đó vậy?!
+Text.FifthCastleVisit.02	Your squad must be giving off some seriously harmonious vibes.	Đội của các bạn chắc hẳn đang tỏa ra năng lượng hòa hợp cực mạnh.
+Text.FifthCastleVisit.03	"This is GOOD! If they fear you, you must be almost strong enough to defeat them."	"Thế này thì TUYỆT! Nếu chúng sợ các bạn, nghĩa là các bạn sắp đủ mạnh để đánh bại chúng rồi."
+Text.FifthCastleVisit.04	"Head North now, where I hear the Kitchens can only be conquered by the most coordinated of crews. "	"Giờ hãy tiến lên phía Bắc, nghe nói các Bếp ở đó chỉ chịu khuất phục trước những đội ăn ý nhất. "
+Text.FifthCastleVisit.05	"Move as one my friends. And remember, keep communicating. "	"Hãy hành động như một, các bạn của ta. Và nhớ nhé, luôn trao đổi với nhau. "
+Text.FifthCastleVisit.06	BARK! 	GÂU! 
+Text.FifthCastleVisit.07	...Or be fish food. That isn’t a nice thing to say Kevin! 	...Không thì làm mồi cho cá. Nói thế không hay đâu Kevin! 
+Text.FifthCastleVisit.08	Good luck!	Chúc may mắn!
+Text.FifthCastleVisit.Return	We’re running out of time! 	Chúng ta sắp hết thời gian rồi! 
+Text.SixthCastleVisit.01	Wow you guys are cooking up some magic in these kitchens!	Chà, các bạn đang nấu ra phép màu trong những căn bếp này đấy!
+Text.SixthCastleVisit.02	But we have never met with a peril like this. We must be certain of victory.	Nhưng chúng ta chưa từng gặp hiểm họa nào như thế này. Chúng ta phải nắm chắc phần thắng.
+Text.SixthCastleVisit.03	The food we fill these corrupted carbs with must be out of this world!	Món ăn ta nhồi vào lũ tinh bột hư hỏng này phải ngon bay ra ngoài vũ trụ!
+Text.SixthCastleVisit.04	"North and up you must go. Up, up, third star to the left, and straight on ‘til breakfast!"	"Các bạn phải đi về phía Bắc rồi bay lên. Lên, lên, ngôi sao thứ ba bên trái, rồi bay thẳng tới bữa sáng!"
+Text.SixthCastleVisit.05	BARK!	GÂU!
+Text.SixthCastleVisit.06	I will not calm down. We’re almost there!	Ta không bình tĩnh nổi đâu. Chúng ta sắp tới đích rồi!
+Text.SixthCastleVisit.07	One more journey my wondrous chefs. And quickly!	Thêm một chuyến nữa thôi, các đầu bếp tuyệt vời của ta. Nhanh lên!
+Text.SixthCastleVisit.Return	"Adventure is out there, not in here!"	"Phiêu lưu ở ngoài kia, không phải trong này!"
+Text.FinalStageTransition.01	"Chefs! Chefs, can you hear me?"	"Các đầu bếp! Các đầu bếp, có nghe ta không?"
+Text.FinalStageTransition.02	"The Unbread are breaking down the gates, we need you now!"	"Lũ Xác Bánh Mì đang phá cổng, chúng ta cần các bạn ngay!"
+Text.FinalStageTransition.03	Come back to the castle my friends. Quick!	Hãy về lâu đài, các bạn của ta. Nhanh lên!
+Text.FinalStageGraveyardIntro.01	You’re just in the nick of time!	Các bạn đến vừa kịp lúc!
+Text.FinalStageGraveyardIntro.02	It seems the Unbread are determined to take the castle!	Có vẻ Lũ Xác Bánh Mì quyết chiếm lâu đài cho bằng được!
+Text.FinalStageGraveyardIntro.03	You need to cook up a storm and fill their empty stomachs with warmth!	Các bạn phải nấu nướng như vũ bão và lấp đầy cái bụng rỗng của chúng bằng hơi ấm!
+Text.FinalStageGraveyardIntro.04	"You have the skills, the recipes, the epic coordination!"	"Các bạn có kỹ năng, có công thức, có khả năng phối hợp đỉnh cao!"
+Text.FinalStageGraveyardIntro.05	Give them everything you’ve got!	Hãy dốc hết sức mình!
+Text.FinalStageGraveyardIntro.06	In the name of the Onion Kingdom.	Nhân danh Vương quốc Hành.
+Text.FinalStageGraveyardIntro.07	FOOD FIIIIIIIIIGHT!	ĐẠI CHIẾN ẨM THỰCCCCCCCC!
+Text.FinalStageLoss.01	"Oh Kevin, I think we’re toast…"	"Ôi Kevin, ta nghĩ chúng ta thành bánh mì cháy rồi…"
+Text.FinalStageWin.01	Well done my fine chefs!	Làm tốt lắm, các đầu bếp tài ba của ta!
+Text.FinalStageWin.02	"Once again, by working together, you have saved our kingdom."	"Một lần nữa, nhờ đồng lòng hợp sức, các bạn đã cứu vương quốc của chúng ta."
+Text.FinalStageWin.03	"And ever since you calmed their cravings, the Unbread have soft doughy centres."	"Và từ khi các bạn dập tắt cơn thèm của chúng, Lũ Xác Bánh Mì đã mềm lòng như ruột bánh."
+Text.FinalStageWin.04	We all owe you our thanks!	Tất cả chúng ta đều nợ các bạn một lời cảm ơn!
+Text.SeventhCastleVisit.01	"Ah our hearty heroes! Welcome, welcome!"	"A, những người hùng của ta! Chào mừng, chào mừng!"
+Text.SeventhCastleVisit.02	"Now peace is once again restored to the Onion Kingdom, you are free to take time (and space) to roam the land as you wish."	"Giờ hòa bình đã trở lại với Vương quốc Hành, các bạn được tự do dành thời gian (và không gian) để rong ruổi khắp vùng đất tùy thích."
+Text.SeventhCastleVisit.03	"Kevin, what do you say to sitting down with a good book?"	"Kevin, ngồi đọc một cuốn sách hay thì sao nhỉ?"
+Text.SeventhCastleVisit.04	Grrrrrr…	Grrrrrr…
+Text.SeventhCastleVisit.05	"Oh no, don’t you worry…"	"Ồ không, đừng lo…"
+Text.SeventhCastleVisit.06	I’ll be sticking to Romance novels for a while I think!	Ta nghĩ mình sẽ chỉ đọc tiểu thuyết lãng mạn một thời gian thôi!
+Text.SeventhCastleVisit.Return	BARK!	GÂU!
+Text.Emote.Celebrate	We Did It!	Làm được rồi!
+Text.Emote.Cooking	Cooking…	Đang nấu…
+Text.Emote.GreatJob	Well Played	Chơi hay lắm
+Text.Emote.Hi	Hello	Xin chào
+Text.Emote.OK	OK!	OK!
+Text.Emote.Preparing	Preparing…	Đang sơ chế…
+Text.Emote.Serving	Serving…	Đang giao món…
+Text.Emote.Swearing	#$@&%*!	#$@&%*!
+Text.Emote.Washup	Washing Up…	Đang rửa đĩa…
+Text.Menu.SwitchTutorial.Title	SWITCHES	CÔNG TẮC
+Text.Menu.SwitchTutorial.Body	Discover switches to raise ramps and reach otherwise inaccessible areas.	Tìm công tắc để nâng dốc lên và tới được những khu vực không thể vào bằng cách khác.
+Text.Menu.HiddenLevelTutorial.Title	HIDDEN LEVELS	MÀN ẨN
+Online.ConnectionMode.JoinSession.Result.eApplicationSuspended	A network error has occurred. Please try again.	Đã xảy ra lỗi mạng. Vui lòng thử lại.
+Text.HUD.TipMultiplier	Tip x [Multiplier]	Tiền boa x [Multiplier]
+Text.HUD.Tip	Tip	Tiền boa
+LobbyScreen.Friends.Offline	Offline	Ngoại tuyến
+LobbyScreen.Friends.Online	Online	Trực tuyến
+Text.Tutorial.Burritos.Body	"TAKE A TORTILLA, ADD COOKED RICE,  THEN ADD  FRIED CHICKEN, MEAT OR MUSHROOM!"	"LẤY MỘT BÁNH TORTILLA, THÊM CƠM CHÍN, RỒI THÊM GÀ, THỊT HOẶC NẤM ĐÃ CHIÊN!"
+Text.Menu.WaitingForPlayers	WAITING FOR PLAYERS TO CONTINUE…	ĐANG CHỜ NGƯỜI CHƠI TIẾP TỤC…
+Text.Menu.Loading	LOADING	ĐANG TẢI
+PauseMenu.WorldMap.Title	WORLD MAP	BẢN ĐỒ THẾ GIỚI
+Text.Menu.GameSettingsTitle	GAME SETTINGS	CÀI ĐẶT TRÒ CHƠI
+Text.Menu.SaveButton	SAVE	LƯU
+Text.Button.Refresh	REFRESH	LÀM MỚI
+Text.Menu.TutorialLevel	TUTORIAL	HƯỚNG DẪN
+Text.Menu.Level01	1-1	1-1
+Text.Menu.Level02	1-2	1-2
+Text.Menu.Level03	1-3	1-3
+Text.Menu.Level04	1-4	1-4
+Text.Menu.Level05	1-5	1-5
+Text.Menu.Level06	1-6	1-6
+Text.Menu.Level07	2-1	2-1
+Text.Menu.Level08	2-2	2-2
+Text.Menu.Level09	2-3	2-3
+Text.Menu.Level10	2-4	2-4
+Text.Menu.Level11	2-5	2-5
+Text.Menu.Level12	2-6	2-6
+Text.Menu.Level13	3-1	3-1
+Text.Menu.Level14	3-2	3-2
+Text.Menu.Level15	3-3	3-3
+Text.Menu.Level16	3-4	3-4
+Text.Menu.Level17	3-5	3-5
+Text.Menu.Level18	3-6	3-6
+Text.Menu.Level19	4-1	4-1
+Text.Menu.Level20	4-2	4-2
+Text.Menu.Level21	4-3	4-3
+Text.Menu.Level22	4-4	4-4
+Text.Menu.Level23	4-5	4-5
+Text.Menu.Level24	4-6	4-6
+Text.Menu.Level25	5-1	5-1
+Text.Menu.Level26	5-2	5-2
+Text.Menu.Level27	5-3	5-3
+Text.Menu.Level28	5-4	5-4
+Text.Menu.Level29	5-5	5-5
+Text.Menu.Level30	5-6	5-6
+Text.Menu.Level31	6-1	6-1
+Text.Menu.Level32	6-2	6-2
+Text.Menu.Level33	6-3	6-3
+Text.Menu.Level34	6-4	6-4
+Text.Menu.Level35	6-5	6-5
+Text.Menu.Level36	6-6	6-6
+Text.Menu.KevinLevel01	Kevin 1	Kevin 1
+Text.Menu.KevinLevel02	Kevin 2	Kevin 2
+Text.Menu.KevinLevel03	Kevin 3	Kevin 3
+Text.Menu.KevinLevel04	Kevin 4	Kevin 4
+Text.Menu.KevinLevel05	Kevin 5	Kevin 5
+Text.Menu.KevinLevel06	Kevin 6	Kevin 6
+Text.Menu.KevinLevel07	Kevin 7	Kevin 7
+Text.Menu.KevinLevel08	Kevin 8	Kevin 8
+Text.Menu.ThroneRoom01	Throne Room	Phòng ngai vàng
+Text.Menu.ThroneRoom02	Throne Room	Phòng ngai vàng
+Text.Menu.ThroneRoom03	Throne Room	Phòng ngai vàng
+Text.Menu.ThroneRoom04	Throne Room	Phòng ngai vàng
+Text.Menu.ThroneRoom05	Throne Room	Phòng ngai vàng
+Text.Menu.ThroneRoom06	Throne Room	Phòng ngai vàng
+Text.Menu.ThroneRoom07	Throne Room	Phòng ngai vàng
+LegalIdent.InfluencerDisclaimer	Please feel free to use any video footage or screen captures of the game in whatever way you like.	Bạn cứ thoải mái sử dụng mọi đoạn video hoặc ảnh chụp màn hình của trò chơi theo bất kỳ cách nào bạn muốn.
+Text.Menu.Mute	MUTE	TẮT TIẾNG
+Text.Menu.UnMute	UNMUTE	BẬT TIẾNG
+Text.Menu.Kick	KICK	ĐUỔI
+Text.Menu.NewChef	NEW CHEF	ĐẦU BẾP MỚI
+Text.Tutorial.TipMultiplier	Serve recipes in order to increase your tip multiplier	Giao món theo đúng thứ tự để tăng hệ số tiền boa
+Text.Emote.Disappointed	Better Luck Next Time!	Chúc may mắn lần sau!
+TutorialLevel.Completed	Marvellous! You've shown some exemplary culinary skills here!	Tuyệt vời! Các bạn đã thể hiện kỹ năng nấu nướng thật mẫu mực!
+TutorialLevel.PlaceIngredient	"Now, take it to the chopping boards and place it down."	"Giờ thì mang nó tới thớt và đặt xuống."
+TutorialLevel.PlateIngredient	"Nice chopping action! Now, put it on a plate."	"Thái khéo lắm! Giờ đặt nó lên đĩa."
+TutorialLevel.ServeDish	Excellent! Hurry and serve the dish!	Xuất sắc! Mau phục vụ món ăn đi!
+TutorialLevel.PickupLettuce	Grab a lettuce from over there.	Lấy một cây xà lách ở đằng kia.
+TutorialLevel.PickupTomato	We're going to need a tomato. Grab one quickly!	Chúng ta cần một quả cà chua. Lấy nhanh lên!
+TutorialLevel.PickupCucumber	"Splendid! Now, get a cucumber!"	"Tuyệt lắm! Giờ lấy một quả dưa chuột!"
+TutorialLevel.ChopLettuce	Good work! You're going to have to chop the lettuce now.	Làm tốt lắm! Giờ bạn phải thái xà lách.
+TutorialLevel.ChopTomato	"Great! Now, slice the tomato up."	"Tuyệt! Giờ thái cà chua ra."
+TutorialLevel.ChopCucumber	Superb! Give that cucumber a good ol' chop.	Hay lắm! Thái quả dưa chuột đó một trận ra trò nào.
+Text.Menu.PlayerPaused	PLAYER [Name] PAUSED THE GAME	NGƯỜI CHƠI [Name] ĐÃ TẠM DỪNG TRÒ CHƠI
+Online.ConnectionMode.CreateSession.Result.eApplicationSuspended	A network error has occurred. Please check your internet connection and try again.	Đã xảy ra lỗi mạng. Vui lòng kiểm tra kết nối internet và thử lại.
+Text.Menu.HiddenLevelTutorial.Body	Hidden levels are unlocked by completing secret criteria in another level...	Màn ẩn được mở khóa khi hoàn thành điều kiện bí mật trong một màn khác...
+Text.Menu.AddPlayerTooltip	Invite/Split	Mời/Chia tay cầm
+Text.NewGamePlus.Name	New Game +	New Game +
+Text.NewGamePlus.Description	"In New Game + the steaks are higher, the kitchens are hotter and there’s a devilishly delicious FOURTH STAR on the table!\n\nIn this mode you’ll have to journey back through the Onion Kingdom, experiencing Overcooked 2 again with an extra side order of difficulty!"	"Trong New Game +, cược cao hơn, bếp nóng hơn và có một NGÔI SAO THỨ TƯ ngon đến mê hồn đang chờ trên bàn!\n\nỞ chế độ này, các bạn sẽ phải đi lại hành trình qua Vương quốc Hành, trải nghiệm Overcooked 2 thêm lần nữa kèm một phần độ khó gọi thêm!"
+Text.Menu.NewGamePlusTutorial.Title	NEW GAME +	NEW GAME +
+Text.Menu.NewGamePlusTutorial.Body	"It's time for a new challenge! There's a 4th star to be collected, but it's not going to be easy!"	"Đã đến lúc cho thử thách mới! Có ngôi sao thứ 4 đang chờ được thu thập, nhưng chẳng dễ dàng gì đâu!"
+PauseMenu.Customisation	CHANGE CHEF	ĐỔI ĐẦU BẾP
+Text.DLC.GotoChefs	View Chefs	Xem đầu bếp
+Text.FirstCastleVisit.05	Why of course! The Royal Sage Coach – she’s just been upgraded!  	Tất nhiên rồi! Cỗ xe Xô Thơm Hoàng gia – vừa được nâng cấp đấy!  
+Text.FirstCastleVisit.Return01	Every adventure starts with a single step…	Mọi cuộc phiêu lưu đều bắt đầu từ một bước chân…
+Text.FirstCastleVisit.Return02	BARK!	GÂU!
+Text.FirstCastleVisit.Return03	"Alright, they’re going, they’re going!"	"Được rồi, họ đi đây, họ đi đây!"
+Text.SecondCastleVisit.Return01	Why do you delay? 	Sao còn chần chừ? 
+Text.SecondCastleVisit.Return02	BARK!	GÂU!
+Text.SecondCastleVisit.Return03	They are NOT a scaredy pants Kevin! Gosh…	Họ KHÔNG phải đồ nhát cáy đâu Kevin! Trời ạ…
+Text.ThirdCastleVisit.Return03	"I would love to stop and chat, BUT YOU HAVE A KINGDOM TO SAVE!"	"Ta rất muốn dừng lại tán gẫu, NHƯNG CÁC BẠN CÒN CẢ MỘT VƯƠNG QUỐC PHẢI CỨU!"
+Text.ForthCastleVisit.Return01	Surely you aren’t doubting yourselves? 	Chắc các bạn không nghi ngờ bản thân đấy chứ? 
+Text.ForthCastleVisit.Return02	You could try meditating on a manta…	Các bạn có thể thử ngồi thiền trên lưng cá đuối…
+Text.ForthCastleVisit.Return03	Fear is only a paper tiger. Fear is only a paper tiger…	Nỗi sợ chỉ là con hổ giấy. Nỗi sợ chỉ là con hổ giấy…
+Text.FifthCastleVisit.Return01	Best foot forward my old friends.	Tiến bước thôi, các bạn cũ của ta.
+Text.FifthCastleVisit.Return02	Masticating magnificence is yours for the taking!	Vinh quang nhai nhóp nhép đang chờ các bạn giành lấy!
+Text.SixthCastleVisit.Return01	Fly my pretties! Fly! Fly!	Bay đi các cưng! Bay! Bay!
+Text.EndGameCastleVisit.Return01	My legendary chefs.	Các đầu bếp huyền thoại của ta.
+Text.EndGameCastleVisit.Return02	Feel free to take your lap of honour round the Kingdom.  	Cứ thoải mái đi một vòng vinh quang quanh Vương quốc nhé.  
+Text.EndGameCastleVisit.Return03	I have a few crumbs to sweep up…	Ta còn ít vụn bánh phải quét dọn…
+Text.Menu.NewContent	NEW CONTENT!	NỘI DUNG MỚI!
+Text.SelectSave.Header.PickSave	SAVE SLOT	Ô LƯU
+Text.Menu.DontSave	DON'T SAVE	KHÔNG LƯU
+Text.Menu.WaitingForPlayersPickSave	WAITING FOR OTHER PLAYERS TO PICK A SAVE SLOT…	ĐANG CHỜ NGƯỜI CHƠI KHÁC CHỌN Ô LƯU…
+Text.Menu.WaitingHeader	WAITING…	ĐANG CHỜ…
+ClientSave.SaveFailed.Title	NO SPACE	HẾT DUNG LƯỢNG
+ClientSave.SaveFailed.Message	"Not enough space for save data, please clear some space."	"Không đủ dung lượng để lưu dữ liệu, vui lòng giải phóng bớt dung lượng."
+ClientSave.SaveFailed.Confirm	OK	OK
+Text.SharedProgress.Name	SHARED PROGRESS	TIẾN TRÌNH CHUNG
+Text.SharedProgress.Description	"With the Shared Progress update, levels played in Story mode online will now be saved for all online players. This means levels will be unlocked, stars awarded, and your best score saved for everyone when completing a level, whether you are the host or the client!"	"Với bản cập nhật Tiến trình chung, các màn chơi ở chế độ Cốt truyện trực tuyến giờ sẽ được lưu cho tất cả người chơi trực tuyến. Nghĩa là khi hoàn thành một màn, màn sẽ được mở khóa, sao được trao và điểm cao nhất được lưu cho mọi người, dù bạn là chủ phòng hay khách!"
+Text.GameMode.Campaign	STORY	CỐT TRUYỆN
+Text.GameMode.CampaignDescription	"Classic Overcooked rules, play against the clock to get all the stars!"	"Luật Overcooked cổ điển, chạy đua với thời gian để giành trọn số sao!"
+Text.GameMode.Practice	PRACTICE	LUYỆN TẬP
+Text.GameMode.PracticeDescription	"Unlimited time, unlimited orders. Cook as much as you like!"	"Thời gian vô hạn, món gọi vô hạn. Nấu bao nhiêu tùy thích!"
+Text.Menu.GameModeSelect	SELECT GAME MODE	CHỌN CHẾ ĐỘ CHƠI
+Text.Menu.PractiseMode.Title	PRACTICE MODE	CHẾ ĐỘ LUYỆN TẬP
+Text.Menu.PractiseMode.Description	"With Practice mode chefs will be able to enjoy Overcooked 2’s levels at a leisurely pace. Giving you the ability to turn the timer, score and order expiration on and off, you can use this mode to cook to your heart’s content!"	"Với chế độ Luyện tập, các đầu bếp có thể thong thả tận hưởng các màn chơi của Overcooked 2. Bạn có thể bật/tắt đồng hồ, điểm số và thời hạn món gọi, tha hồ nấu nướng thỏa thích!"
+PauseMenu.ModeSettings	MODE SETTINGS	CÀI ĐẶT CHẾ ĐỘ
+Text.GameMode.TimerSetting	Show Timer	Hiện đồng hồ
+Text.GameMode.ScoreSetting	Show Score	Hiện điểm
+Text.GameMode.OrderExpirationSetting	Order Expiration	Món gọi hết hạn
+Text.GameMode.Title	GAME MODES	CHẾ ĐỘ CHƠI
+Text.Game.Description	Play the levels in different game modes. Your current game mode is displayed in the top right corner of the screen.	Chơi các màn với nhiều chế độ khác nhau. Chế độ hiện tại được hiển thị ở góc trên bên phải màn hình.
+Text.Menu.LegendCancel	<quad material=1 size=35 /> CANCEL	<quad material=1 size=35 /> HỦY
+Text.Menu.LegendAccept	<quad material=0 size=35 /> ACCEPT	<quad material=0 size=35 /> ĐỒNG Ý
+Online.ConnectionMode.JoinSession.Result.eNotEnoughRoomForAllLocalUsers	There is not enough space in this game session to fit all Local Players.	Phiên chơi này không đủ chỗ cho tất cả người chơi chung máy.
+MainMenu.Kitchen.TooManyLocalUsersForJoining	There is not enough space in this game session to fit all Local Players.	Phiên chơi này không đủ chỗ cho tất cả người chơi chung máy.
+Text.Menu.MultiLocalUserInviteQuestion	Do you want to bring all Local Players into this game session?	Bạn có muốn đưa tất cả người chơi chung máy vào phiên chơi này không?
+Text.Button.InvitedUserOnly	NO	KHÔNG
+Text.Button.AllLocalUsers	YES	CÓ
+Online.ConnectionMode.Result.Failure	A network error has occurred. Please try again.	Đã xảy ra lỗi mạng. Vui lòng thử lại.
+Text.Menu.SaveSlotInfo	"PICK A <color=#337BAEFF>[DLCNAME]</color> SAVE SLOT TO SAVE GAME PROGRESS IN TO. SELECTING ""DON'T SAVE"" WON'T SAVE YOUR PROGRESS."	"CHỌN MỘT Ô LƯU <color=#337BAEFF>[DLCNAME]</color> ĐỂ LƯU TIẾN TRÌNH. CHỌN ""KHÔNG LƯU"" SẼ KHÔNG LƯU LẠI TIẾN TRÌNH CỦA BẠN."
+Text.Menu.SurvivalMode.Title	Survival Mode	Chế độ Sinh tồn
+Text.Menu.SurvivalMode.Description	"In Survival mode, you'll be battling against the clock to serve as many dishes as you can. Each successful delivery gives you extra time, so you can make even more delicious meals!\n\nHow long can you last?"	"Ở chế độ Sinh tồn, bạn sẽ chạy đua với thời gian để phục vụ càng nhiều món càng tốt. Mỗi lần giao món thành công sẽ được cộng thêm thời gian, để bạn nấu thêm nhiều món ngon hơn nữa!\n\nBạn trụ được bao lâu?"
+Text.GameMode.Survival	SURVIVAL	SINH TỒN
+Text.GameMode.SurvivalDescription	Serve as many meals as possible in the time given. Each dish served adds time to the clock. Survive for as long as possible.	Phục vụ càng nhiều món càng tốt trong thời gian cho phép. Mỗi món giao xong sẽ được cộng thêm thời gian. Hãy trụ lâu nhất có thể.
+Text.NewRecord	NEW RECORD	KỶ LỤC MỚI
+Text.GameMode.UnsupportedMode	Only playable in Story mode	Chỉ chơi được ở chế độ Cốt truyện
+Prompt.Rejoin	Press <quad material=0 size=60 /> / Space to rejoin	Nhấn <quad material=0 size=60 /> / Space để vào lại
+StartScreen.Options.PadSplit	CONTROLLER SPLIT SETTINGS	CÀI ĐẶT CHIA TAY CẦM
+IntroLevel.Tutorial.AButton	Quickly! Pick up an ingredient with your <quad material=0 size=60/> button!	Nhanh lên! Nhặt một nguyên liệu bằng nút <quad material=0 size=60/>!
+IntroLevel.Tutorial.AButtonLettuce	Resplendant! Now we need a lettuce. Press <quad material=0 size=60/> on the ingredient crate!	Tuyệt diệu! Giờ ta cần xà lách. Nhấn <quad material=0 size=60/> vào thùng nguyên liệu!
+IntroLevel.Tutorial.AButtonRepeat	Wait.. that can't be right. We need both lettuce and tomato! Quickly grab some more ingredients\n with <quad material=0 size=60/>.	Khoan.. thế không đúng rồi. Ta cần cả xà lách lẫn cà chua! Mau lấy thêm nguyên liệu\n bằng <quad material=0 size=60/>.
+IntroLevel.Tutorial.AButtonTomato	Resplendant! Now we need a tomato. Press <quad material=0 size=60/> on the ingredient crate!	Tuyệt diệu! Giờ ta cần cà chua. Nhấn <quad material=0 size=60/> vào thùng nguyên liệu!
+IntroLevel.Tutorial.PlaceLettuceToChop	Good show! Now chefs on the left you must take the lettuce to the chopping boards!	Khá lắm! Giờ các đầu bếp bên trái phải mang xà lách tới thớt!
+IntroLevel.Tutorial.1pPlaceLettuceToChop	Good show! Now  take the lettuce to the chopping boards!	Khá lắm! Giờ mang xà lách tới thớt!
+IntroLevel.Tutorial.PlaceTomatoToChop	Good show! Now chefs on the left you must take the tomato to the chopping boards!	Khá lắm! Giờ các đầu bếp bên trái phải mang cà chua tới thớt!
+IntroLevel.Tutorial.1pPlaceTomatoToChop	Good show! Now take the tomato to the chopping boards!	Khá lắm! Giờ mang cà chua tới thớt!
+IntroLevel.Tutorial.ChopLettuce	Yes that's it! Now the lettuce must be chopped.\n Use your <quad material=1 size=60/> Button!	Đúng rồi đó! Giờ phải thái xà lách.\n Dùng nút <quad material=1 size=60/>!
+IntroLevel.Tutorial.ChopTomato	Yes that's it! Now the tomato must be chopped.\n Use your <quad material=1 size=60/> Button!	Đúng rồi đó! Giờ phải thái cà chua.\n Dùng nút <quad material=1 size=60/>!
+IntroLevel.Tutorial.PlaceLettuce	Magnificent chopping! Chopped Lettuce must now be placed on a plate!	Thái đỉnh quá! Giờ phải đặt xà lách đã thái lên đĩa!
+IntroLevel.Tutorial.PlaceTomato	Magnificent chopping! Now place the chopped tomato on a plate!	Thái đỉnh quá! Giờ đặt cà chua đã thái lên đĩa!
+IntroLevel.Tutorial.PlaceLettuceOnTomato	Good now place the chopped lettuce you have on that plate with the tomato	Tốt, giờ đặt xà lách đã thái vào đĩa có cà chua kia
+IntroLevel.Tutorial.PlaceTomatoOnLettuce	Good now place the chopped tomato you have on that plate with the lettuce	Tốt, giờ đặt cà chua đã thái vào đĩa có xà lách kia
+IntroLevel.Tutorial.Service	A salad... of course! That's what we're doing! Feed it to The Beast! Now before it is too late!	Món salad... tất nhiên rồi! Ta đang làm món đó mà! Cho Quái Vật ăn đi! Ngay trước khi quá muộn!
+IntroLevel.Tutorial.Completed	Yes that's it! Follow the orders at the top of the screen. We will vanquish this beast yet!	Đúng rồi đó! Làm theo các món gọi ở đầu màn hình. Chúng ta nhất định sẽ hạ gục con quái vật này!
+IntroLevel.LettuceDivider	Marvelous! Now pass that lettuce to the left side	Tuyệt vời! Giờ chuyền xà lách sang bên trái
+IntroLevel.TomatoDivider	Marvelous! Now pass that tomato to the left side	Tuyệt vời! Giờ chuyền cà chua sang bên trái
+IntroLevel.SwitchChefsTutorial	Press <quad material=0 size=40 /> to switch chefs	Nhấn <quad material=0 size=40 /> để đổi đầu bếp
+LobbyScreen.PressJoin	Press <quad material=0 width=1 height=1 /> / Space to Join	Nhấn <quad material=0 width=1 height=1 /> / Space để tham gia
+StartScreen.PadSplitOpen	Press <quad material=0 size=30 /> to open Controller Split Settings	Nhấn <quad material=0 size=30 /> để mở Cài đặt chia tay cầm
+StartScreen.Engagement.KeyboardDevice	Keyboard	Bàn phím
+StartScreen.Engagement.ControllerDevice	Controller	Tay cầm
+StartScreen.DLC	THE LOST MORSEL	THE LOST MORSEL
+StartScreen.DLC2	FESTIVE SEASONING	FESTIVE SEASONING
+Prompt.UserRemoved	ACTIVE PROFILE REMOVED!	ĐÃ GỠ HỒ SƠ ĐANG DÙNG!
+Online.Disconnection.LoggedOut	You have been disconnected from Online Services.	Bạn đã bị ngắt kết nối khỏi Dịch vụ trực tuyến.
+Online.Disconnection.ApplicationSuspended	You have been disconnected from Online Services.	Bạn đã bị ngắt kết nối khỏi Dịch vụ trực tuyến.
+Online.ConnectionMode.CreateSession.Result.eLoggedOut	You have been disconnected from Online Services.	Bạn đã bị ngắt kết nối khỏi Dịch vụ trực tuyến.
+Online.ConnectionMode.JoinSession.Result.eLoggedOut	You have been disconnected from Online Services.	Bạn đã bị ngắt kết nối khỏi Dịch vụ trực tuyến.
+Text.Menu.DefaultTooltip	Invite Friends	Mời bạn bè
+Text.Menu.DefaultTooltipClient	[Player]'s Session	Phòng của [Player]
+Text.Menu.Legend01Client	<quad material=0 size=35 /> ACCEPT <quad material=2 size=35 /> PARTY OPTIONS	<quad material=0 size=35 /> ĐỒNG Ý <quad material=2 size=35 /> TÙY CHỌN NHÓM
+Text.Menu.VersusLegend	<quad material=0 size=35 /> ACCEPT <quad material=1 size=35 /> CANCEL <quad material=2 size=35 /> EMOTE <quad material=3 size=35 /> TEAM	<quad material=0 size=35 /> ĐỒNG Ý <quad material=1 size=35 /> HỦY <quad material=2 size=35 /> BIỂU CẢM <quad material=3 size=35 /> ĐỘI
+MainMenu.Kitchen.WarnGoingOffline	You are about to go offline. All online players will be removed from your session.	Bạn sắp chuyển sang ngoại tuyến. Mọi người chơi trực tuyến sẽ bị đưa ra khỏi phòng của bạn.
+Text.Menu.CoopLegend	<quad material=0 size=35 /> ACCEPT <quad material=1 size=35 /> CANCEL <quad material=2 size=35 /> EMOTE	<quad material=0 size=35 /> ĐỒNG Ý <quad material=1 size=35 /> HỦY <quad material=2 size=35 /> BIỂU CẢM
+Text.Menu.Legend03	<quad material=0 size=35 /> CONTINUE <quad material=1 size=35 /> VIEW PLAYERS <quad material=2 size=35 /> EMOTE	<quad material=0 size=35 /> TIẾP TỤC <quad material=1 size=35 /> XEM NGƯỜI CHƠI <quad material=2 size=35 /> BIỂU CẢM
+StartScreen.PressStart	PRESS <quad material=0 size=40 /> / SPACE TO CONTINUE	NHẤN <quad material=0 size=40 /> / SPACE ĐỂ TIẾP TỤC
+Text.Tutorial.Throwing.Body	PRESS <quad material=0 size=40 /> TO THROW!\nONLY RAW INGREDIENTS CAN BE THROWN!	NHẤN <quad material=0 size=40 /> ĐỂ NÉM!\nCHỈ NÉM ĐƯỢC NGUYÊN LIỆU SỐNG!
+Text.Menu.InviteRestriction	Only [NAME] will join the session you've been invited to.	Chỉ [NAME] sẽ tham gia phiên chơi mà bạn được mời.
+Text.Menu.VersusLegendNoEmote	<quad material=0 size=35 /> ACCEPT <quad material=1 size=35 /> CANCEL <quad material=3 size=35 /> TEAM	<quad material=0 size=35 /> ĐỒNG Ý <quad material=1 size=35 /> HỦY <quad material=3 size=35 /> ĐỘI
+Text.Menu.CoopLegendNoEmote	<quad material=0 size=35 /> ACCEPT <quad material=1 size=35 /> CANCEL	<quad material=0 size=35 /> ĐỒNG Ý <quad material=1 size=35 /> HỦY
+Text.Menu.Legend03NoEmote	<quad material=0 size=35 /> CONTINUE <quad material=1 size=35 /> VIEW PLAYERS	<quad material=0 size=35 /> TIẾP TỤC <quad material=1 size=35 /> XEM NGƯỜI CHƠI
+Text.Menu.RoundResultsCancel	<quad material=0 size=35 /> ACCEPT <quad material=3 size=35 /> CANCEL	<quad material=0 size=35 /> ĐỒNG Ý <quad material=3 size=35 /> HỦY
+Text.Menu.Legend01	<quad material=0 size=35 /> ACCEPT <quad material=2 size=35 /> INVITE FRIENDS <quad material=1 size=35 /> QUIT	<quad material=0 size=35 /> ĐỒNG Ý <quad material=2 size=35 /> MỜI BẠN BÈ <quad material=1 size=35 /> THOÁT
+Text.Menu.QuitTitle	QUIT	THOÁT
+Text.Menu.QuitBody	Are you sure you want to quit the game?	Bạn có chắc muốn thoát trò chơi không?
+Text.Menu.Profile	PROFILE	HỒ SƠ
+Text.Menu.InputKeyboard	KEYBOARD	BÀN PHÍM
+Text.Menu.InputGamepad	GAMEPAD	TAY CẦM
+Text.Menu.GamerTagTooltip	View Player's Profile	Xem hồ sơ người chơi
+Text.Menu.AddLocalPlayer	Player [PlayerCount] Press <quad material=0 size=45 /> / Space to Join Locally	Người chơi [PlayerCount] nhấn <quad material=0 size=45 /> / Space để chơi chung máy
+Online.ConnectionMode.Privilege.Result.eNotSignedInToPlatform	Check your connection and try again.	Kiểm tra kết nối và thử lại.
+Text.DLC.Store	Store	Cửa hàng
+Text.ControlsMenu.UnsavedChanges	You have unsaved changes. Are you sure you want to exit this screen? All changes will be lost.	Bạn có thay đổi chưa lưu. Bạn có chắc muốn thoát màn hình này? Mọi thay đổi sẽ bị mất.
+Text.ControlsMenu.LMB	LMB	LMB
+Text.ControlsMenu.RMB	RMB	RMB
+Text.ControlsMenu.MMB	MMB	MMB
+Text.ControlsMenu.RETURN	ENTER	ENTER
+Text.ControlsMenu.BACKSPACE	BACK SPACE	BACK SPACE
+Text.ControlsMenu.SPACE	SPACE	SPACE
+Text.ControlsMenu.TAB	TAB	TAB
+Text.ControlsMenu.ESCAPE	ESCAPE	ESCAPE
+Text.ControlsMenu.LEFTCONTROL	LCTRL	LCTRL
+Text.ControlsMenu.RIGHTCONTROL	RCTRL	RCTRL
+Text.ControlsMenu.LEFTSHIFT	LSHIFT	LSHIFT
+Text.ControlsMenu.RIGHTSHIFT	RSHIFT	RSHIFT
+Text.ControlsMenu.LEFTALT	LALT	LALT
+Text.ControlsMenu.RIGHTALT	RALT	RALT
+Text.ControlsMenu.LEFTCOMMAND	LCMD	LCMD
+Text.ControlsMenu.RIGHTCOMMAND	RCMD	RCMD
+Text.ControlsMenu.LWIN	LWIN	LWIN
+Text.ControlsMenu.RWIN	RWIN	RWIN
+Text.ControlsMenu.ALTGR	ALTGR	ALTGR
+Text.ControlsMenu.HOME	HOME	HOME
+Text.ControlsMenu.END	END	END
+Text.ControlsMenu.PAGEUP	PAGE UP	PAGE UP
+Text.ControlsMenu.PAGEDOWN	PAGE DOWN	PAGE DOWN
+Text.ControlsMenu.INSERT	INSERT	INSERT
+Text.ControlsMenu.DELETE	DELETE	DELETE
+Text.ControlsMenu.PRTSCN	PRTSCN	PRTSCN
+Text.ControlsMenu.BREAK	BREAK	BREAK
+Text.ControlsMenu.PAUSE	PAUSE	PAUSE
+Text.ControlsMenu.CLEAR	CLEAR	CLEAR
+Text.ControlsMenu.CAPSLOCK	CAPS LOCK	CAPS LOCK
+Text.ControlsMenu.SCROLLLOCK	SCROLL LOCK	SCROLL LOCK
+Text.ControlsMenu.NUMLOCK	NUM LOCK	NUM LOCK
+Text.ControlsMenu.UPARROW	UP	LÊN
+Text.ControlsMenu.DOWNARROW	DOWN	XUỐNG
+Text.ControlsMenu.LEFTARROW	LEFT	TRÁI
+Text.ControlsMenu.RIGHTARROW	RIGHT	PHẢI
+Text.ControlsMenu.PAD0	NUM PAD 0	NUM PAD 0
+Text.ControlsMenu.PAD1	NUM PAD 1	NUM PAD 1
+Text.ControlsMenu.PAD2	NUM PAD 2	NUM PAD 2
+Text.ControlsMenu.PAD3	NUM PAD 3	NUM PAD 3
+Text.ControlsMenu.PAD4	NUM PAD 4	NUM PAD 4
+Text.ControlsMenu.PAD5	NUM PAD 5	NUM PAD 5
+Text.ControlsMenu.PAD6	NUM PAD 6	NUM PAD 6
+Text.ControlsMenu.PAD7	NUM PAD 7	NUM PAD 7
+Text.ControlsMenu.PAD8	NUM PAD 8	NUM PAD 8
+Text.ControlsMenu.PAD9	NUM PAD 9	NUM PAD 9
+Text.ControlsMenu.PADPERIOD	NUM PAD .	NUM PAD .
+Text.ControlsMenu.PADDIVIDE	NUM PAD /	NUM PAD /
+Text.ControlsMenu.PADMULTIPLY	NUM PAD *	NUM PAD *
+Text.ControlsMenu.PADMINUS	NUM PAD -	NUM PAD -
+Text.ControlsMenu.PADPLUS	NUM PAD +	NUM PAD +
+Text.ControlsMenu.PADENTER	NUM PAD ENTER	NUM PAD ENTER
+Text.ControlsMenu.PADEQUALS	NUM PAD =	NUM PAD =
+Text.ControlsMenu.F1	F1	F1
+Text.ControlsMenu.F2	F2	F2
+Text.ControlsMenu.F3	F3	F3
+Text.ControlsMenu.F4	F4	F4
+Text.ControlsMenu.F5	F5	F5
+Text.ControlsMenu.F6	F6	F6
+Text.ControlsMenu.F7	F7	F7
+Text.ControlsMenu.F8	F8	F8
+Text.ControlsMenu.F9	F9	F9
+Text.ControlsMenu.F10	F10	F10
+Text.ControlsMenu.F11	F11	F11
+Text.ControlsMenu.F12	F12	F12
+Text.ControlsMenu.F13	F13	F13
+Text.ControlsMenu.F14	F14	F14
+Text.ControlsMenu.F15	F15	F15
+Text.ControlsMenu.MWHEEL	M Wheel	Lăn chuột
+Text.ControlsMenu.RemapTitle	REMAP BINDING	GÁN LẠI PHÍM
+Text.ControlsMenu.RemapBody	Press any key to bind [	Nhấn phím bất kỳ để gán [
+Text.ControlsMenu.Bracket	]	]
+Text.ControlsMenu.MissingBindings	<color=red>Warning: Missing bindings!</color>	<color=red>Cảnh báo: Còn thiếu phím gán!</color>
+Text.ControlsMenu.Warning	You have not bound all available actions. Please make sure all actions are bound and try again.	Bạn chưa gán phím cho tất cả hành động. Hãy đảm bảo mọi hành động đều đã được gán rồi thử lại.
+Text.ControlsMenu.SplitKeyboard	SPLIT KEYBOARD	CHIA BÀN PHÍM
+Text.ControlsMenu.CombinedKeyboard	KEYBOARD	BÀN PHÍM
+Text.Menu.Apply	APPLY	ÁP DỤNG
+Text.Menu.Defaults	DEFAULTS	MẶC ĐỊNH
+Text.ControlsMenu.Player01	PLAYER 1 KEYS	PHÍM NGƯỜI CHƠI 1
+Text.ControlsMenu.Player02	PLAYER 2 KEYS	PHÍM NGƯỜI CHƠI 2
+Text.Menu.MoveUp	Move Up	Đi lên
+Text.Menu.MoveDown	Move Down	Đi xuống
+Text.Menu.MoveLeft	Move Left	Sang trái
+Text.Menu.MoveRight	Move Right	Sang phải
+Text.Tutorial.SwapChef.Body_Keyboard	PRESS <key index=2 /> TO SWAP CHEFS	NHẤN <key index=2 /> ĐỂ ĐỔI ĐẦU BẾP
+Text.Tutorial.Dash.Body_Keyboard	PRESS <key index=1 /> FOR YOUR CHEF TO DASH!	NHẤN <key index=1 /> ĐỂ ĐẦU BẾP LƯỚT!
+Text.ControlsMenu.SHIFT	SHIFT	SHIFT
+Text.ControlsMenu.ALT	ALT	ALT
+Text.ControlsMenu.COMMAND	CMD	CMD
+Text.ControlsMenu.CONTROL	CTRL	CTRL
+Text.ControlsMenu.KEY0	0	0
+Text.ControlsMenu.KEY1	1	1
+Text.ControlsMenu.KEY2	2	2
+Text.ControlsMenu.KEY3	3	3
+Text.ControlsMenu.KEY4	4	4
+Text.ControlsMenu.KEY5	5	5
+Text.ControlsMenu.KEY6	6	6
+Text.ControlsMenu.KEY7	7	7
+Text.ControlsMenu.KEY8	8	8
+Text.ControlsMenu.KEY9	9	9
+Text.ControlsMenu.BACKQUOTE	`	`
+Text.ControlsMenu.MINUS	-	-
+Text.ControlsMenu.EQUALS	=	=
+Text.ControlsMenu.LEFTBRACKET	[	[
+Text.ControlsMenu.RIGHTBRACKET	]	]
+Text.ControlsMenu.BACKSLASH	\	\
+Text.ControlsMenu.SEMICOLON	;	;
+Text.ControlsMenu.QUOTE	""""	""""
+Text.ControlsMenu.COMMA	","	","
+Text.ControlsMenu.PERIOD	.	.
+Text.ControlsMenu.SLASH	/	/
+Text.Menu.Legend03_Keyboard	<quad material=0 size=35 /> CONTINUE <quad material=1 size=35 /> VIEW PLAYERS <key index=0 /> EMOTE	<quad material=0 size=35 /> TIẾP TỤC <quad material=1 size=35 /> XEM NGƯỜI CHƠI <key index=0 /> BIỂU CẢM
+Text.Menu.CoopLegend_Keyboard	<quad material=0 size=35 /> ACCEPT <quad material=1 size=35 /> CANCEL <key index=0 /> EMOTE	<quad material=0 size=35 /> ĐỒNG Ý <quad material=1 size=35 /> HỦY <key index=0 /> BIỂU CẢM
+Text.Menu.VersusLegend_Keyboard	<quad material=0 size=35 /> ACCEPT <quad material=1 size=35 /> CANCEL <key index=0 /> EMOTE <quad material=3 size=35 /> TEAM	<quad material=0 size=35 /> ĐỒNG Ý <quad material=1 size=35 /> HỦY <key index=0 /> BIỂU CẢM <quad material=3 size=35 /> ĐỘI
+Text.Tutorial.Throwing.Body_Keyboard	PRESS <key index=0 /> TO THROW!\nONLY RAW INGREDIENTS CAN BE THROWN!	NHẤN <key index=0 /> ĐỂ NÉM!\nCHỈ NÉM ĐƯỢC NGUYÊN LIỆU SỐNG!
+Text.ControlsMenu.MOUSE0	LMB	LMB
+Text.ControlsMenu.MOUSE1	RMB	RMB
+Text.ControlsMenu.MOUSE2	MMB	MMB
+Text.ControlsMenu.MOUSE3	M4	M4
+Text.ControlsMenu.MOUSE4	M5	M5
+Text.Menu.Legend03Restart_Keyboard	<quad material=0 size=35 /> CONTINUE <quad material=1 size=35 /> VIEW PLAYERS <key index=0 /> EMOTE <key index=1 /> RESTART	<quad material=0 size=35 /> TIẾP TỤC <quad material=1 size=35 /> XEM NGƯỜI CHƠI <key index=0 /> BIỂU CẢM <key index=1 /> CHƠI LẠI
+Text.Menu.Legend03RestartNoEmote_Keyboard	<quad material=0 size=35 /> CONTINUE <quad material=1 size=35 /> VIEW PLAYERS <key index=1 /> RESTART	<quad material=0 size=35 /> TIẾP TỤC <quad material=1 size=35 /> XEM NGƯỜI CHƠI <key index=1 /> CHƠI LẠI
+Text.Menu.Legend03Restart	<quad material=0 size=35 /> CONTINUE <quad material=1 size=35 /> VIEW PLAYERS <quad material=2 size=35 /> EMOTE <quad material=3 size=35 /> RESTART	<quad material=0 size=35 /> TIẾP TỤC <quad material=1 size=35 /> XEM NGƯỜI CHƠI <quad material=2 size=35 /> BIỂU CẢM <quad material=3 size=35 /> CHƠI LẠI
+Text.Menu.Legend03RestartNoEmote	<quad material=0 size=35 /> CONTINUE <quad material=1 size=35 /> VIEW PLAYERS <quad material=3 size=35 /> RESTART	<quad material=0 size=35 /> TIẾP TỤC <quad material=1 size=35 /> XEM NGƯỜI CHƠI <quad material=3 size=35 /> CHƠI LẠI
+Text.Menu.DLC02Level01	1-1	1-1
+Text.Menu.DLC02Level02	1-2	1-2
+Text.Menu.DLC02Level03	1-3	1-3
+Text.Menu.DLC02Level04	1-4	1-4
+Text.Menu.DLC02Level05	2-1	2-1
+Text.Menu.DLC02Level06	2-2	2-2
+Text.Menu.DLC02Level07	2-3	2-3
+Text.Menu.DLC02Level08	2-4	2-4
+Text.Menu.DLC02Level09	3-1	3-1
+Text.Menu.DLC02Level10	3-2	3-2
+Text.Menu.DLC02Level11	3-3	3-3
+Text.Menu.DLC02Level12	3-4	3-4
+Text.Menu.DLC02HiddenLevel01	Kevin 1	Kevin 1
+Text.Menu.DLC02ThroneRoom01	Throne Room	Phòng Ngai Vàng
+Text.Menu.DLC02ThroneRoom02	Throne Room	Phòng Ngai Vàng
+Text.Menu.DLC02ThroneRoom03	Throne Room	Phòng Ngai Vàng
+Text.Menu.DLC02ThroneRoom04	Throne Room	Phòng Ngai Vàng
+Text.KebabTutorial.Title	KEBABS	THỊT XIÊN
+Text.KebabTutorial.Body	"CHOP MEAT AND VEG, COMBINE ON A SKEWER AND BBQ. USE BELLOWS TO KEEP THE HEAT GOING!"	"THÁI THỊT VÀ RAU, XIÊN LẠI RỒI NƯỚNG BBQ. DÙNG ỐNG BỄ ĐỂ GIỮ LỬA LUÔN NÓNG!"
+Text.WatergunTutorial.Title	WATER GUN	SÚNG NƯỚC
+Text.WatergunTutorial.Body	CLEAN DIRTY PLATES OR PUT OUT FIRES!	RỬA ĐĨA BẨN HOẶC DẬP LỬA!
+Text.SmoothieTutorial.Title	SMOOTHIES	SINH TỐ
+Text.SmoothieTutorial.Body	"CHOP UP FRUIT, BLEND TOGETHER AND SERVE IN A GLASS!"	"THÁI TRÁI CÂY, XAY NHUYỄN RỒI RÓT RA LY PHỤC VỤ!"
+Text.FirstVisit.01	My friends! Fancy seeing you here.	Các bạn của ta! Không ngờ lại gặp các bạn ở đây.
+Text.FirstVisit.02	"Well of course I called you here, but still…what a treat!"	"À thì tất nhiên là ta gọi các bạn tới, nhưng mà…vui quá đi!"
+Text.FirstVisit.03	"Welcome, welcome to the Stilton Resort!"	"Chào mừng, chào mừng tới Khu nghỉ dưỡng Stilton!"
+Text.FirstVisit.04	But why are you at this glorious 5-star summer destination I hear you ask.	Các bạn hỏi sao lại có mặt ở chốn nghỉ hè 5 sao lộng lẫy này à?
+Text.FirstVisit.05	Well…the Onion Kingdom’s Culinary Council were less than impressed by the whole “raising the unbread” incident.	À thì…Hội đồng Ẩm thực của Vương quốc Hành chẳng mấy ấn tượng với vụ “hồi sinh Lũ Xác Bánh Mì” vừa rồi.
+Text.FirstVisit.06	So they suggested a “little holiday”…or “a little exile” if you’re feeling literal.	Nên họ gợi ý một “kỳ nghỉ nho nhỏ”…hay nói thẳng ra là “một chuyến lưu đày nho nhỏ”.
+Text.FirstVisit.07	"And so here we are! But there is much fun to be had, hey Kevin?"	"Và thế là ta ở đây! Nhưng còn khối trò vui nhé, phải không Kevin?"
+Text.FirstVisit.08	…	…
+Text.FirstVisit.09	"Oh Kevin, I said I’m sorry!"	"Ôi Kevin, ta xin lỗi rồi mà!"
+Text.FirstVisit.10	…	…
+Text.FirstVisit.11	You see why I need your help!	Giờ thì các bạn hiểu vì sao ta cần giúp rồi đấy!
+Text.FirstVisit.12	"So go, take a tour of the resort and bring me back some new recipes."	"Đi đi, dạo quanh khu nghỉ dưỡng và mang về cho ta vài công thức mới nhé."
+Text.FirstVisit.13	"Once I present them to the Council, they’re sure to welcome us back!"	"Một khi ta trình lên Hội đồng, chắc chắn họ sẽ đón chúng ta trở về!"
+Text.FirstVisit.14	"Go now! Hit the beach, turn up the heat and bring back those fresh flavours!"	"Đi ngay! Ra bãi biển, đỏ lửa lên và mang về những hương vị tươi mới nào!"
+Text.SecondVisit.01	My chefs!	Các đầu bếp của ta!
+Text.SecondVisit.02	"Yes this is perfect. I can taste the sea, the sand, the island breeze as it runs through my layers…"	"Đúng rồi, hoàn hảo. Ta nếm được vị biển, vị cát, cả làn gió đảo lướt qua từng lớp vỏ của ta…"
+Text.SecondVisit.03	…	…
+Text.SecondVisit.04	This is bound to change the Council’s mind.	Thế này thì Hội đồng phải đổi ý thôi.
+Text.SecondVisit.05	But we need more!	Nhưng ta cần thêm nữa!
+Text.SecondVisit.06	Go work on that tan and bring me more tropical tidbits	Đi tắm nắng tiếp và mang thêm đặc sản nhiệt đới về cho ta
+Text.ThirdVisit.01	You’re back!	Các bạn về rồi!
+Text.ThirdVisit.02	Oh but don’t look at me. I asked Kevin to rub some sunscreen on my back and he was having none of it.	Ôi nhưng đừng nhìn ta. Ta nhờ Kevin thoa kem chống nắng lên lưng mà nó nhất quyết không chịu.
+Text.ThirdVisit.03	…	…
+Text.ThirdVisit.04	Now from the back I look more like a radish than an onion…	Giờ nhìn từ sau ta giống củ cải đỏ hơn là củ hành…
+Text.ThirdVisit.05	But look what you brought me! How could the Council fail to be impressed?	Nhưng xem các bạn mang gì về này! Hội đồng sao mà không ấn tượng cho được?
+Text.ThirdVisit.06	"Radish or not, I’ll be home by teatime at this rate!"	"Củ cải hay không, cứ đà này ta sẽ về nhà kịp giờ trà chiều!"
+Text.ThirdVisit.07	One more trip should do it.	Thêm một chuyến nữa là xong.
+Text.ThirdVisit.08	"So, my fine chefs, dive in and bring me back a great treasure trove of tasty! Go!"	"Nào, các đầu bếp tài ba, lặn xuống và mang về cho ta cả một kho báu ngon lành! Đi!"
+Text.FourthVisit.01	Bravo! What a triumph!	Hoan hô! Thật là một chiến thắng!
+Text.FourthVisit.02	"And perfect timing, I’ve just been on the phone to the Council!"	"Lại còn đúng lúc nữa, ta vừa gọi điện cho Hội đồng xong!"
+Text.FourthVisit.03	Bark!	Gâu!
+Text.FourthVisit.04	You spoke! Oh thank goodness…	Cậu chịu nói rồi! Ôi ơn trời…
+Text.FourthVisit.05	Bark!	Gâu!
+Text.FourthVisit.06	"Yes, so about that…"	"Ừ, chuyện đó thì…"
+Text.FourthVisit.07	"Of course, I told them about the veritable buffet our Chefs have cooked up."	"Tất nhiên ta đã kể với họ về cả một bữa buffet mà các Đầu bếp của chúng ta đã nấu."
+Text.FourthVisit.08	…	…
+Text.FourthVisit.09	And you see…well apparently nearly bringing about the end of the world…	Và các bạn thấy đấy…hình như suýt gây ra tận thế thì…
+Text.FourthVisit.10	Bark!	Gâu!
+Text.FourthVisit.11	"Twice, yes…."	"Hai lần, ừ…."
+Text.FourthVisit.12	Well they said…well apparently that calls for a more than a scrummy spread.	Thì họ bảo…hình như chuyện đó cần nhiều hơn một bữa tiệc ngon lành.
+Text.FourthVisit.13	Kevin?	Kevin?
+Text.FourthVisit.14	….	….
+Text.FourthVisit.15	Hrumph.	Hừm.
+Text.FourthVisit.16	"But worry not my champions, we’ll find a way back to the Onion Kingdom!"	"Nhưng đừng lo, các nhà vô địch của ta, chúng ta sẽ tìm được đường về Vương quốc Hành!"
+Text.FourthVisit.17	"And till then, the sun is still shining, and summer is all about you."	"Còn từ giờ tới lúc đó, mặt trời vẫn chiếu sáng, và mùa hè là của các bạn."
+Text.FourthVisit.18	"And with all this food…why, there is enough for a party!"	"Mà với ngần này đồ ăn…chà, đủ để mở tiệc luôn!"
+Text.FourthVisit.19	Who’s up for starting a conga line?!	Ai muốn nhảy conga nào?!
+Text.FourthVisit.20	Kevin?	Kevin?
+Text.FourthVisit.21	Kevin?	Kevin?
+Text.DLC01.Name	Too Many Cooks	Too Many Cooks
+Text.DLC02.Name	Surf 'n' Turf	Surf 'n' Turf
+Text.DLC01.Description	"Grab your aprons, fire up those stoves and assemble the tastiest team yet!\n\nWith the help of these spicy new Chefs you’ll be chopping, frying and serving your way to culinary greatness in no time!\n\nThey’ve got style, panache and the skills to match!"	"Đeo tạp dề, nhóm bếp lên và lập ngay đội hình ngon nhất từ trước tới nay!\n\nCó các Đầu bếp mới cay nồng này giúp sức, bạn sẽ thái, chiên và phục vụ thẳng tới đỉnh cao ẩm thực trong nháy mắt!\n\nHọ có phong cách, có khí chất và tay nghề cũng chẳng kém!"
+Text.DLC02.Description	"Get your sunglasses on, gather your chefs and fire up the barbecue… IT’S TIME TO GO TO THE BEACH!\n\nYou’ll be having a whale of a time, cooking up kebab skewers and smoothies as the ever so exotic parrot chef, the spicy skillful island chef and a returning hero chef from Overcooked!"	"Đeo kính râm, tập hợp đầu bếp và nhóm lò BBQ… ĐÃ ĐẾN LÚC RA BIỂN RỒI!\n\nBạn sẽ có những giây phút tuyệt vời, nướng thịt xiên và xay sinh tố trong vai chú vẹt đầu bếp đậm chất nhiệt đới, chàng đầu bếp đảo xa tài hoa nóng bỏng và một đầu bếp anh hùng trở lại từ Overcooked!"
+Text.DLC.ContinueGame	Continue	Tiếp tục
+Text.DLC.NewGame	New Game	Trò chơi mới
+Text.DLC.LoadGame	Load Game	Tải trò chơi
+Text.Theme.Resort	ROASTED RESORT	KHU NGHỈ NẮNG CHÁY
+Text.Theme.Beach	BAKING BEACHES	BÃI BIỂN NÓNG BỎNG
+Text.Menu.Placeholder	Placeholder	Tạm thời
+Text.Button.Store	STORE	CỬA HÀNG
+Text.Button.DLC	EXTRAS	MỞ RỘNG
+Text.Menu.DLCTitle	DOWNLOADABLE CONTENT	NỘI DUNG TẢI THÊM
+Text.Menu.ThemeLocked01	Surf 'n' Turf now available from the Store	Surf 'n' Turf đã có trên Cửa hàng
+Text.Menu.DLC03Level01	1-1	1-1
+Text.Menu.DLC03Level02	1-2	1-2
+Text.Menu.DLC03Level03	1-3	1-3
+Text.Menu.DLC03Level04	1-4	1-4
+Text.Menu.DLC03Level05	1-5	1-5
+Text.Tutorial.HotChocolateTitle	HOT CHOCOLATE	SÔ-CÔ-LA NÓNG
+Text.Tutorial.HotChocolateBody	COOK MILK AND CHOPPED CHOCOLATE IN A PAN. TOP WITH CREAM AND MARSHMALLOWS!	NẤU SỮA VÀ SÔ-CÔ-LA ĐÃ THÁI TRONG CHẢO. PHỦ KEM VÀ KẸO DẺO LÊN TRÊN!
+Text.Tutorial.ChristmasDessertTitle	CHRISTMAS DESSERT	BÁNH GIÁNG SINH
+Text.Tutorial.ChristmasDessertBody	MIX FLOUR AND EGG WITH CHOPPED DRIED FRUIT AND ORANGE AND BAKE THE LOT!	TRỘN BỘT VÀ TRỨNG VỚI TRÁI CÂY KHÔ VÀ CAM ĐÃ THÁI RỒI NƯỚNG TẤT CẢ!
+Text.Theme.Wonderland	FESTIVE FEAST	ĐẠI TIỆC LỄ HỘI
+Text.Menu.Christmas.Title	Kevin's Christmas Cracker Update	Bản cập nhật Giáng sinh của Kevin
+Text.Menu.Christmas.Description	It’s that festive time of the year. Keep yourself warm with a nice mug of Hot Chocolate and a heart-warming dessert.\n\nPlay through the winter wonderland as a mischievous elf or the returning Snowman. Find the new levels under Extras > Seasonal Content!	Mùa lễ hội lại đến rồi. Giữ ấm với một cốc Sô-cô-la nóng và một món tráng miệng ấm lòng.\n\nKhám phá xứ sở mùa đông thần tiên trong vai chú yêu tinh tinh nghịch hoặc Người tuyết quay trở lại. Các màn mới nằm ở Mở rộng > Nội dung theo mùa!
+Text.DLC03.Name	SEASONAL CONTENT	NỘI DUNG THEO MÙA
+Text.DLC03.Description	Welcome to Kevin's Christmas Cracker Update. The festive season is upon us and the good citizens of the Onion Kingdom are in the mood for some Christmas cheer.  The Onion King is counting on you to satisfy this hungry mob with some hot and sugary beverages and a truck-load of fruity desserts!	Chào mừng tới Bản cập nhật Giáng sinh của Kevin. Mùa lễ hội đã tới và người dân hiền lành của Vương quốc Hành đang háo hức đón không khí Giáng sinh.  Vua Hành trông cậy cả vào bạn để làm no bụng đám đông đói meo này bằng đồ uống nóng ngọt lịm và cả xe tải món tráng miệng trái cây!
+Text.Menu.DLC04Level01	1-1	1-1
+Text.Menu.DLC04Level02	1-2	1-2
+Text.Menu.DLC04Level03	1-3	1-3
+Text.Menu.DLC04Level04	1-4	1-4
+Text.Menu.DLC04Level05	1-5	1-5
+Text.Menu.DLC04Level06	1-6	1-6
+Text.Menu.DLC04Level07	1-7	1-7
+Text.Tutorial.HotPotTitle	HOT POT	LẨU
+Text.Tutorial.HotPotBody	"ADD NOODLES, CHOPPED MEAT/PRAWNS AND BOK CHOY TO THE WOK.  MOVE THE WOK OVER THE HEAT TO COOK."	"CHO MÌ, THỊT/TÔM ĐÃ THÁI VÀ CẢI THÌA VÀO CHẢO WOK.  ĐẶT CHẢO LÊN LỬA ĐỂ NẤU."
+Text.Tutorial.FruitPlattertTitle	FRUIT PLATTER	ĐĨA TRÁI CÂY
+Text.Tutorial.FruitPlatterBody	"CHOP ORANGES, PEACHES AND GRAPES. COMBINE ON A PLATE AND SERVE!"	"THÁI CAM, ĐÀO VÀ NHO. BÀY LÊN ĐĨA RỒI PHỤC VỤ!"
+Text.Theme.Lunar	DYNASTY DINERS	QUÁN ĂN HOÀNG TRIỀU
+Text.Menu.Lunar.Title	CHINESE NEW YEAR UPDATE	CẬP NHẬT TẾT NGUYÊN ĐÁN
+Text.DLC04.Description	"Let's celebrate with a bowl of hot noodles, followed by a platter of juicy fruits! Play through this delightful adventure as the majestic Dragon chef or the lucky Year of the Pig chef. "	"Cùng ăn mừng với một bát mì nóng hổi, rồi tới đĩa trái cây mọng nước! Trải nghiệm cuộc phiêu lưu thú vị này trong vai đầu bếp Rồng uy nghi hoặc đầu bếp Heo may mắn. "
+Text.DLC04.Name	Chinese New Year Update	Cập nhật Tết Nguyên Đán
+Text.CombinedDLC.Name	Seasonal Updates	Cập nhật theo mùa
+Text.Menu.DLC05Level01	1-1	1-1
+Text.Menu.DLC05Level02	1-2	1-2
+Text.Menu.DLC05Level03	1-3	1-3
+Text.Menu.DLC05Level04	1-4	1-4
+Text.Menu.DLC05Level05	2-1	2-1
+Text.Menu.DLC05Level06	2-2	2-2
+Text.Menu.DLC05Level07	2-3	2-3
+Text.Menu.DLC05Level08	2-4	2-4
+Text.Menu.DLC05Level09	3-1	3-1
+Text.Menu.DLC05Level10	3-2	3-2
+Text.Menu.DLC05Level11	3-3	3-3
+Text.Menu.DLC05Level12	3-4	3-4
+Text.Menu.DLC05HiddenLevel01	Kevin 1	Kevin 1
+Text.Menu.DLC05HiddenLevel02	Kevin 2	Kevin 2
+Text.Menu.DLC05HiddenLevel03	Kevin 3	Kevin 3
+Text.Menu.DLC05ThroneRoom01	Throne Room	Phòng Ngai Vàng
+Text.Menu.DLC05ThroneRoom02	Throne Room	Phòng Ngai Vàng
+Text.Menu.DLC05ThroneRoom03	Throne Room	Phòng Ngai Vàng
+Text.Menu.DLC05ThroneRoom04	Throne Room	Phòng Ngai Vàng
+Text.DLC05.Name	Campfire Cook Off	Campfire Cook Off
+Text.DLC05.Description	"Backpacks? Check. Tents and bedrolls? Check. Okay, let's get ready to see the great outdoors!\n\nWe'll be sitting by the campfire, eating some delicious s'mores and cooked breakfasts all prepared by our 4 brand new woodland-themed chefs!\n\nCampfire Cook Off is available separately or as part of the Season Pass."	"Ba lô? Xong. Lều và túi ngủ? Xong. Được rồi, sẵn sàng khám phá thiên nhiên hoang dã nào!\n\nChúng ta sẽ ngồi quanh lửa trại, thưởng thức bánh s'mores thơm ngon và bữa sáng nóng hổi do 4 đầu bếp mới toanh mang phong cách rừng xanh chuẩn bị!\n\nCampfire Cook Off được bán riêng hoặc có trong Season Pass."
+Text.SmoreTutorial.Title	S'MORES	BÁNH S'MORES
+Text.SmoreTutorial.Body	"COMBINE COOKED MARSHMALLOW, CHOPPED FILLINGS AND CRACKERS. ADD CHOPPED WOOD TO THE FIRE TO KEEP HEAT GOING."	"KẸP KẸO DẺO ĐÃ NƯỚNG, NHÂN ĐÃ THÁI VÀ BÁNH QUY. THÊM CỦI ĐÃ CHẺ VÀO LỬA ĐỂ GIỮ NHIỆT."
+Text.BreakfastTutorial.Title	COOKED BREAKFAST	BỮA SÁNG NÓNG
+Text.BreakfastTutorial.Body	"ADD CHOPPED MEAT, BEANS AND EGG AND COOK IN A PAN."	"CHO THỊT ĐÃ THÁI, ĐẬU VÀ TRỨNG VÀO CHẢO RỒI NẤU."
+Text.BackpackTutorial.Title	BACKPACKS	BA LÔ
+Text.BackpackTutorial.Body	PRESS <quad material=4 size=40 /> TO PICK UP THE BACKPACK. TEAM MATES PRESS <quad material=4 size=40 /> TO TAKE AN ITEM OUT.	NHẤN <quad material=4 size=40 /> ĐỂ NHẶT BA LÔ. ĐỒNG ĐỘI NHẤN <quad material=4 size=40 /> ĐỂ LẤY ĐỒ RA.
+Text.DLC05.Visit01Dialogue01	"Celebrated chefs! As you well know, The Onion Kingdom's Culinary Council didn't take too kindly to my experimental cooking…"	"Các đầu bếp lừng danh! Như các bạn đã biết, Hội đồng Ẩm thực của Vương quốc Hành chẳng ưa gì món nấu thử nghiệm của ta…"
+Text.DLC05.Visit01Dialogue02	BARK.	GÂU.
+Text.DLC05.Visit01Dialogue03	"Alright, alright! To my using an ancient evil to raise a diabolical hoard of Unbread...."	"Rồi, rồi! Chẳng ưa gì việc ta dùng một thế lực tà ác cổ xưa để hồi sinh cả một bầy Xác Bánh Mì quỷ quái...."
+Text.DLC05.Visit01Dialogue04	BARK.	GÂU.
+Text.DLC05.Visit01Dialogue05	"But I’ve cooked up a glorious idea to win back their favour and so end this exile from our beloved Kingdom…. with your aid of course, my wonderous friends."	"Nhưng ta đã nấu ra một ý tưởng tuyệt vời để giành lại thiện cảm của họ và chấm dứt cuộc lưu đày khỏi Vương quốc yêu dấu…. tất nhiên là nhờ các bạn giúp sức, những người bạn tuyệt vời của ta."
+Text.DLC05.Visit01Dialogue06	BARK.	GÂU.
+Text.DLC05.Visit01Dialogue07	It certainly is NOT foolish! Fool PROOF I would say	Nó KHÔNG hề ngốc nghếch! Phải nói là CHẮC ĂN mới đúng
+Text.DLC05.Visit01Dialogue08	Acclaimed culinarians…I have joined the Cookie Scouts!	Các bậc thầy ẩm thực…ta đã gia nhập Hội Hướng đạo Bánh quy!
+Text.DLC05.Visit01Dialogue09	…	…
+Text.DLC05.Visit01Dialogue10	What?! It’s genius! This way I shall prove my worth. I shall manifest my many inner layers!	Sao?! Thiên tài đấy chứ! Bằng cách này ta sẽ chứng minh giá trị của mình. Ta sẽ phô bày từng lớp vỏ bên trong của ta!
+Text.DLC05.Visit01Dialogue11	And what better way than to attempt the renowned “Trail Mix Trail” – an expedition which no Cookie Crusader takes on lightly.	Và còn gì tuyệt hơn là chinh phục “Đường mòn Hạt Trộn” lừng danh – chuyến thám hiểm mà không Chiến binh Bánh quy nào dám coi nhẹ.
+Text.DLC05.Visit01Dialogue12	"With your scrumptious skills, we will conquer this challenge, and be back in the Onion Kingdom by tea time! "	"Với tài nghệ ngon lành của các bạn, chúng ta sẽ vượt qua thử thách này và về tới Vương quốc Hành kịp giờ trà chiều! "
+Text.DLC05.Visit01Dialogue13	"So, let us begin our journey happy campers! Let’s cook up a forest feast!!"	"Vậy thì, bắt đầu hành trình thôi, những nhà cắm trại vui vẻ! Cùng nấu một bữa tiệc giữa rừng nào!!"
+Text.DLC05.Visit02Dialogue01	Oh bravo!! Such levels of back country collaboration!	Ôi hoan hô!! Tinh thần đồng đội giữa rừng sâu đỉnh thật!
+Text.DLC05.Visit02Dialogue02	"My chefs, you truly are naturals with nature…"	"Các đầu bếp của ta, các bạn đúng là sinh ra để hòa mình với thiên nhiên…"
+Text.DLC05.Visit02Dialogue03	And the backpacks – what a splendid idea! Glad you packed better than someone else I could mention…	Còn mấy cái ba lô – ý tưởng tuyệt vời! Mừng là các bạn biết đóng đồ hơn một kẻ nào đó mà ta có thể kể tên…
+Text.DLC05.Visit02Dialogue04	BARK.	GÂU.
+Text.DLC05.Visit02Dialogue05	Why anyone would bring a hairdryer out here is beyond me…	Ta chẳng hiểu sao lại có kẻ mang máy sấy tóc ra tận đây…
+Text.DLC05.Visit02Dialogue06	…	…
+Text.DLC05.Visit02Dialogue07	"But my friends, see, already I’ve been awarded the “S’more The Merrier” Cookie patch for cooperation. We’re on our way! "	"Nhưng các bạn xem, ta đã được trao huy hiệu Bánh quy “Càng S’more Càng Vui” vì tinh thần hợp tác rồi. Chúng ta đang đi đúng hướng! "
+Text.DLC05.Visit02Dialogue08	However this is only the beginning. The trek is long and packed with palatable peril!	Tuy nhiên đây mới chỉ là khởi đầu. Chặng đường còn dài và đầy hiểm nguy ngon miệng!
+Text.DLC05.Visit02Dialogue09	Go now - take to the treetops and bring back some breakfast…	Đi ngay - leo lên ngọn cây và mang bữa sáng về đây…
+Text.DLC05.Visit02Dialogue10	For rescuing one’s reputation really does work up an appetite!	Vì cứu vãn danh tiếng đúng là việc tốn sức đến đói bụng!
+Text.DLC05.Visit03Dialogue01	Well my goodness! That was thrilling! 	Trời đất ơi! Thật là hồi hộp!
+Text.DLC05.Visit03Dialogue02	A little too thrilling perhaps….do take care. For the Wilderness is unforgiving…reminds me of someone else I know…	Có khi hơi hồi hộp quá….cẩn thận nhé. Vì Thiên nhiên hoang dã chẳng nương tay ai…làm ta nhớ tới một kẻ quen…
+Text.DLC05.Visit03Dialogue03	BARK.	GÂU.
+Text.DLC05.Visit03Dialogue04	Well that’s just mean…	Thế thì ác quá…
+Text.DLC05.Visit03Dialogue05	"My courageous cooking maestros – for our bravery, the scouts have awarded you…"	"Những bậc thầy nấu nướng dũng cảm của ta – vì lòng can đảm, đội hướng đạo đã trao cho các bạn…"
+Text.DLC05.Visit03Dialogue06	BARK.	GÂU.
+Text.DLC05.Visit03Dialogue07	"Awarded me. Yes. They have awarded ME…YOUR KING, the “Brave Little Sausage” cookie patch."	"Trao cho ta. Phải. Họ đã trao cho TA…ĐỨC VUA CỦA CÁC BẠN, huy hiệu Bánh quy “Chú Xúc Xích Dũng Cảm”."
+Text.DLC05.Visit03Dialogue08	How could the Council refuse such daring doo? One more push should do it…	Hội đồng sao có thể từ chối một chiến công táo bạo thế này? Cố thêm chút nữa là xong…
+Text.DLC05.Visit03Dialogue09	"Up UP we must cook, to the very top of Mount Blancmange and the end of the trail!"	"Phải nấu LÊN, LÊN nữa, tới tận đỉnh núi Blancmange và cuối đường mòn!"
+Text.DLC05.Visit03Dialogue10	One could spark a camp-fire with such levels of blazing co-operation! Keep it up!	Tinh thần hợp tác rực lửa thế này đủ để nhóm cả một đống lửa trại! Cứ thế phát huy nhé!
+Text.DLC05.Visit04Dialogue01	We made it!!! Oh I knew we would! It was tough. I had to dig deep. I had to…	Chúng ta làm được rồi!!! Ôi ta biết mà! Gian nan lắm. Ta đã phải dốc hết sức. Ta đã phải…
+Text.DLC05.Visit04Dialogue02	BARK.	GÂU.
+Text.DLC05.Visit04Dialogue03	They did NOT do all the hard work. I had to…to carry this flag! Exhausting…	Họ KHÔNG làm hết việc nặng nhọc đâu. Ta đã phải…phải vác lá cờ này! Mệt muốn xỉu…
+Text.DLC05.Visit04Dialogue04	"But I was confident we would triumph! So confident, I called the Council while you were sizzling our way to success…"	"Nhưng ta tin chắc chúng ta sẽ thắng! Tin tới mức ta đã gọi cho Hội đồng ngay lúc các bạn đang xèo xèo đưa chúng ta tới thành công…"
+Text.DLC05.Visit04Dialogue05	BARK.	GÂU.
+Text.DLC05.Visit04Dialogue06	Well…	Thì…
+Text.DLC05.Visit04Dialogue07	BARK.	GÂU.
+Text.DLC05.Visit04Dialogue08	Don’t hurry me. You know public speaking makes me…	Đừng giục ta. Cậu biết nói trước đám đông làm ta…
+Text.DLC05.Visit04Dialogue09	BARK.	GÂU.
+Text.DLC05.Visit04Dialogue10	"Oh alright! No. No, they still won’t let us come home. "	"Thôi được rồi! Không. Không, họ vẫn không cho chúng ta về nhà. "
+Text.DLC05.Visit04Dialogue11	…	…
+Text.DLC05.Visit04Dialogue12	BARK.	GÂU.
+Text.DLC05.Visit04Dialogue13	…Because the Cookie Scouts is for kids. Yes…	…Vì Hướng đạo Bánh quy là dành cho trẻ con. Phải…
+Text.DLC05.Visit04Dialogue14	…	…
+Text.DLC05.Visit04Dialogue15	"But look, they gave me the most coveted patch of all – the “Friendchip” patch!"	"Nhưng xem này, họ trao cho ta huy hiệu đáng mơ ước nhất – huy hiệu “Bánh Quy Tình Bạn”!"
+Text.DLC05.Visit04Dialogue16	"Because I really do have the most terrific, most co-operative friends."	"Vì ta thật sự có những người bạn tuyệt vời và biết hợp tác nhất."
+Text.DLC05.Visit04Dialogue17	"And anyway, a Cookie Scout craves adventure!"	"Mà dù sao thì, Hướng đạo sinh Bánh quy luôn khao khát phiêu lưu!"
+Text.DLC05.Visit04Dialogue18	And there is much adventure to be had my victorious chefs!	Và còn cả đống cuộc phiêu lưu đang chờ, các đầu bếp chiến thắng của ta!
+Text.DLC05.Visit04Dialogue19	BARK.	GÂU.
+Text.DLC05.Visit04Dialogue20	That’s the spirit.	Tinh thần là thế đấy.
+Text.DLC05.Visit04Dialogue21	Now which of my fabulous friends would care to carry me back down the hill?	Giờ ai trong số những người bạn tuyệt vời của ta muốn cõng ta xuống đồi nào?
+Text.DLC05.Visit04Dialogue22	Kevin?	Kevin?
+Text.DLC05.Visit04Dialogue23	Anyone…?	Có ai không…?
+Text.Theme.Campsite	CRÈME DE LA CAMPSITE 	KHU CẮM TRẠI THƯỢNG HẠNG
+Text.Theme.Treehouse	TASTY TREE HOUSE	NHÀ CÂY NGON LÀNH
+Text.Menu.ThemeLocked02	Campfire Cook Off now available from the Store	Campfire Cook Off đã có trên Cửa hàng
+Text.DLC06.Name	All At Sea	All At Sea
+Text.DLC06.Description	"It’s time for this ragtag group of salty sea chefs to join your crew.\n\nWith this new team of savoury sailors on board, cooking in your kitchen will be plain sailing!\n\nLet’s get chopping to avoid choppy waters, batten down the hatches and prepare to cook up a storm!"	"Đã đến lúc nhóm đầu bếp thủy thủ lôi thôi mặn mòi này gia nhập đội của bạn.\n\nCó đội thủy thủ đậm đà này trên tàu, nấu nướng trong bếp sẽ thuận buồm xuôi gió!\n\nThái thật nhanh để tránh sóng gió, đóng chặt cửa khoang và chuẩn bị nấu cả một cơn bão nào!"
+Text.Menu.DLC07Level01	1-1	1-1
+Text.Menu.DLC07Level02	1-2	1-2
+Text.Menu.DLC07Level03	1-3	1-3
+Text.Menu.DLC07Level04	2-1	2-1
+Text.Menu.DLC07Level05	2-2	2-2
+Text.Menu.DLC07Level06	2-3	2-3
+Text.Menu.DLC07Level07	3-1	3-1
+Text.Menu.DLC07Level08	3-2	3-2
+Text.Menu.DLC07Level09	3-3	3-3
+Text.Menu.DLC07HiddenLevel01	Kevin 1	Kevin 1
+Text.Menu.DLC07HiddenLevel02	Kevin 2	Kevin 2
+Text.Menu.DLC07HiddenLevel03	Kevin 3	Kevin 3
+Text.Menu.DLC07Battlements01	Horde 1	Bầy đàn 1
+Text.Menu.DLC07Battlements02	Horde 2	Bầy đàn 2
+Text.Menu.DLC07Battlements03	Horde 3	Bầy đàn 3
+Text.Menu.DLC07Battlements04	Horde 4	Bầy đàn 4
+Text.Menu.DLC07Battlements05	Horde 5	Bầy đàn 5
+Text.Menu.DLC07Battlements06	Horde 6	Bầy đàn 6
+Text.Menu.DLC07Battlements07	Horde 7	Bầy đàn 7
+Text.Menu.DLC07Battlements08	Horde 8	Bầy đàn 8
+Text.Menu.DLC07ThroneRoom01	Throne Room	Phòng Ngai Vàng
+Text.Menu.DLC07ThroneRoom02	Throne Room	Phòng Ngai Vàng
+Text.Menu.DLC07ThroneRoom03	Throne Room	Phòng Ngai Vàng
+Text.Menu.DLC07ThroneRoom04	Throne Room	Phòng Ngai Vàng
+Text.Menu.DLC07ThroneRoom05	Throne Room	Phòng Ngai Vàng
+Text.DLC07.Name	Night of the Hangry Horde	Night of the Hangry Horde
+Text.DLC07.Description	"The Onion Kingdom is under attack once again, but this time the enemy have brought friends.\n\nIncludes new tasty recipes, four extra chefs, twelve creepy new kitchens and eight all new horde wave levels.\n\nNight of the Hangry Horde is available separately or as part of the Season Pass."	"Vương quốc Hành lại bị tấn công, nhưng lần này kẻ thù còn rủ thêm bạn bè.\n\nGồm các công thức ngon mới, bốn đầu bếp mới, mười hai căn bếp mới rùng rợn và tám màn Bầy đàn hoàn toàn mới.\n\nNight of the Hangry Horde được bán riêng hoặc có trong Season Pass."
+Text.Theme.Keep	DREADFUL DUNGEONS	HẦM NGỤC KINH HOÀNG
+Text.Theme.Courtyard	CREEPY COURTYARD	SÂN TRONG RỢN NGƯỜI
+Text.Theme.Battlements	BEASTLY BATTLEMENTS	TƯỜNG THÀNH QUỶ QUÁI
+Horde.Wave	Wave [Number]/[NumberMax]	Đợt [Number]/[NumberMax]
+Horde.Wave.Health	Health	Máu
+Text.GuillotineTutorial.Title	GUILLOTINE & SOUP	MÁY CHÉM & SÚP
+Text.GuillotineTutorial.Body	Put whole ingredients on the Guillotine and press the button to chop. Combine chopped ingredients in a pot to make Soup.	Đặt nguyên liệu nguyên vẹn lên Máy chém rồi nhấn nút để thái. Cho nguyên liệu đã thái vào nồi để nấu Súp.
+Text.RoastTutorial.Title	FURNACE & ROAST DINNERS	LÒ ĐỐT & MÓN NƯỚNG
+Text.RoastTutorial.Body	Put meat and chopped veg in a roasting tray and place in an oven to cook. Add coal to the furnace with the bucket to increase heat.	Cho thịt và rau đã thái vào khay nướng rồi đặt vào lò để nấu. Dùng xô thêm than vào lò đốt để tăng nhiệt.
+Text.FruitPietutorial.Title	FRUITS PIES	BÁNH NƯỚNG TRÁI CÂY
+Text.FruitPietutorial.Body	"Add flour, egg and chopped fruit to mixing bowl and cook in the oven."	"Cho bột, trứng và trái cây đã thái vào bát trộn rồi nướng trong lò."
+Text.HordeModeTutorial.Title	HORDE LEVELS	MÀN BẦY ĐÀN
+Text.HordeModeTutorial.Body	"Feed enemies to stop them breaking through and damaging the kitchen. Use money earned from serving meals to repair the barriers. If kitchen health reaches 0, it's game over!"	"Cho kẻ địch ăn để ngăn chúng phá vào và làm hư hại bếp. Dùng tiền kiếm được khi phục vụ món để sửa rào chắn. Nếu máu của bếp về 0 là thua!"
+Text.HordeModeEnemiesTutorial.Title	NEW ENEMY TYPES	KẺ ĐỊCH MỚI
+Text.HordeModeEnemiesTutorial.Body	The zombie chili pepper has fast attacks and high mobility.	Ớt zombie tấn công nhanh và di chuyển rất linh hoạt.
+Text.HordeModeEnemiesTutorial2.Body	"The zombie apple is slow, causes huge damage and requires two meals to defeat."	"Táo zombie chậm chạp, gây sát thương cực lớn và phải cho ăn hai món mới hạ được."
+Text.HordeModeGatesTutorial.Title	UNLOCKABLE GATES	CỔNG MỞ KHÓA
+Text.HordeModeGatesTutorial.Body	Use money to unlock gates to gain access to shortcuts and extra cooking stations.	Dùng tiền mở khóa cổng để đi đường tắt và có thêm trạm nấu.
+Text.HordeMode.Passed	HORDE DEFEATED	ĐÃ ĐẨY LÙI BẦY ĐÀN
+Text.HordeMode.Failed	KITCHEN DESTROYED	BẾP BỊ PHÁ HỦY
+Text.DLC07.Visit01.Dialogue01	My friends! What an opportune meeting!	Các bạn của ta! Gặp nhau đúng lúc quá!
+Text.DLC07.Visit01.Dialogue02	"How come you find me here, you ask?"	"Các bạn hỏi sao lại thấy ta ở đây à?"
+Text.DLC07.Visit01.Dialogue03	"Have the Council forgiven and forgotten all my past misdemeanours? After my many noble attempts to overturn our exile, have they at last seen sense?"	"Phải chăng Hội đồng đã bỏ qua mọi lỗi lầm xưa của ta? Sau bao nỗ lực cao cả nhằm xóa án lưu đày, cuối cùng họ đã sáng mắt ra?"
+Text.DLC07.Visit01.Dialogue04	No. No I sneaked in through the dog flap.	Không. Không, ta lẻn vào qua cửa cho chó.
+Text.DLC07.Visit01.Dialogue05	BARK.	GÂU.
+Text.DLC07.Visit01.Dialogue06	And you used the front door. Yes. Clever dog. 	Còn cậu thì đi cửa trước. Ừ. Chó khôn lắm.
+Text.DLC07.Visit01.Dialogue07	"But my chefs, you’ll never believe what we found – chaos. Utter chaos!!"	"Nhưng các đầu bếp ơi, các bạn sẽ không tin nổi chúng ta đã thấy gì đâu – hỗn loạn. Hỗn loạn tột độ!!"
+Text.DLC07.Visit01.Dialogue08	"It appears that, in our absence, a temping turnip was brought in to take on the admin…"	"Có vẻ như lúc vắng chúng ta, người ta đã thuê một củ cải thời vụ về lo giấy tờ…"
+Text.DLC07.Visit01.Dialogue09	BARK.	GÂU.
+Text.DLC07.Visit01.Dialogue10	"I know, I know. And while archiving the Necronomnomicon, the said neep took photos of every page – and accidentally uploaded them onto a popular social platform!!"	"Ta biết, ta biết. Và trong lúc lưu trữ cuốn Necronomnomicon, củ cải đó đã chụp ảnh từng trang – rồi lỡ tay đăng hết lên một mạng xã hội nổi tiếng!!"
+Text.DLC07.Visit01.Dialogue11	"The long and short is that across the Onion Kingdom, our more amateur chefs have been “baking this at home” so to speak."	"Nói tóm lại là khắp Vương quốc Hành, đám đầu bếp nghiệp dư đã thi nhau “làm thử tại nhà” rồi."
+Text.DLC07.Visit01.Dialogue12	And now…well now we have a hungry horde of expired edibles heading our way.	Và giờ thì…giờ có cả một bầy đồ ăn hết hạn đói meo đang kéo tới.
+Text.DLC07.Visit01.Dialogue13	BARK.	GÂU.
+Text.DLC07.Visit01.Dialogue14	What do you mean? Don’t you see? This is a perfect opportunity to prove ourselves!	Ý cậu là sao? Cậu không thấy à? Đây là cơ hội hoàn hảo để chứng tỏ bản thân!
+Text.DLC07.Visit01.Dialogue15	"My feted chefs, only uncanny levels of co-operation can save the day….and my reputation."	"Các đầu bếp lừng danh của ta, chỉ có tinh thần hợp tác phi thường mới cứu được tình thế….và danh tiếng của ta."
+Text.DLC07.Visit01.Dialogue16	"If we can beat this hideous horde, the Council will have to let us come back! We’ll be home!!"	"Nếu đánh bại được bầy đàn gớm ghiếc này, Hội đồng buộc phải cho chúng ta về! Chúng ta sẽ được về nhà!!"
+Text.DLC07.Visit01.Dialogue17	BARK!	GÂU!
+Text.DLC07.Visit01.Dialogue18	"So, my courageous cooks, put your bravest foot forward and sharpen those skills before the horde is at our walls! Go!"	"Vậy thì, các đầu bếp can đảm của ta, hãy dũng cảm tiến lên và mài giũa kỹ năng trước khi bầy đàn tràn tới tường thành! Đi!"
+Text.DLC07.Visit02.Dialogue01	Outstanding! And just in time – the horde is advancing!	Xuất sắc! Và vừa kịp lúc – bầy đàn đang tiến tới!
+Text.DLC07.Visit02.Dialogue02	Oooh do I get to do a battle speech? How exciting!	Ôôô ta được đọc diễn văn ra trận à? Thích quá!
+Text.DLC07.Visit02.Dialogue03	BARK.	GÂU.
+Text.DLC07.Visit02.Dialogue04	"Oh shush, you can do the next one."	"Suỵt nào, lần sau cho cậu đọc."
+Text.DLC07.Visit02.Dialogue05	My cooking Cavalry…	Đội Kỵ binh Bếp núc của ta…
+Text.DLC07.Visit02.Dialogue06	"A day may come when the cooking of chefs fails, when we forsake our fry-ups and burn all buns of co-operation, but it is not this day…"	"Rồi sẽ có ngày tay nghề đầu bếp lụi tàn, khi ta bỏ mặc chảo rán và đốt cháy mọi chiếc bánh hợp tác, nhưng không phải hôm nay…"
+Text.DLC07.Visit02.Dialogue07	(Gosh that DID feel good.)	(Trời, nói xong sướng THẬT.)
+Text.DLC07.Visit02.Dialogue08	TO THE BATTLEMENTS!!!	LÊN TƯỜNG THÀNH!!!
+Text.DLC07.Visit03.Dialogue01	My dear friends! I see you have no fear of the dark.	Các bạn thân mến! Ta thấy các bạn chẳng sợ bóng tối chút nào.
+Text.DLC07.Visit03.Dialogue02	Such supernatural levels of co-operation!	Tinh thần hợp tác siêu nhiên thật!
+Text.DLC07.Visit03.Dialogue03	But the fight is not over. The horde is once more at our gates and their hunger ever increases.	Nhưng trận chiến chưa kết thúc. Bầy đàn lại kéo tới cổng thành và cơn đói của chúng ngày càng tăng.
+Text.DLC07.Visit03.Dialogue04	SO ONCE MORE UNTO…	VẬY THÌ MỘT LẦN NỮA…
+Text.DLC07.Visit03.Dialogue05	BARK.	GÂU.
+Text.DLC07.Visit03.Dialogue06	Oh ok. Your turn. Fine.	Ồ được thôi. Tới lượt cậu. Được.
+Text.DLC07.Visit03.Dialogue07	…BARK.	…GÂU.
+Text.DLC07.Visit03.Dialogue08	Oh Kevin.	Ôi Kevin.
+Text.DLC07.Visit03.Dialogue09	…	…
+Text.DLC07.Visit03.Dialogue10	That was just…oh don’t look at me. Such emotion is unbecoming to a leader.	Thật là…ôi đừng nhìn ta. Xúc động thế này chẳng hợp với một vị lãnh đạo.
+Text.DLC07.Visit03.Dialogue11	BARK.	GÂU.
+Text.DLC07.Visit03.Dialogue12	You heard what he said. To the battlements! CHAAAAAAAARGE!!!	Các bạn nghe nó nói rồi đấy. Lên tường thành! XUNG PHONGGGGG!!!
+Text.DLC07.Visit04.Dialogue01	Victory is almost ours!	Chiến thắng sắp thuộc về chúng ta!
+Text.DLC07.Visit04.Dialogue02	"You have conquered ghoulish guillotines, frightful furnaces and all manner of things that go bump in the night."	"Các bạn đã chinh phục máy chém ma quái, lò đốt đáng sợ và đủ thứ ma quỷ lục cục trong đêm."
+Text.DLC07.Visit04.Dialogue03	The horde will rue the day of that turnip’s terrible administrative error!	Bầy đàn sẽ phải hối hận vì lỗi giấy tờ tai hại của củ cải kia!
+Text.DLC07.Visit04.Dialogue04	BARK.	GÂU.
+Text.DLC07.Visit04.Dialogue05	"In the name of the Onion Kingdom, take to the battlements and send those mouldy monsters to the back of the fridge from which they came!"	"Nhân danh Vương quốc Hành, hãy lên tường thành và tống lũ quái vật mốc meo về lại góc tủ lạnh nơi chúng chui ra!"
+Text.DLC07.Visit04.Dialogue06	"ONCE MORE UNTO THE BRUNCH, DEAR FRIENDS, ONCE MORE!!!!"	"MỘT LẦN NỮA XÔNG VÀO BỮA BRUNCH, CÁC BẠN ƠI, MỘT LẦN NỮA!!!!"
+Text.DLC07.Visit05.Dialogue01	THE DAY IS OURS!!	CHIẾN THẮNG LÀ CỦA CHÚNG TA!!
+Text.DLC07.Visit05.Dialogue02	BARK!	GÂU!
+Text.DLC07.Visit05.Dialogue03	It seems the horde are so stuffed they’re going home for a little sleep. Bravo!	Hình như bầy đàn no căng bụng nên về nhà đánh một giấc rồi. Hoan hô!
+Text.DLC07.Visit05.Dialogue04	My brave gourmets. You have yet again saved the Kingdom from peril with your commendable collaboration.	Những đầu bếp sành ăn dũng cảm của ta. Một lần nữa các bạn đã cứu Vương quốc khỏi hiểm họa nhờ tinh thần hợp tác đáng nể.
+Text.DLC07.Visit05.Dialogue05	"And once more my reputation is restored as a great, inspiring, bold…."	"Và một lần nữa danh tiếng của ta được khôi phục, một vị vua vĩ đại, truyền cảm hứng, can trường…."
+Text.DLC07.Visit05.Dialogue06	BARK.	GÂU.
+Text.DLC07.Visit05.Dialogue07	Silly old Onion King...	Vua Hành già ngốc nghếch...
+Text.DLC07.Visit05.Dialogue08	…with wonderful clever friends.	…có những người bạn tuyệt vời và thông minh.
+Text.DLC07.Visit05.Dialogue09	BARK.	GÂU.
+Text.DLC07.Visit05.Dialogue10	I know you do.	Ta biết mà.
+Text.DLC07.Visit05.Dialogue11	"My chefs, we are newly in your debt. And our Kingdom is yours. Get out there and cook to your heart’s content!"	"Các đầu bếp của ta, chúng ta lại mang ơn các bạn. Và Vương quốc này là của các bạn. Ra ngoài kia và nấu nướng thỏa thích đi!"
+Text.DLC07.Visit05.Dialogue12	Oooh it is so GOOD to be home…	Ôôô được về nhà thật là TUYỆT…
+Text.Menu.HealthRemaining	Kitchen Health Remaining	Máu bếp còn lại
+Text.Menu.MoneyEarned	Money Earned	Tiền kiếm được
+Text.Menu.EnemiesDefeated	Enemies Defeated	Kẻ địch bị hạ
+Text.HordeModeWorldMapPopUp.Title	HORDE LEVELS	MÀN BẦY ĐÀN
+Text.HordeModeWorldMapPopUp.Body	In Horde levels defend your kitchen against waves of mouldy monsters!	Ở các màn Bầy đàn, hãy bảo vệ bếp trước từng đợt quái vật mốc meo!
+Text.Menu.ThemeLocked03	Night of the Hangry Horde now available from the Store	Night of the Hangry Horde đã có trên Cửa hàng
+Text.Menu.DLC08Level01	1-1	1-1
+Text.Menu.DLC08Level02	1-2	1-2
+Text.Menu.DLC08Level03	1-3	1-3
+Text.Menu.DLC08Level04	1-4	1-4
+Text.Menu.DLC08Level05	2-1	2-1
+Text.Menu.DLC08Level06	2-2	2-2
+Text.Menu.DLC08Level07	2-3	2-3
+Text.Menu.DLC08Level08	2-4	2-4
+Text.Menu.DLC08Level09	3-1	3-1
+Text.Menu.DLC08Level10	3-2	3-2
+Text.Menu.DLC08Level11	3-3	3-3
+Text.Menu.DLC08Level12	3-4	3-4
+Text.Menu.DLC08HiddenLevel01	Kevin 1	Kevin 1
+Text.Menu.DLC08HiddenLevel02	Kevin 2	Kevin 2
+Text.Menu.DLC08HiddenLevel03	Kevin 3	Kevin 3
+Text.Menu.DLC08ThroneRoom01	Throne Room	Phòng Ngai Vàng
+Text.Menu.DLC08ThroneRoom02	Throne Room	Phòng Ngai Vàng
+Text.Menu.DLC08ThroneRoom03	Throne Room	Phòng Ngai Vàng
+Text.Menu.DLC08ThroneRoom04	Throne Room	Phòng Ngai Vàng
+Text.DLC08.Name	Carnival of Chaos	Carnival of Chaos
+Text.DLC08.Description	"Roll up, roll up, a culinary carnival has come to the Onion Kingdom!\n\nTrapeze your way through 15 new levels, 4 new chefs and new recipes.\n\nCarnival of Chaos is available separately or as part of the Season Pass."	"Lại đây, lại đây, một lễ hội ẩm thực đã tới Vương quốc Hành!\n\nNhào lộn qua 15 màn mới, 4 đầu bếp mới và các công thức mới.\n\nCarnival of Chaos được bán riêng hoặc có trong Season Pass."
+Text.Theme.Tent	TUMBLING TENTS	LỀU XIẾC NHÀO LỘN
+Text.Theme.CircusGrounds	SALTY CIRCUS	RẠP XIẾC MẶN MÒI
+Text.MealDeals.Title	MEAL DEALS	SUẤT COMBO
+Text.MealDeals.Body	Cook a main dish and a side dish or two. Combine on a tray before serving.	Nấu một món chính và một hoặc hai món phụ. Gộp lên khay trước khi phục vụ.
+Text.Cannons.Title	CANNONS	ĐẠI BÁC
+Text.Cannons.Body	Jump into the front of the cannon and press the button to fly!	Nhảy vào đầu nòng đại bác và nhấn nút để bay!
+Text.Hotdogs.Condiments.Title	HOTDOGS & CONDIMENTS	HOTDOG & NƯỚC SỐT
+Text.Hotdogs.Condiments.Body	Add a boiled sausage to a chopped bun to make a hotdog. Press the button to change condiment type. Place the plated hotdog into the condiment machine.	Cho xúc xích luộc vào bánh mì đã cắt để làm hotdog. Nhấn nút để đổi loại nước sốt. Đặt hotdog đã bày đĩa vào máy nước sốt.
+Text.Donuts.Title	DONUTS	BÁNH DONUT
+Text.Donuts.Body	"Mix flour, egg, chopped filling and then deep fry."	"Trộn bột, trứng, nhân đã thái rồi đem chiên ngập dầu."
+Text.DrinksMachine.Title	DRINKS MACHINE	MÁY ĐỒ UỐNG
+Text.DrinksMachine.Body	Press the button to change the drink type. Take the drink from the machine and place on a tray.	Nhấn nút để đổi loại đồ uống. Lấy đồ uống từ máy rồi đặt lên khay.
+Text.DLC08.Visit01.Dialogue01	Oh my dear friends!	Ôi các bạn thân mến!
+Text.DLC08.Visit01.Dialogue02	BARK! BARK!	GÂU! GÂU!
+Text.DLC08.Visit01.Dialogue03	Welcome to The Great Carnival of Chaos! It warms my heart to see you. Thank you for accepting my invitation!	Chào mừng tới Đại Lễ hội Hỗn loạn! Gặp lại các bạn ta vui lắm. Cảm ơn đã nhận lời mời của ta!
+Text.DLC08.Visit01.Dialogue04	BARK!	GÂU!
+Text.DLC08.Visit01.Dialogue05	Our Invitation.	Lời mời của chúng ta.
+Text.DLC08.Visit01.Dialogue06	BARK!	GÂU!
+Text.DLC08.Visit01.Dialogue07	That is not true…I licked the envelopes.	Đâu có đúng…ta đã liếm phong bì mà.
+Text.DLC08.Visit01.Dialogue08	"With your aid, my clever cooks, we are finally home. And to celebrate, there shall be merrymaking such as the Onion Kingdom has never seen! A veritable CARNAVAL of the senses! Clowns, acrobats, HOT DOGS!!"	"Nhờ các bạn giúp sức, những đầu bếp thông minh của ta, cuối cùng chúng ta đã về nhà. Và để ăn mừng, sẽ có cuộc vui mà Vương quốc Hành chưa từng thấy! Một LỄ HỘI đích thực cho mọi giác quan! Chú hề, diễn viên nhào lộn, HOTDOG!!"
+Text.DLC08.Visit01.Dialogue09	BARK!	GÂU!
+Text.DLC08.Visit01.Dialogue10	Do you seriously think anyone would be able to get you in a bun?	Cậu nghĩ thật là có ai nhét được cậu vào bánh mì à?
+Text.DLC08.Visit01.Dialogue11	….	….
+Text.DLC08.Visit01.Dialogue12	I didn’t think so. Think before you speak. That’s what you’re always telling me.	Ta nghĩ là không. Nghĩ trước khi nói. Cậu toàn bảo ta thế còn gì.
+Text.DLC08.Visit01.Dialogue13	BARK.	GÂU.
+Text.DLC08.Visit01.Dialogue14	We’re all over-excited. It’s a very exciting day!	Ai cũng phấn khích quá rồi. Hôm nay là một ngày cực kỳ phấn khích mà!
+Text.DLC08.Visit01.Dialogue15	"But my chivalrous Chefs, as you can see, we’re not at all set up for a party. Where is the colour, the flare, THE FOOD?!"	"Nhưng các Đầu bếp hào hiệp của ta, như các bạn thấy, chúng ta chưa chuẩn bị gì cho bữa tiệc cả. Màu sắc đâu, sự rực rỡ đâu, ĐỒ ĂN ĐÂU?!"
+Text.DLC08.Visit01.Dialogue16	And that’s where you come in.  We need you to bring…the flavour!	Và đó là lúc các bạn ra tay.  Chúng ta cần các bạn mang về…hương vị!
+Text.DLC08.Visit01.Dialogue17	"So go, scour the Kingdom for all that makes it special!"	"Vậy đi đi, lùng khắp Vương quốc tìm mọi thứ làm nên nét đặc biệt của nó!"
+Text.DLC08.Visit01.Dialogue18	"With your hunger for fun, the party will be in full swing in no time! PARTY ON!!"	"Với cơn đói vui chơi của các bạn, bữa tiệc sẽ sôi động ngay thôi! QUẨY LÊN NÀO!!"
+Text.DLC08.Visit02.Dialogue01	YES CHEF!	RÕ, BẾP TRƯỞNG!
+Text.DLC08.Visit02.Dialogue02	BARK!	GÂU!
+Text.DLC08.Visit02.Dialogue03	"How brilliant of you. Of course, you brought back the essence of the Onion Kingdom – Co-operation!"	"Các bạn giỏi quá. Tất nhiên rồi, các bạn đã mang về tinh túy của Vương quốc Hành – Sự hợp tác!"
+Text.DLC08.Visit02.Dialogue04	"Smooth…velvety and…yes…yes, I’m getting a slight undertone of chaos and resentment…delicious!"	"Mượt mà…êm như nhung và…đúng rồi…đúng rồi, ta cảm nhận được chút dư vị hỗn loạn và hậm hực…ngon tuyệt!"
+Text.DLC08.Visit02.Dialogue05	"And look, the celebrations are already heating up…"	"Và xem kìa, không khí lễ hội đã nóng dần lên rồi…"
+Text.DLC08.Visit02.Dialogue06	"But this isn’t a tea party we’re having here, it’s the shindig of the CENTURY!"	"Nhưng đây đâu phải tiệc trà, đây là bữa tiệc linh đình của THẾ KỶ!"
+Text.DLC08.Visit02.Dialogue07	WE NEED A SMORGASBORD OF SCRUMPTIOUS.	CHÚNG TA CẦN CẢ MỘT BÀN TIỆC NGON LÀNH.
+Text.DLC08.Visit02.Dialogue08	BARK.	GÂU.
+Text.DLC08.Visit02.Dialogue09	"Oh, so now I’m overexcited? Party pooper."	"Ồ, giờ thì ta lại là kẻ phấn khích quá à? Đồ phá đám."
+Text.DLC08.Visit02.Dialogue10	"Journey the jubilee, Canvas the Carnival and BRING BACK MORE FLAVOURS!"	"Rong ruổi khắp lễ hội, lùng sục Rạp xiếc và MANG VỀ THÊM HƯƠNG VỊ!"
+Text.DLC08.Visit03.Dialogue01	Ah our guests of honour!	À, các vị khách danh dự của chúng ta!
+Text.DLC08.Visit03.Dialogue02	What have you brought for the banquet this time? Let’s see….	Lần này các bạn mang gì về cho bữa tiệc đây? Xem nào….
+Text.DLC08.Visit03.Dialogue03	"Why goodness, this is my favourite flavour - Culinary Communication!!"	"Trời ơi, đây là hương vị ta thích nhất - Giao tiếp Ẩm thực!!"
+Text.DLC08.Visit03.Dialogue04	It’s the sweet and sour that makes our Kingdom strong and Great. Delicious!	Chính vị chua ngọt này làm nên sức mạnh và sự Vĩ đại của Vương quốc. Ngon tuyệt!
+Text.DLC08.Visit03.Dialogue05	BARK!	GÂU!
+Text.DLC08.Visit03.Dialogue06	"Indeed, how could we celebrate without it?"	"Đúng vậy, sao mà ăn mừng thiếu nó được?"
+Text.DLC08.Visit03.Dialogue07	At this rate our party will make history! And it’s nearly time!	Cứ đà này bữa tiệc của chúng ta sẽ đi vào lịch sử! Và sắp tới giờ rồi!
+Text.DLC08.Visit03.Dialogue08	BARK!	GÂU!
+Text.DLC08.Visit03.Dialogue09	"Oh gosh you’re right! What to wear, what to wear…?"	"Ôi trời cậu nói đúng! Mặc gì đây, mặc gì đây…?"
+Text.DLC08.Visit03.Dialogue10	"Quickly chefs, while Kevin and I prepare, search the circus for the final ingredient for our celebrations."	"Nhanh lên các đầu bếp, trong lúc ta và Kevin chuẩn bị, hãy lùng khắp rạp xiếc tìm nguyên liệu cuối cùng cho lễ ăn mừng."
+Text.DLC08.Visit03.Dialogue11	Choose wisely! Go!	Chọn cho khéo nhé! Đi!
+Text.DLC08.Visit04.Dialogue01	PARTY TIME!!!	GIỜ TIỆC TÙNG!!!
+Text.DLC08.Visit04.Dialogue02	BARK!!	GÂU!!
+Text.DLC08.Visit04.Dialogue03	What a journey we have been on….and how far you have come!	Chúng ta đã đi một hành trình dài….và các bạn đã tiến bộ biết bao!
+Text.DLC08.Visit04.Dialogue04	"Why, together you have fought the Unbread, taken on tropical tides, ascended mountains and travelled the world!"	"Chà, cùng nhau các bạn đã chiến đấu với Lũ Xác Bánh Mì, vượt sóng nhiệt đới, chinh phục núi cao và đi khắp thế giới!"
+Text.DLC08.Visit04.Dialogue05	"You have screamed, laughed, yelled and co-operated your way to tasty triumph and by so doing, have brought joy to our shores."	"Các bạn đã la hét, cười đùa, quát tháo và hợp tác để tới chiến thắng ngon lành, và nhờ thế đã mang niềm vui về với đất nước ta."
+Text.DLC08.Visit04.Dialogue06	"Why of course, YOU are the most important ingredient in the Onion Kingdom!"	"Tất nhiên rồi, CÁC BẠN chính là nguyên liệu quan trọng nhất của Vương quốc Hành!"
+Text.DLC08.Visit04.Dialogue07	BARK!	GÂU!
+Text.DLC08.Visit04.Dialogue08	Without you we would never have made it home.	Không có các bạn, chúng ta đã chẳng bao giờ về được nhà.
+Text.DLC08.Visit04.Dialogue09	"Thank you, our wondrous chefs, our fine friends. This celebration is for YOU."	"Cảm ơn các bạn, những đầu bếp tuyệt vời, những người bạn tốt của chúng ta. Lễ ăn mừng này là dành cho CÁC BẠN."
+Text.DLC08.Visit04.Dialogue10	BARK!	GÂU!
+Text.DLC08.Visit04.Dialogue11	You’re right. Enough with the Soft Serve. It’s time to PARTY!!	Cậu nói đúng. Đủ sến súa rồi. Đến giờ QUẨY thôi!!
+Text.DLC08.Visit04.Dialogue12	"Take in the sights, the sounds, the FLAVOURS!!"	"Ngắm cảnh, nghe âm thanh, nếm HƯƠNG VỊ!!"
+Text.DLC08.Visit04.Dialogue13	Our world is yours and fun never tasted so good!	Thế giới của chúng ta là của các bạn, và niềm vui chưa bao giờ ngon đến thế!
+Text.Menu.ThemeLocked04	Carnival of Chaos now available from the Store	Carnival of Chaos đã có trên Cửa hàng
+Text.Menu.DLC09Level01	1-1	1-1
+Text.Menu.DLC09Level02	1-2	1-2
+Text.Menu.DLC09Level03	1-3	1-3
+Text.Menu.DLC09Level04	1-4	1-4
+Text.Menu.DLC09Level05	1-5	1-5
+フェンスを修理できるよ。キッチンのHPが0になると、ゲームオーバーだ！"	적들이 더 이상 키친을 부수고 피해를 주지 않도록 배불리 먹여요. 요리를 서빙해 모은 돈으로 장벽을 수리해요. 키친 체력이 0이 되면 게임이 끝나요!	CHO KẺ ĐỊCH ĂN NO ĐỂ CHÚNG THÔI PHÁ BẾP. DÙNG TIỀN KIẾM ĐƯỢC KHI PHỤC VỤ MÓN ĐỂ SỬA RÀO CHẮN. NẾU MÁU CỦA BẾP VỀ 0 LÀ THUA!
+Text.Theme.DLC09Theme01	CHRISTMAS COOKING	BẾP GIÁNG SINH
+Text.Theme.DLC09Theme02	BAUBLE BATTLEMENTS	TƯỜNG THÀNH NOEL
+Text.Menu.Christmas02.Title	Winter Wonderland	Xứ sở Mùa đông
+Text.Menu.Christmas02.Description	"Christmas is upon us once again, and our hero chefs are back with a healthy dollop of festive cheer!\n\nServe your way through 5 new levels, including 2 new horde stages!\n\nGo to Extras > Seasonal Updates"	"Giáng sinh lại về, và các đầu bếp anh hùng đã trở lại với cả muỗng đầy không khí lễ hội!\n\nPhục vụ qua 5 màn mới, gồm cả 2 màn Bầy đàn mới!\n\nVào Mở rộng > Cập nhật theo mùa"
+Text.DLC09.Description	"Kevin would like to extend to you, a festive invitation to the Onion Kingdom! Of course you'll be there in a domestic capacity, so you'd better get in the kitchen fast and start preparing those hot drinks and heart-warming desserts for the kingdom's loyal citizens!  "	"Kevin xin gửi tới bạn lời mời dự lễ hội tại Vương quốc Hành! Tất nhiên bạn tới đó với tư cách người làm bếp, nên mau vào bếp và bắt tay chuẩn bị đồ uống nóng cùng món tráng miệng ấm lòng cho các thần dân trung thành của vương quốc!  "
+Text.DLC09.Name	Winter Wonderland	Xứ sở Mùa đông
+Text.Menu.DLC10Level01	1-1	1-1
+Text.Menu.DLC10Level02	1-2	1-2
+Text.Menu.DLC10Level03	1-3	1-3
+Text.Menu.DLC10Level04	1-4	1-4
+Text.Menu.DLC10Level05	1-5	1-5
+Text.Theme.Lunar2	LOVELY LUNAR	XUÂN XINH XẮN
+Text.DLC10.Description	Feeling hungry? Please wok this way and prepare yourself a bowl of hot noodles and a plate of mouthwatering sliced fruits! Play as the cheerful Rat chef or the wise Turtle chef and enjoy  this little lunar adventure. \n\nGo to Extras > Seasonal Updates	Thấy đói chưa? Mời ghé chảo wok làm một bát mì nóng hổi và đĩa trái cây cắt lát ngon chảy nước miếng! Vào vai đầu bếp Chuột vui vẻ hoặc đầu bếp Rùa thông thái và tận hưởng chuyến phiêu lưu ngày Tết nho nhỏ này. \n\nVào Mở rộng > Cập nhật theo mùa
+Text.DLC10.Name	Spring Festival Update	Cập nhật Lễ hội Mùa xuân
+Text.CombinedDLC.Description	"It's Spring Festival time again and there is no better place to celebrate it than the Onion Kingdom! There are plenty of tasty treats on offer, so gather round and have yourself a feast!"	"Lễ hội Mùa xuân lại tới rồi và chẳng nơi nào ăn mừng tuyệt hơn Vương quốc Hành! Có cả đống món ngon đang chờ, mau tụ tập và mở tiệc thôi!"
+Text.Menu.DLC11Level01	1-1	1-1
+Text.Menu.DLC11Level02	1-2	1-2
+Text.Menu.DLC11Level03	1-3	1-3
+Text.Menu.DLC11Level04	1-4	1-4
+Text.Menu.DLC11Level05	1-5	1-5
+Text.DLC11Hotdogs.Condiments.Title	HOTDOGS & CONDIMENTS	HOTDOG & NƯỚC SỐT
+Text.DLC11Hotdogs.Condiments.Body	Add a boiled sausage to a chopped bun to make a hotdog. Press the button to change condiment type. Place the plated hotdog into the condiment machine.	Cho xúc xích luộc vào bánh mì đã cắt để làm hotdog. Nhấn nút để đổi loại nước sốt. Đặt hotdog đã bày đĩa vào máy nước sốt.
+Text.Tutorial.IceCreamFloatsTitle	ICE CREAM FLOATS	SODA KEM
+Text.Tutorial.IceCreamFloatsBody	Blend chopped Ice and toppings with milk and pour into a glass. Press the button to change drink. Place the glass into the drink machine.	Xay Đá đã đập và topping với sữa rồi rót vào ly. Nhấn nút để đổi đồ uống. Đặt ly vào máy đồ uống.
+Text.Tutorial.SummerSaladTitle	SUMMER SALADS	SALAD MÙA HÈ
+Text.Tutorial.SummerSaladBody	"Chop the ingredients, place them on a plate and serve."	"Thái nguyên liệu, bày lên đĩa rồi phục vụ."
+Text.Theme.Summer	PEACHY PARADE	DIỄU HÀNH VUI VẺ
+Text.Menu.Summer.Title	Sun's Out Buns Out 	Sun's Out Buns Out 
+Text.DLC11.Description	"Celebrate summer with a parade, preparing saucy hot dogs and refreshing ice cream floats to eat attending the fireworks! Join us as one of the two new dog chefs, and savour the beauty of this season! \n\nGo to Extras > Seasonal Updates"	"Đón mùa hè với lễ diễu hành, làm hotdog đẫm sốt và soda kem mát lạnh để vừa ăn vừa ngắm pháo hoa! Hãy vào vai một trong hai đầu bếp cún mới và tận hưởng vẻ đẹp của mùa này! \n\nVào Mở rộng > Cập nhật theo mùa"
+Text.DLC11.Name	Sun's Out Buns Out	Sun's Out Buns Out
+Text.CombinedDLC11.Description	"The summertime celebrations have taken over the Onion Kingdom! Join the parade and enjoy the hot weather, the great food and the blazing fireworks!"	"Không khí lễ hội mùa hè đã phủ khắp Vương quốc Hành! Hãy nhập đoàn diễu hành và tận hưởng tiết trời nóng bỏng, đồ ăn tuyệt hảo và pháo hoa rực rỡ!"
+Text.Menu.DLC13Level01	1-1	1-1
+Text.Menu.DLC13Level02	1-2	1-2
+Text.Menu.DLC13Level03	1-3	1-3
+Text.Menu.DLC13Level04	1-4	1-4
+Text.Menu.DLC13Level05	1-5	1-5
+Text.Tutorial.MoonCakesTitle	MOONCAKES	BÁNH TRUNG THU
+Text.Tutorial.MonnCakesBody	"Chop chocolate, watermelon or a strawberry, then mix with an egg and flour. Finally, put the mix into the oven to cook."	"Thái sô-cô-la, dưa hấu hoặc dâu tây, rồi trộn với trứng và bột. Cuối cùng cho hỗn hợp vào lò để nướng."
+Text.Theme.MoonFestival	LUCKY LANTERNS	ĐÈN LỒNG MAY MẮN
+Text.Menu.MoonFestival.Title	Moon Harvest Festival	Tết Trung Thu
+Text.DLC13.Description	"Celebrate the Moon Harvest Festival, prepare and cook delicious mooncakes and wonder at beautiful lantern displays. Join us to enjoy this most charming season. \n\nGo to Extras > Seasonal Updates"	"Đón Tết Trung Thu, làm những chiếc bánh trung thu thơm ngon và chiêm ngưỡng những dãy đèn lồng lung linh. Hãy cùng tận hưởng mùa lễ hội đáng yêu nhất này. \n\nVào Mở rộng > Cập nhật theo mùa"
+Text.DLC13.Name	Moon Harvest Festival	Tết Trung Thu
+Text.CombinedDLC13.Description	"The Onion Kingdom is busy celebrating the Moon Harvest Festival! Come on, join in, enjoy the delicious mooncakes and the beautiful lantern displays!"	"Vương quốc Hành đang tưng bừng đón Tết Trung Thu! Mau tham gia, thưởng thức bánh trung thu thơm ngon và ngắm những dãy đèn lồng lung linh!"
+# Literal texts other mods put on the game's dialogs (tag = the quoted text).
+"Invalid default chef"	Invalid default chef	Đầu bếp mặc định không hợp lệ

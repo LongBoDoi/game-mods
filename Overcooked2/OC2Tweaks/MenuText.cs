@@ -21,7 +21,16 @@ namespace OC2Tweaks
         internal static readonly OverlayCorner[] Corners =
             { OverlayCorner.TopLeft, OverlayCorner.TopRight, OverlayCorner.BottomLeft, OverlayCorner.BottomRight };
 
-        internal static readonly string[] CornerNames = { "Trên trái", "Trên phải", "Dưới trái", "Dưới phải" };
+        internal static string[] CornerNames
+        {
+            get
+            {
+                return Lang.Vi ? new[] { "Trên trái", "Trên phải", "Dưới trái", "Dưới phải" }
+                    : new[] { "Top left", "Top right", "Bottom left", "Bottom right" };
+            }
+        }
+
+        private static string Player { get { return Lang.T("Player", "Người chơi"); } }
 
         internal static string CornerName(OverlayCorner corner)
         {
@@ -36,7 +45,7 @@ namespace OC2Tweaks
         /// </summary>
         internal static string SafeName(string name)
         {
-            if (string.IsNullOrEmpty(name)) return "Người chơi";
+            if (string.IsNullOrEmpty(name)) return Player;
             var text = new StringBuilder(name.Length);
             foreach (char ch in name)
             {
@@ -46,7 +55,7 @@ namespace OC2Tweaks
                 else text.Append(ch);
             }
             string result = text.ToString().Trim();
-            if (result.Length == 0) return "Người chơi";
+            if (result.Length == 0) return Player;
             return result.Length > NameLength ? result.Substring(0, NameLength - 1).TrimEnd() + "…" : result;
         }
 
@@ -68,7 +77,7 @@ namespace OC2Tweaks
                 return ms.ToString("0") + " ms";
             }
             band = PingBand.Waiting;
-            return hostLacksMod ? "chủ phòng thiếu mod" : "đang đo...";
+            return hostLacksMod ? Lang.T("host lacks mod", "chủ phòng thiếu mod") : Lang.T("measuring...", "đang đo...");
         }
 
         private static readonly Dictionary<string, string> Modifiers = new Dictionary<string, string>
@@ -83,7 +92,7 @@ namespace OC2Tweaks
         /// </summary>
         internal static string KeyLabel(string serialized)
         {
-            if (string.IsNullOrEmpty(serialized) || serialized == "None") return "Chưa đặt";
+            if (string.IsNullOrEmpty(serialized) || serialized == "None") return Lang.T("Not set", "Chưa đặt");
             string[] parts = serialized.Split(new[] { " + " }, StringSplitOptions.RemoveEmptyEntries);
             var shown = new List<string>();
             for (int i = 1; i < parts.Length; i++)
@@ -140,12 +149,16 @@ namespace OC2Tweaks
         internal static string KeyNote(string chosen, params string[] others)
         {
             if (Array.IndexOf(others, chosen) >= 0)
-                return " Phím này đang dùng cho một chức năng khác của OC2Tweaks - hãy đổi một trong hai.";
+                return Lang.T(" This key is already used by another OC2Tweaks function - change one of them.",
+                    " Phím này đang dùng cho một chức năng khác của OC2Tweaks - hãy đổi một trong hai.");
             bool plain = chosen.IndexOf(" + ", StringComparison.Ordinal) < 0;
             if (plain && Array.IndexOf(GameKeys, chosen) >= 0)
-                return " Lưu ý: game cũng dùng phím này khi chơi; nên giữ thêm Ctrl, Shift hoặc Alt để tạo tổ hợp.";
+                return Lang.T(" Note: the game also uses this key while playing; consider holding Ctrl, Shift or Alt for a combination.",
+                    " Lưu ý: game cũng dùng phím này khi chơi; nên giữ thêm Ctrl, Shift hoặc Alt để tạo tổ hợp.");
             string owner = plain ? KnownKeyOwner(chosen) : null;
-            return owner == null ? "" : " Lưu ý: " + chosen + " cũng là phím của " + owner + " nếu bạn cài mod đó.";
+            if (owner == null) return "";
+            return Lang.Vi ? " Lưu ý: " + chosen + " cũng là phím của " + owner + " nếu bạn cài mod đó."
+                : " Note: " + chosen + " is also a key of " + owner + " if you have that mod installed.";
         }
     }
 }

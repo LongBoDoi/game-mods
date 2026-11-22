@@ -58,8 +58,14 @@ try {
         elseif ($attribute.ConstructorArguments[0].Value -ne 'com.manhl.overcooked2.chefskills') {
             $failed += "[BepInPlugin] GUID is '$($attribute.ConstructorArguments[0].Value)', the installer expects com.manhl.overcooked2.chefskills"
         } else { $checked++ }
-        if ($plugin.CustomAttributes | Where-Object { $_.AttributeType.FullName -eq 'BepInEx.BepInDependency' }) {
-            $failed += 'ChefSkills.Plugin has a [BepInDependency]; it needs no other plugin and would not load without it'
+        # Soft dependencies only order loading (TiengViet first); a hard one would stop ChefSkills
+        # loading without that plugin. BepInDependency(guid) is hard; flags value 2 is soft.
+        $hard = $plugin.CustomAttributes | Where-Object {
+            $_.AttributeType.FullName -eq 'BepInEx.BepInDependency' -and
+            -not ($_.ConstructorArguments.Count -ge 2 -and ([int]$_.ConstructorArguments[1].Value -band 2))
+        }
+        if ($hard) {
+            $failed += 'ChefSkills.Plugin has a hard [BepInDependency]; it needs no other plugin and would not load without it'
         } else { $checked++ }
         foreach ($name in 'Awake', 'Update') {
             if (-not ($plugin.Methods | Where-Object { $_.Name -eq $name -and $_.Parameters.Count -eq 0 })) {

@@ -6,49 +6,68 @@ using Steamworks;
 using Team17.Online;
 using Team17.Online.Multiplayer.Messaging;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace EmoteSync
 {
     /// <summary>
-    /// Draws every emote bubble with the settings of the player who sent it, in place of
-    /// HostTools' rewrite, which always used the settings of the machine it ran on.
+    /// Draws every emote bubble with the settings of the player who sent it, in place of HostTools'
+    /// rewrite (which used the watching machine's settings, and recognised emotes by their text, so
+    /// it missed every bubble whose text wasn't in the one language it expected).
     ///
-    /// A bubble is matched to an emote the way HostTools does it (by the game's own text in it), and
-    /// to its sender by the chef or lobby card it hangs over. Bubbles of players on this machine,
-    /// and every bubble when playing offline, use this machine's settings. Bubbles of players on
-    /// another machine use the settings that machine shares (see <see cref="EmoteNet"/>); if it
-    /// shares none (no Emote Sync there), the bubble stays as the game draws it, the same on every
-    /// screen. A voice-pack file name is decided by the sender's machine and stays blank on other
-    /// screens until its name arrives.
+    /// A bubble is recognised by the localisation key on its text, which is the same in every
+    /// language. Bubbles of this machine's players, and every bubble offline, use this machine's
+    /// settings. When one of this machine's players emotes, Emote Sync tells the other machines
+    /// which lobby card or chef it was, which emote, and exactly what its bubble shows (see
+    /// <see cref="SentEmote"/>); they show that same bubble over that same card or chef. A bubble
+    /// that the game delivers before that news arrives uses the sender's shared settings in the
+    /// meantime, matched to the sender by the card or chef it hangs over.
+    ///
+    /// The game's own emote message names a player by their number on their own machine, which
+    /// can't tell apart chefs from different machines in a kitchen. So when everyone in the lobby
+    /// has Emote Sync, in-kitchen emotes from other machines are shown only from Emote Sync's news.
     /// </summary>
     internal static class EmoteView
     {
         // How long a local emote waits for its voice-pack sound to pick a file before using
-        // whatever HostTools last picked, and how long other screens wait for that name.
+        // whatever HostTools last picked, and how long other screens wait for the sender's news.
         private const float LocalNameWait = 0.5f;
         private const float RemoteNameWait = 2.5f;
-        // A shared name counts for a bubble only if it arrived no earlier than this before it.
-        private const float NameFreshness = 3f;
-        private const int IdentifyFrames = 10;
+        // The game's copy of an emote Emote Sync already showed (or the other way round) arrives
+        // within this long, and is merged into the same bubble instead of starting a second one.
+        private const float SameEmoteWindow = 2f;
+        private const float NewsWindow = 3f;
+
+        private sealed class Wheel
+        {
+            public int Option = -1;
+            public float StartedAt = float.NegativeInfinity;
+            public bool StartedByNews;
+            public Bubble Bubble;
+            // Latest news from another machine about this wheel.
+            public CSteamID NewsFrom;
+            public SentEmote News;
+            public float NewsAt = float.NegativeInfinity;
+            // A local voice-pack emote, sent once its bubble knows the file name.
+            public SentEmote Unsent;
+        }
 
         private sealed class Bubble
         {
+            public Wheel Wheel;
             public GameObject Dialog;
             public T17Text Text;
+            public int Emote = Emotes.None;
             public string Original;
             public int OriginalSize;
             public Color OriginalColour;
-            public int Index = -1;
-            public int Tries;
+            public bool Touched;
             public bool Local;
             public bool OwnerKnown;
             public CSteamID Owner;
-            public string Key;
+            public SentEmote News;
             public float Start;
             public int StartFrame;
-            public string Name;   // voice-pack file name: null while not known yet, "" for none
-            public bool Sent;
+            public string Name;   // local voice-pack file name: null while not known yet
         }
 
         private struct Pick
@@ -60,47 +79,137 @@ namespace EmoteSync
         private static readonly FieldInfo DialogField = AccessTools.Field(typeof(ClientEmoteWheel), "m_emoteDialog");
         private static readonly FieldInfo WheelField = AccessTools.Field(typeof(ClientEmoteWheel), "m_emoteWheel");
 
-        private static readonly Dictionary<ClientEmoteWheel, Bubble> s_bubbles = new Dictionary<ClientEmoteWheel, Bubble>();
+        private static readonly Dictionary<ClientEmoteWheel, Wheel> s_wheels = new Dictionary<ClientEmoteWheel, Wheel>();
         private static readonly List<ClientEmoteWheel> s_dead = new List<ClientEmoteWheel>();
-        private static readonly Dictionary<string, int> s_usedNames = new Dictionary<string, int>();
+        private static readonly Dictionary<EmoteWheelOption, int> s_optionEmotes = new Dictionary<EmoteWheelOption, int>();
         private static readonly Dictionary<GameOneShotAudioTag, Pick> s_picks = new Dictionary<GameOneShotAudioTag, Pick>();
         private static readonly HashSet<string> s_logged = new HashSet<string>();
+        private static bool s_startingFromNews;
+        private static float s_nextPrune;
 
         internal static void LogOnce(string where, Exception error)
         {
             if (s_logged.Add(where)) Plugin.Log.LogWarning("Emote Sync (" + where + "): " + error);
         }
 
+        // ---- Game hooks ---------------------------------------------------------------------
+
         /// <summary>A one-shot sound was looked up; remember the file HostTools picked for emote sounds.</summary>
         internal static void SoundPicked(GameOneShotAudioTag tag)
         {
-            if (!HostTools.IsEmoteTag(tag)) return;
+            if (!HostTools.IsEmoteSound(tag)) return;
             s_picks[tag] = new Pick { Frame = Time.frameCount, Name = HostTools.VoiceName(tag) };
         }
 
-        internal static void Update(ClientEmoteWheel wheel)
+        /// <summary>
+        /// ClientEmoteWheel.StartEmote is about to show an emote. Returns false to drop the game's
+        /// copy of an emote that Emote Sync's news already showed on this wheel.
+        /// </summary>
+        internal static bool BeforeStart(ClientEmoteWheel wheel, int option)
         {
-            GameObject dialog = DialogField.GetValue(wheel) as GameObject;
-            if (dialog == null)
+            Wheel state = StateOf(wheel);
+            float now = Time.realtimeSinceStartup;
+            if (!s_startingFromNews && state.StartedByNews && state.Option == option &&
+                now - state.StartedAt < SameEmoteWindow)
             {
-                s_bubbles.Remove(wheel);
+                state.StartedByNews = false;   // only the one copy
+                return false;
+            }
+            state.Option = option;
+            state.StartedAt = now;
+            state.StartedByNews = s_startingFromNews;
+            return true;
+        }
+
+        /// <summary>The game's emote message for another machine's player: false to ignore it.</summary>
+        internal static bool AcceptGameMessage(ClientEmoteWheel wheel)
+        {
+            EmoteWheel emoteWheel = WheelOf(wheel);
+            return emoteWheel == null || emoteWheel.ForUI || !EmoteNet.EveryoneHasSync;
+        }
+
+        /// <summary>One of this machine's players picked an emote on the wheel.</summary>
+        internal static void LocalEmote(ClientEmoteWheel wheel, int option)
+        {
+            if (!EmoteNet.Online) return;
+            EmoteWheel emoteWheel = WheelOf(wheel);
+            int emote = EmoteOfOption(emoteWheel, option);
+            string key = KeyOf(wheel, emoteWheel);
+            if (emote == Emotes.None || key == null) return;   // no bubble (the in-kitchen curse)
+
+            EmoteProfile profile = EmoteNet.Local;
+            var sent = new SentEmote { Wheel = key, Option = option, Emote = emote, Mode = HostTools.Mode.Keep };
+            if (profile != null)
+            {
+                sent.Mode = profile.Modes[emote];
+                if (sent.Mode == HostTools.Mode.CustomText) sent.Text = profile.Texts[emote];
+            }
+            if (sent.Mode == HostTools.Mode.VoicePackName)
+                StateOf(wheel).Unsent = sent;   // sent by LocalName once the sound has picked a file
+            else
+                EmoteNet.Publish(sent);
+        }
+
+        /// <summary>Another machine's player started an emote.</summary>
+        internal static void RemoteEmote(CSteamID from, SentEmote sent)
+        {
+            ClientEmoteWheel wheel = FindWheel(sent.Wheel);
+            if (wheel == null) return;
+            EmoteWheel emoteWheel = WheelOf(wheel);
+            if (emoteWheel == null || IsLocal(emoteWheel)) return;
+            EmoteWheelOption[] options = emoteWheel.m_emoteWheelOptions != null ? emoteWheel.m_emoteWheelOptions.m_options : null;
+            if (options == null || sent.Option >= options.Length) return;
+            int emote = EmoteOfOption(emoteWheel, sent.Option);
+            if (emote != Emotes.None && emote != sent.Emote) return;   // not the wheel the sender meant
+
+            Wheel state = StateOf(wheel);
+            float now = Time.realtimeSinceStartup;
+            state.NewsFrom = from;
+            state.News = sent;
+            state.NewsAt = now;
+
+            if (state.Option == sent.Option && now - state.StartedAt < SameEmoteWindow)
+            {
+                // The game already started it: that bubble is this emote (if it hasn't been drawn
+                // yet, Begin picks this news up from the wheel).
+                Bubble bubble = state.Bubble;
+                if (bubble != null && bubble.Dialog != null) Attach(bubble, from, sent);
                 return;
             }
 
-            Bubble bubble;
-            if (!s_bubbles.TryGetValue(wheel, out bubble) || bubble.Dialog != dialog)
+            s_startingFromNews = true;
+            try
             {
-                bubble = Begin(wheel, dialog);
-                s_bubbles[wheel] = bubble;
-                Prune();
+                wheel.StartEmote(sent.Option);
             }
-            Draw(bubble);
+            finally
+            {
+                s_startingFromNews = false;
+            }
         }
 
-        private static Bubble Begin(ClientEmoteWheel wheel, GameObject dialog)
+        /// <summary>After ClientEmoteWheel.UpdateEmoteWheel: restyle the wheel's bubble, if any.</summary>
+        internal static void Update(ClientEmoteWheel wheel)
+        {
+            Wheel state = StateOf(wheel);
+            GameObject dialog = DialogField.GetValue(wheel) as GameObject;
+            if (dialog == null)
+            {
+                state.Bubble = null;
+                return;
+            }
+            if (state.Bubble == null || state.Bubble.Dialog != dialog)
+                state.Bubble = Begin(wheel, state, dialog);
+            Draw(state.Bubble);
+        }
+
+        // ---- Bubbles ------------------------------------------------------------------------
+
+        private static Bubble Begin(ClientEmoteWheel wheel, Wheel state, GameObject dialog)
         {
             var bubble = new Bubble
             {
+                Wheel = state,
                 Dialog = dialog,
                 Start = Time.realtimeSinceStartup,
                 StartFrame = Time.frameCount
@@ -112,66 +221,95 @@ namespace EmoteSync
             bubble.Original = bubble.Text.text;
             bubble.OriginalSize = bubble.Text.fontSize;
             bubble.OriginalColour = bubble.Text.color;
-            bubble.Index = HostTools.IndexOf(bubble.Original);
+            bubble.Emote = Emotes.FromKey(bubble.Text.m_LocalizationTag);
+            if (bubble.Emote == Emotes.None) bubble.Emote = Emotes.FromText(bubble.Original);
 
-            EmoteWheel emoteWheel = WheelField.GetValue(wheel) as EmoteWheel;
-            bubble.Key = KeyOf(wheel, emoteWheel);
+            EmoteWheel emoteWheel = WheelOf(wheel);
             bubble.Local = !EmoteNet.Online || IsLocal(emoteWheel);
-            if (!bubble.Local)
+            if (bubble.Local) return bubble;
+
+            if (state.News != null && state.News.Option == state.Option &&
+                Time.realtimeSinceStartup - state.NewsAt < NewsWindow)
             {
-                Team17.Online.User user = OwnerOf(wheel, emoteWheel);
-                if (user != null && user.IsLocal) bubble.Local = true;
-                else bubble.OwnerKnown = TrySteamId(user, out bubble.Owner);
+                Attach(bubble, state.NewsFrom, state.News);
+                return bubble;
             }
+            Team17.Online.User user = OwnerOf(wheel, emoteWheel);
+            if (user != null && user.IsLocal) bubble.Local = true;
+            else bubble.OwnerKnown = TrySteamId(user, out bubble.Owner);
             return bubble;
+        }
+
+        private static void Attach(Bubble bubble, CSteamID from, SentEmote sent)
+        {
+            bubble.Local = false;
+            bubble.Owner = from;
+            bubble.OwnerKnown = true;
+            bubble.News = sent;
         }
 
         private static void Draw(Bubble bubble)
         {
             T17Text text = bubble.Text;
-            if (text == null) return;
+            if (text == null || bubble.Emote == Emotes.None) return;
+            int e = bubble.Emote;
 
-            EmoteProfile profile = bubble.Local ? EmoteNet.Local
-                : bubble.OwnerKnown ? EmoteNet.ProfileOf(bubble.Owner) : null;
-            if (profile == null)
+            if (bubble.Local)
             {
-                // The sender has no Emote Sync (or HostTools' emote text is off for them): the
-                // game's own bubble, which is also what their own screen shows for it.
-                Style(text, bubble.OriginalSize, bubble.OriginalColour);
-                if (bubble.Index >= 0) Show(text, bubble.Original);
+                EmoteProfile local = EmoteNet.Local;
+                if (local == null)
+                {
+                    ShowGame(bubble);   // HostTools' emote text is off: the game's own bubble
+                    return;
+                }
+                Style(text, local.FontSize, local.Colour);
+                switch (local.Modes[e])
+                {
+                    case HostTools.Mode.CustomText:
+                        ShowOrGame(bubble, local.Texts[e]);
+                        break;
+                    case HostTools.Mode.VoicePackName:
+                        string name = LocalName(bubble);
+                        if (name == null) Show(bubble, "");
+                        else ShowOrGame(bubble, name);
+                        break;
+                    default:
+                        ShowGame(bubble);
+                        break;
+                }
                 return;
             }
 
-            Style(text, profile.FontSize, profile.Colour);
+            EmoteProfile profile = bubble.OwnerKnown ? EmoteNet.ProfileOf(bubble.Owner) : null;
+            if (profile != null) Style(text, profile.FontSize, profile.Colour);
+            else Style(text, bubble.OriginalSize, bubble.OriginalColour);
 
-            if (bubble.Index < 0)
+            if (bubble.News != null)
             {
-                // The game may localise the text a frame or two after the bubble appears.
-                if (bubble.Tries++ >= IdentifyFrames) return;
-                bubble.Index = HostTools.IndexOf(text.text);
-                if (bubble.Index < 0) return;
-                bubble.Original = text.text;
+                // Exactly what the sender's own screen shows.
+                if (bubble.News.Mode == HostTools.Mode.Keep) ShowGame(bubble);
+                else ShowOrGame(bubble, bubble.News.Text);
+                return;
             }
-
-            string shown = Resolve(bubble, profile);
-            Show(text, shown ?? bubble.Original);
-        }
-
-        /// <summary>The text the sender's settings give this bubble, or null for the game's own.</summary>
-        private static string Resolve(Bubble bubble, EmoteProfile profile)
-        {
-            int i = bubble.Index;
-            if (i >= profile.Modes.Length) return null;
-            switch (profile.Modes[i])
+            if (profile == null)
+            {
+                // The sender has no Emote Sync (or HostTools' emote text is off there).
+                ShowGame(bubble);
+                return;
+            }
+            switch (profile.Modes[e])
             {
                 case HostTools.Mode.CustomText:
-                    return string.IsNullOrEmpty(profile.Texts[i]) ? null : profile.Texts[i];
+                    ShowOrGame(bubble, profile.Texts[e]);
+                    break;
                 case HostTools.Mode.VoicePackName:
-                    string name = bubble.Local ? LocalName(bubble) : RemoteName(bubble);
-                    if (name == null) return "";   // still waiting for the sender's pick
-                    return name.Length > 0 ? name : null;
+                    // The file name is picked on the sender's machine; wait for their news.
+                    if (Time.realtimeSinceStartup - bubble.Start < RemoteNameWait) Show(bubble, "");
+                    else ShowGame(bubble);
+                    break;
                 default:
-                    return null;
+                    ShowGame(bubble);
+                    break;
             }
         }
 
@@ -179,45 +317,44 @@ namespace EmoteSync
         {
             if (bubble.Name == null)
             {
-                GameOneShotAudioTag tag = HostTools.Tag(bubble.Index);
+                GameOneShotAudioTag tag = HostTools.Sound(bubble.Emote);
                 Pick pick;
                 if (s_picks.TryGetValue(tag, out pick) && pick.Frame >= bubble.StartFrame - 2)
                     bubble.Name = pick.Name ?? "";
                 else if (Time.realtimeSinceStartup - bubble.Start > LocalNameWait)
                     bubble.Name = HostTools.VoiceName(tag);
             }
-            if (bubble.Name != null && !bubble.Sent)
+            SentEmote unsent = bubble.Wheel.Unsent;
+            if (bubble.Name != null && unsent != null)
             {
-                bubble.Sent = true;
-                if (!string.IsNullOrEmpty(bubble.Key)) EmoteNet.Publish(bubble.Key, bubble.Index, bubble.Name);
+                bubble.Wheel.Unsent = null;
+                if (unsent.Emote == bubble.Emote)
+                {
+                    unsent.Text = bubble.Name;
+                    EmoteNet.Publish(unsent);
+                }
             }
             return bubble.Name;
         }
 
-        private static string RemoteName(Bubble bubble)
+        private static void ShowOrGame(Bubble bubble, string value)
         {
-            if (bubble.Name != null) return bubble.Name;
-
-            SentEmote sent = EmoteNet.EmoteOf(bubble.Owner);
-            string usedKey = bubble.Owner.m_SteamID + "|" + bubble.Key;
-            int used;
-            if (sent != null && sent.Key == bubble.Key && sent.Index == bubble.Index &&
-                sent.SeenAt >= bubble.Start - NameFreshness &&
-                !(s_usedNames.TryGetValue(usedKey, out used) && used == sent.Seq))
-            {
-                s_usedNames[usedKey] = sent.Seq;
-                bubble.Name = sent.Text ?? "";
-            }
-            else if (Time.realtimeSinceStartup - bubble.Start > RemoteNameWait)
-            {
-                bubble.Name = "";
-            }
-            return bubble.Name;
+            if (string.IsNullOrEmpty(value)) ShowGame(bubble);
+            else Show(bubble, value);
         }
 
-        private static void Show(T17Text text, string value)
+        /// <summary>The game's own text, in this machine's language (left alone if never changed).</summary>
+        private static void ShowGame(Bubble bubble)
         {
-            if (value != null && text.text != value) text.SetNonLocalizedText(value);
+            if (!bubble.Touched) return;
+            Show(bubble, Emotes.GameText(bubble.Emote) ?? bubble.Original);
+        }
+
+        private static void Show(Bubble bubble, string value)
+        {
+            if (value == null) return;
+            bubble.Touched = true;
+            if (bubble.Text.text != value) bubble.Text.SetNonLocalizedText(value);
         }
 
         private static void Style(T17Text text, int size, Color colour)
@@ -226,16 +363,73 @@ namespace EmoteSync
             if (text.color != colour) text.color = colour;
         }
 
+        // ---- Wheels -------------------------------------------------------------------------
+
+        private static Wheel StateOf(ClientEmoteWheel wheel)
+        {
+            Wheel state;
+            if (!s_wheels.TryGetValue(wheel, out state))
+            {
+                state = new Wheel();
+                s_wheels[wheel] = state;
+                Prune();
+            }
+            return state;
+        }
+
+        private static EmoteWheel WheelOf(ClientEmoteWheel wheel)
+        {
+            return wheel != null ? WheelField.GetValue(wheel) as EmoteWheel : null;
+        }
+
+        /// <summary>The emote an option on a wheel shows, from the key on its bubble prefab's text.</summary>
+        private static int EmoteOfOption(EmoteWheel emoteWheel, int option)
+        {
+            if (emoteWheel == null || emoteWheel.m_emoteWheelOptions == null) return Emotes.None;
+            EmoteWheelOption[] options = emoteWheel.m_emoteWheelOptions.m_options;
+            if (options == null || option < 0 || option >= options.Length || options[option] == null) return Emotes.None;
+            EmoteWheelOption o = options[option];
+            int emote;
+            if (s_optionEmotes.TryGetValue(o, out emote)) return emote;
+            emote = Emotes.None;
+            if (o.m_dialogPrefab != null && (o.m_type == EmoteWheelOption.EmoteType.Dialog || o.m_type == EmoteWheelOption.EmoteType.Both))
+            {
+                Transform child = o.m_dialogPrefab.transform.Find("Text");
+                T17Text text = child != null ? child.GetComponent<T17Text>() : null;
+                if (text != null)
+                {
+                    emote = Emotes.FromKey(text.m_LocalizationTag);
+                    if (emote == Emotes.None) emote = Emotes.FromText(text.text);
+                }
+            }
+            s_optionEmotes[o] = emote;
+            return emote;
+        }
+
         /// <summary>
-        /// Names a bubble the same way on every machine: a lobby card by its player slot (the
-        /// session's user list is the same everywhere), a chef by its network entity ID.
+        /// Names a wheel the same way on every machine: a lobby card by its player slot (the
+        /// session's user list is in the same order everywhere), a chef by its network entity ID.
         /// </summary>
         private static string KeyOf(ClientEmoteWheel wheel, EmoteWheel emoteWheel)
         {
             if (emoteWheel == null) return null;
-            if (emoteWheel.ForUI) return "u" + (int)emoteWheel.m_player;
+            if (emoteWheel.ForUI)
+            {
+                int slot = (int)emoteWheel.m_player;
+                return slot >= 0 && slot < (int)PlayerInputLookup.Player.Count ? "u" + slot : null;
+            }
             uint id = EntityOf(wheel.transform);
-            return id != 0 ? "e" + id : null;
+            return id != EntitySerialisationRegistry.kInvalidEntityID ? "e" + id : null;
+        }
+
+        private static ClientEmoteWheel FindWheel(string key)
+        {
+            foreach (KeyValuePair<ClientEmoteWheel, Wheel> entry in s_wheels)
+                if (entry.Key != null && KeyOf(entry.Key, WheelOf(entry.Key)) == key) return entry.Key;
+            ClientEmoteWheel[] all = UnityEngine.Object.FindObjectsOfType<ClientEmoteWheel>();
+            for (int i = 0; i < all.Length; i++)
+                if (KeyOf(all[i], WheelOf(all[i])) == key) return all[i];
+            return null;
         }
 
         private static bool IsLocal(EmoteWheel emoteWheel)
@@ -260,7 +454,7 @@ namespace EmoteSync
                 return slot >= 0 && slot < users.Count ? users._items[slot] : null;
             }
             uint id = EntityOf(wheel.transform);
-            if (id == 0) return null;
+            if (id == EntitySerialisationRegistry.kInvalidEntityID) return null;
             for (int i = 0; i < users.Count; i++)
             {
                 Team17.Online.User user = users._items[i];
@@ -276,7 +470,7 @@ namespace EmoteSync
                 uint id = EntitySerialisationRegistry.GetId(t.gameObject);
                 if (id != EntitySerialisationRegistry.kInvalidEntityID) return id;
             }
-            return 0;
+            return EntitySerialisationRegistry.kInvalidEntityID;
         }
 
         private static bool TrySteamId(Team17.Online.User user, out CSteamID id)
@@ -291,11 +485,13 @@ namespace EmoteSync
 
         private static void Prune()
         {
-            if (s_bubbles.Count < 8) return;
+            float now = Time.realtimeSinceStartup;
+            if (now < s_nextPrune) return;
+            s_nextPrune = now + 5f;
             s_dead.Clear();
-            foreach (KeyValuePair<ClientEmoteWheel, Bubble> entry in s_bubbles)
-                if (entry.Key == null || entry.Value.Dialog == null) s_dead.Add(entry.Key);
-            for (int i = 0; i < s_dead.Count; i++) s_bubbles.Remove(s_dead[i]);
+            foreach (KeyValuePair<ClientEmoteWheel, Wheel> entry in s_wheels)
+                if (entry.Key == null) s_dead.Add(entry.Key);
+            for (int i = 0; i < s_dead.Count; i++) s_wheels.Remove(s_dead[i]);
         }
     }
 }

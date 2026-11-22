@@ -21,6 +21,9 @@ if not exist "%CORE%\BepInEx.dll" (
     exit /b 1
 )
 if not exist "%OUT%" mkdir "%OUT%"
+rem The special icons (Art\make_icons.py draws them) are built into the DLL.
+set "ICONS="
+if exist "%~dp0Art\SpecialIcons.png" set "ICONS=/resource:"%~dp0Art\SpecialIcons.png",ChefSkills.SpecialIcons.png"
 
 echo Building ChefSkills.dll...
 "%CSC%" /nologo /noconfig /nostdlib+ /target:library /optimize+ /langversion:5 ^
@@ -40,6 +43,8 @@ echo Building ChefSkills.dll...
   /r:"%MANAGED%\UnityEngine.AnimationModule.dll" ^
   /r:"%MANAGED%\UnityEngine.AudioModule.dll" ^
   /r:"%MANAGED%\UnityEngine.PhysicsModule.dll" ^
+  /r:"%MANAGED%\UnityEngine.ImageConversionModule.dll" ^
+  %ICONS% ^
   /r:"%CORE%\BepInEx.dll" ^
   /r:"%CORE%\0Harmony.dll" ^
   "%~dp0*.cs" "%~dp0Specials\*.cs" "%~dp0Specials\Modules\*.cs"

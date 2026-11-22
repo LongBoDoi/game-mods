@@ -74,6 +74,9 @@ $Targets = @(
     [pscustomobject]@{ Key = 'ModUpdater'; Kind = 'Mod'
         Blurb = 'auto-update: new releases install themselves when you close the game'
         Id = 'com.manhl.overcooked2.modupdater'; LegacyId = $null; Files = @('ModUpdater.ps1') }
+    [pscustomobject]@{ Key = 'TiengViet'; Kind = 'Mod'
+        Blurb = 'Vietnamese for the game and these mods: Settings > Game Settings > LANGUAGE'
+        Id = 'com.manhl.overcooked2.tiengviet'; LegacyId = $null; Files = @() }
 )
 
 # Which release these files came from: Release.ps1 puts version.txt in the zip. Recorded in the

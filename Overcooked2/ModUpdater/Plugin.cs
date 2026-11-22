@@ -25,6 +25,8 @@ namespace ModUpdater
     /// the switches and the Check and Update buttons.
     /// </summary>
     [BepInPlugin(Id, "Mod Updater", Version)]
+    // Loads after TiengViet when it is installed, so the language it sets applies from the start.
+    [BepInDependency("com.manhl.overcooked2.tiengviet", BepInDependency.DependencyFlags.SoftDependency)]
     [BepInDependency(SettingsBridge.Guid, BepInDependency.DependencyFlags.SoftDependency)]
     [BepInProcess("Overcooked2.exe")]
     public sealed class Plugin : BaseUnityPlugin
@@ -45,18 +47,24 @@ namespace ModUpdater
         private string attemptedVersion = "";
         private bool loadFailed;
 
+        // MOD Settings reads these names each time it rebuilds its list, so they are kept and
+        // rewritten when the language changes (see NameSettings).
+        private readonly ConfigurationManagerAttributes autoNames = new ConfigurationManagerAttributes { Order = 20 };
+        private readonly ConfigurationManagerAttributes immediateNames = new ConfigurationManagerAttributes { Order = 10 };
+        private readonly ConfigurationManagerAttributes statusNames =
+            new ConfigurationManagerAttributes { Order = 30, ReadOnly = true, HideDefaultButton = true };
+        private string namedIn;
+
         private void Awake()
         {
             Log = Logger;
+            NameSettings();
             AutoUpdate = Config.Bind("General", "AutoUpdate", true, new ConfigDescription(
-                "Tự tải bản mới của các mod khi mở game và cài nó khi bạn tắt game; lần mở sau là bản mới.",
-                null, new ConfigurationManagerAttributes { DispName = "Tự động cập nhật", Order = 20 }));
+                autoNames.Description, null, autoNames));
             UpdateImmediately = Config.Bind("General", "UpdateImmediately", false, new ConfigDescription(
-                "Tải xong là nạp bản mới vào game ngay khi bạn ở menu chính (không ở trong phòng trực tuyến), không cần tắt game.",
-                null, new ConfigurationManagerAttributes { DispName = "Cập nhật ngay khi tải xong", Order = 10 }));
+                immediateNames.Description, null, immediateNames));
             Status = Config.Bind("General", "Status", "", new ConfigDescription(
-                "Tình trạng cập nhật. Chỉ để xem.",
-                null, new ConfigurationManagerAttributes { DispName = "Trạng thái", Order = 30, ReadOnly = true, HideDefaultButton = true }));
+                statusNames.Description, null, statusNames));
             // Status changes every few seconds while checking; only real settings belong on disk.
             // MOD Settings saves the file itself whenever a setting is changed there.
             Config.Save();
@@ -95,6 +103,11 @@ namespace ModUpdater
             nextPoll = Time.unscaledTime + 1f;
             try
             {
+                if (NameSettings() && settings != null)
+                {
+                    settings.Relabel();
+                    settings.Refresh();
+                }
                 Refresh(false);
                 Updater.Report report = updater.Read();
                 // Once per downloaded version, so a mod that will not reload is not retried every second.
@@ -129,10 +142,36 @@ namespace ModUpdater
         private string Describe(Updater.Report report)
         {
             if (report.State == "ready" && report.Latest == loadedVersion)
+            {
+                if (Lang.Vi)
+                    return loadFailed
+                        ? "Đã nạp bản " + loadedVersion + ", trừ vài mod; chúng được cài khi tắt game"
+                        : "Đang chạy bản " + loadedVersion + "; tệp được thay khi tắt game";
                 return loadFailed
-                    ? "Đã nạp bản " + loadedVersion + ", trừ vài mod; chúng được cài khi tắt game"
-                    : "Đang chạy bản " + loadedVersion + "; tệp được thay khi tắt game";
+                    ? "Loaded version " + loadedVersion + ", except a few mods; they install when you close the game"
+                    : "Running version " + loadedVersion + "; files are replaced when you close the game";
+            }
             return Texts.Describe(report, AutoUpdate.Value);
+        }
+
+        /// <summary>Puts the settings' names and descriptions in the language in use. True when
+        /// they changed since last time.</summary>
+        private bool NameSettings()
+        {
+            string language = Lang.Vi ? "vi" : "en";
+            if (language == namedIn) return false;
+            namedIn = language;
+            autoNames.DispName = Lang.T("Automatic updates", "Tự động cập nhật");
+            autoNames.Description = Lang.T(
+                "Download new versions of the mods when the game starts and install them when you close it; the next launch runs the new version.",
+                "Tự tải bản mới của các mod khi mở game và cài nó khi bạn tắt game; lần mở sau là bản mới.");
+            immediateNames.DispName = Lang.T("Update as soon as downloaded", "Cập nhật ngay khi tải xong");
+            immediateNames.Description = Lang.T(
+                "Once downloaded, load the new version into the game as soon as you're in the main menu (not in an online room), without closing the game.",
+                "Tải xong là nạp bản mới vào game ngay khi bạn ở menu chính (không ở trong phòng trực tuyến), không cần tắt game.");
+            statusNames.DispName = Lang.T("Status", "Trạng thái");
+            statusNames.Description = Lang.T("Update status. View only.", "Tình trạng cập nhật. Chỉ để xem.");
+            return true;
         }
 
         private void Refresh(bool force)
@@ -156,6 +195,7 @@ namespace ModUpdater
     internal sealed class ConfigurationManagerAttributes
     {
         public string DispName;
+        public string Description;
         public int? Order;
         public bool? ReadOnly;
         public bool? HideDefaultButton;

@@ -13,87 +13,133 @@ namespace ChefSkills.Specials
     /// quirks Heavy Boots, Clumsy and Sleepy.
     ///
     /// Who decides what (movement is simulated on the host and on the chef's own machine, which
-    /// must agree):
-    /// - Sprinter, Momentum, Charge Dash: only the player's own machine sees its held buttons and
-    ///   input, so it decides and tells every machine (own topics); every machine then applies the
-    ///   same speed through the framework's modifier lists.
+    /// must agree, or the player's chef is pulled back to where the host has it):
+    /// - Sprinter, Momentum, Charge Dash: only the player's own machine sees its held buttons (the
+    ///   host only gets one short DASH pulse per dash, see DashSync), so it decides and tells every
+    ///   machine (own topics); every machine then applies the same speed through the framework's
+    ///   modifier lists.
     /// - Double Dash, Heavy Boots, Charge Dash's "no dash while holding": only the dash decision
     ///   matters, and with DashSync that is made on the player's machine (the host follows).
     /// - Slipstream, Sleepy: the host decides (it has every chef's true position / one clock) and
-    ///   broadcasts a buff. Clumsy: the host drops the item when it sees the dash start.
+    ///   tells every machine (a buff / own topic). Clumsy: the host drops the item when it sees the
+    ///   dash start.
     /// - Sure-Footed, Weatherproof, Conveyor Rider, Ghost, Immovable, Big/Tiny Chef: plain rules
     ///   every machine applies the same way where the game simulates them.
-    /// - Overdrive: OnActivated (every machine) starts the framework's NoDashCooldown buff.
+    /// - Overdrive: OnActivated (every machine) starts the framework's NoDashCooldown buff and a
+    ///   run-speed buff of its own.
+    ///
+    /// Visuals: effects every machine can see for itself (buffs, the messages above) are drawn
+    /// locally by every machine; things only the host sees (knocks, drops, puddles) use the
+    /// SpecialFx ...All calls from host-only code.
     /// </summary>
     internal sealed class MovementSpecials : ISpecialModule
     {
         private const string DataKey = "Movement";
 
         // Own topics: (int)Special * 10 + n.
+        /// <summary>A = seconds of sprint left (0 = stopped).</summary>
         private const ushort SprintTopic = (ushort)((int)Special.Sprinter * 10);
+        /// <summary>A = -1 started charging, 0 let go without power, >= 1 released with this power.</summary>
         private const ushort ChargeTopic = (ushort)((int)Special.ChargeDash * 10);
+        /// <summary>A = the speed bonus now.</summary>
         private const ushort MomentumTopic = (ushort)((int)Special.Momentum * 10);
+        /// <summary>Host: A = seconds the chef dozes off now (0 = none), B = seconds until the next.</summary>
+        private const ushort SleepyTopic = (ushort)((int)Special.Sleepy * 10);
+        /// <summary>Owner: the chef is on ice or a slope that Sure-Footed is holding (glow on every machine).</summary>
+        private const ushort SureFootedTopic = (ushort)((int)Special.SureFooted * 10);
 
-        // Own buff, so it never merges with another module's run-speed buff.
+        // Own buffs, so they never merge with another module's run-speed buff.
         private const int SlipstreamBuff = (int)Special.Slipstream * 100 + 1;
+        private const int OverdriveBuff = (int)Special.Overdrive * 100 + 1;
 
         private const float SprintBonus = 1.5f;
-        private const float SprintStamina = 3f;
-        private const float SprintRegen = 0.75f;      // stamina seconds per second while not sprinting
+        private const float SprintStamina = 4f;
+        private const float SprintRegen = 1f;         // stamina seconds per second while not sprinting
         private const float SprintMinStart = 0.5f;
 
         private const int DashCharges = 2;
 
         private const float ChargeFullSeconds = 1f;
         private const float ChargeMaxPower = 2f;
-        private const float ReleaseWindow = 0.3f;
+        private const float ChargeShowAfter = 0.12f;  // a tap isn't shown as charging
+        private const float ReleaseWindow = 0.6f;     // the dash on release waits this long for the recharge
 
-        private const float MomentumStep = 0.05f;      // per second of running
+        private const float MomentumBuild = 0.1f;     // per second of running
         private const float MomentumMax = 0.30f;
-        private const float MomentumGrace = 0.3f;      // a stop shorter than this (a turn) keeps it
+        private const float MomentumStepSize = 0.05f; // what is sent (and applied) moves in these steps
+        private const float MomentumGrace = 0.4f;     // a stop shorter than this (a turn, a grab) keeps it
+        private const float MomentumDecay = 0.3f;     // per second once stopped
 
-        private const float SlipstreamRange = 3f;
-        private const float SlipstreamWidth = 1.2f;
-        private const float SlipstreamBonus = 0.2f;
-        private const float SlipstreamEvery = 0.3f;
+        private const float SlipstreamRange = 4f;
+        private const float SlipstreamWidth = 1.5f;
+        private const float SlipstreamBonus = 0.3f;
+        private const float SlipstreamEvery = 0.25f;
+        private const float SlipstreamLinger = 1f;
 
         private const float BigScale = 1.2f, TinyScale = 0.8f;
-        private const float BigSpeed = 0.9f, TinySpeed = 1.12f;
+        private const float BigSpeed = 0.9f, TinySpeed = 1.15f;
         internal const float KnockFactor = 1.5f;
 
-        private const float OverdriveSeconds = 5f;
-        private const float SleepyEvery = 30f, SleepySeconds = 1f;
+        private const float OverdriveSeconds = 6f;
+        private const float OverdriveSpeed = 0.2f;
+
+        private const float SleepyEvery = 30f, SleepySeconds = 1f, SleepyWarn = 2f, SleepyResync = 10f;
+
+        private const float GhostOverlap = 0.6f;
 
         private const float CacheEvery = 0.5f;
+        // Rings that follow a state are re-marked every frame for this long (so they fade soon after).
+        private const float RingSeconds = 0.15f;
+
+        // Wind / moving floor rules (see Filter).
+        internal const int RuleBlock = 0, RuleTailwind = 1, RuleRider = 2;
+
+        private static readonly Color SprintColour = new Color(0.45f, 1f, 1f);
+        private static readonly Color ChargeFullColour = new Color(1f, 0.55f, 0.15f);
+        private static readonly Color MomentumColour = new Color(0.25f, 0.55f, 1f);
+        private static readonly Color SlipColour = new Color(0.55f, 1f, 0.85f);
+        private static readonly Color GhostColour = new Color(0.86f, 0.9f, 1f);
 
         /// <summary>Per-chef state of this module, kept in ChefState.Data (cleared with the level).</summary>
         internal sealed class MoveData
         {
-            // Sprinter
+            // Sprinter (owner: stamina; every machine: SprintUntil)
             public float Stamina = SprintStamina;
-            public bool Sprinting, Exhausted;
+            public bool Sprinting, Exhausted, SprintWasDown;
             public float SprintUntil;
             // Double Dash (owner machine)
             public float Charges = DashCharges;
-            // Charge Dash
-            public bool Charging;
+            public float LastOwnDashAt = -100f;
+            // Charge Dash (owner: charging; every machine: power, what is shown)
+            public bool Charging, ChargeAnnounced;
             public float Charge, ReleaseUntil;
             public float PendingPower, PendingUntil, Power = 1f, PowerUntil, LastDashAt = -100f;
-            // Momentum
-            public float RunTime, StopTime, SentBonus, Bonus;
-            // Sleepy (host)
-            public float NextYawn;
-            // HUD
+            public bool LastDashPowered;
+            public float ChargeSeenAt = -1f;
+            // Momentum (owner: Raw; every machine: Bonus)
+            public float Raw, StopTime, SentBonus, Bonus;
+            // Slipstream / Ghost (what this machine showed last frame)
+            public bool Slipping, GhostNear;
+            // Sleepy (host: NextYawn, NextSync; every machine: YawnAt)
+            public float NextYawn, NextSync, YawnAt;
+            public bool Warned;
+            // Heavy Boots (owner)
+            public bool HeavyWasDown;
         }
 
         // Caches refreshed every CacheEvery seconds (patches run per object per frame).
-        internal static readonly HashSet<int> NoWind = new HashSet<int>();
-        internal static readonly Dictionary<int, float> SurfaceFactor = new Dictionary<int, float>();
+        // Chef GameObject instance ID -> rule for wind / for moving floors.
+        internal static readonly Dictionary<int, int> WindRule = new Dictionary<int, int>();
+        internal static readonly Dictionary<int, int> SurfaceRule = new Dictionary<int, int>();
         internal static bool AnySureFooted, AnyDashHook;
+        private static bool s_anyGhost;
         private static float s_nextCache, s_nextSlipstream;
 
         private static readonly Dictionary<PlayerPhysicsSurfaceProperties, PlayerPhysicsSurfaceProperties> s_unslipped =
             new Dictionary<PlayerPhysicsSurfaceProperties, PlayerPhysicsSurfaceProperties>();
+
+        // Glow(): when each chef+special was last marked (real time).
+        private static readonly Dictionary<int, float> s_glowAt = new Dictionary<int, float>();
 
         // Host: chefs whose dash just started while Clumsy (dropped in the next Tick).
         private static readonly List<ChefState> s_clumsyDrops = new List<ChefState>();
@@ -107,18 +153,26 @@ namespace ChefSkills.Specials
 
             SpecialRuntime.RegisterActive(Special.Overdrive, new ActiveHandler
             {
-                Execute = delegate(ChefState state) { return state.Chef != null; },
+                Execute = delegate(ChefState state)
+                {
+                    if (state.Chef == null || state.Controls == null) return false;
+                    if (state.Controls.m_bRespawning) return state.Refuse(Lang.Both("RESPAWNING", "ĐANG HỒI SINH"));
+                    return true;
+                },
                 OnActivated = delegate(ChefState state)
                 {
-                    // OnActivated runs on every machine, so a local buff is the same everywhere.
+                    // OnActivated runs on every machine, so local buffs are the same everywhere.
                     SpecialRuntime.AddBuffLocal(state, BuffId.NoDashCooldown, OverdriveSeconds, 1f, state);
+                    SpecialRuntime.AddBuffLocal(state, OverdriveBuff, OverdriveSeconds, OverdriveSpeed, state);
                 },
                 Duration = OverdriveSeconds
             });
 
-            SpecialNet.Register(SprintTopic, OnSprintMessage);
-            SpecialNet.Register(ChargeTopic, OnChargeMessage);
-            SpecialNet.Register(MomentumTopic, OnMomentumMessage);
+            SpecialNet.Register(SprintTopic, OnMessage);
+            SpecialNet.Register(ChargeTopic, OnMessage);
+            SpecialNet.Register(MomentumTopic, OnMessage);
+            SpecialNet.Register(SleepyTopic, OnMessage);
+            SpecialNet.Register(SureFootedTopic, OnMessage);
 
             SpecialRuntime.Tick += OnTick;
             SpecialRuntime.LevelStarted += OnLevelStarted;
@@ -151,13 +205,15 @@ namespace ChefSkills.Specials
 
         private static void ClearCaches()
         {
-            NoWind.Clear();
-            SurfaceFactor.Clear();
+            WindRule.Clear();
+            SurfaceRule.Clear();
             AnySureFooted = false;
             AnyDashHook = false;
+            s_anyGhost = false;
             s_nextCache = 0f;
             s_nextSlipstream = 0f;
             s_clumsyDrops.Clear();
+            s_glowAt.Clear();
             foreach (PlayerPhysicsSurfaceProperties copy in s_unslipped.Values)
                 if (copy != null) Object.Destroy(copy);
             s_unslipped.Clear();
@@ -166,22 +222,28 @@ namespace ChefSkills.Specials
         private static void RefreshCaches()
         {
             s_nextCache = SpecialRuntime.Now + CacheEvery;
-            NoWind.Clear();
-            SurfaceFactor.Clear();
+            WindRule.Clear();
+            SurfaceRule.Clear();
             AnySureFooted = false;
             AnyDashHook = false;
+            s_anyGhost = false;
             IList<ChefState> chefs = SpecialRuntime.Chefs;
             for (int i = 0; i < chefs.Count; i++)
             {
                 ChefState state = chefs[i];
                 if (state.Chef == null) continue;
                 int key = state.Chef.GetInstanceID();
-                bool calm = state.Has(Special.SureFooted) || state.Has(Special.Weatherproof);
-                if (calm) NoWind.Add(key);
-                // Conveyor Rider is the explicit choice, so it wins over the "no drag" ones.
-                if (state.Has(Special.ConveyorRider)) SurfaceFactor[key] = 2f;
-                else if (calm) SurfaceFactor[key] = 0f;
-                if (state.Has(Special.SureFooted)) AnySureFooted = true;
+                bool sure = state.Has(Special.SureFooted);
+                bool weather = state.Has(Special.Weatherproof);
+                // Weatherproof lets a helping wind through, so it beats Sure-Footed's "none at all".
+                if (weather) WindRule[key] = RuleTailwind;
+                else if (sure) WindRule[key] = RuleBlock;
+                // Conveyor Rider is the explicit choice, so it wins over the others.
+                if (state.Has(Special.ConveyorRider)) SurfaceRule[key] = RuleRider;
+                else if (weather) SurfaceRule[key] = RuleTailwind;
+                else if (sure) SurfaceRule[key] = RuleBlock;
+                if (sure) AnySureFooted = true;
+                if (state.Has(Special.Ghost)) s_anyGhost = true;
                 if (state.Has(Special.DoubleDash) || state.Has(Special.ChargeDash) || state.Has(Special.Clumsy))
                     AnyDashHook = true;
             }
@@ -196,6 +258,7 @@ namespace ChefSkills.Specials
             if (state.Has(Special.BigChef)) factor *= BigSpeed;
             if (state.Has(Special.TinyChef)) factor *= TinySpeed;
             factor *= 1f + SpecialRuntime.BuffStrength(state, SlipstreamBuff);
+            factor *= 1f + SpecialRuntime.BuffStrength(state, OverdriveBuff);
             if (state.Has(Special.Sprinter) || state.Has(Special.Momentum))
             {
                 MoveData data = Data(state);
@@ -232,60 +295,107 @@ namespace ChefSkills.Specials
         // --- messages ---------------------------------------------------------------------------
 
         /// <summary>To every machine (this one at once); a chef without a network ID only here.</summary>
-        private static void Send(ChefState state, ushort topic, float a)
+        private static void Send(ChefState state, ushort topic, float a, float b)
         {
-            var message = new SpecialMessage { Topic = topic, Chef = state.Id, A = a };
-            if (state.Id != 0)
-            {
-                SpecialNet.SendToAll(message);
-                return;
-            }
-            if (topic == SprintTopic) ApplySprint(state, a);
-            else if (topic == ChargeTopic) ApplyCharge(state, a);
-            else if (topic == MomentumTopic) Data(state).Bonus = a;
+            var message = new SpecialMessage { Topic = topic, Chef = state.Id, A = a, B = b };
+            if (state.Id != 0) SpecialNet.SendToAll(message);
+            else Handle(state, message);
         }
 
-        private static void OnSprintMessage(SpecialMessage message)
+        private static void OnMessage(SpecialMessage message)
         {
             ChefState state = SpecialRuntime.StateById(message.Chef);
-            if (state != null) ApplySprint(state, message.A);
+            if (state != null && state.Chef != null) Handle(state, message);
         }
 
-        private static void ApplySprint(ChefState state, float seconds)
-        {
-            // The sprint carries its own end (the stamina left), so a lost "stop" can't last.
-            Data(state).SprintUntil = seconds > 0f ? SpecialRuntime.Now + seconds + 0.1f : 0f;
-        }
-
-        private static void OnChargeMessage(SpecialMessage message)
-        {
-            ChefState state = SpecialRuntime.StateById(message.Chef);
-            if (state != null) ApplyCharge(state, message.A);
-        }
-
-        private static void ApplyCharge(ChefState state, float power)
+        /// <summary>Every machine (the sender's included).</summary>
+        private static void Handle(ChefState state, SpecialMessage message)
         {
             MoveData data = Data(state);
             float now = SpecialRuntime.Now;
-            float dashTime = DashTime(state);
-            if (now - data.LastDashAt < 0.3f)
+            switch (message.Topic)
             {
-                // The dash (from DashSync's pulse) got here first: power up the rest of it.
-                data.Power = power;
-                data.PowerUntil = data.LastDashAt + dashTime;
-            }
-            else
-            {
-                // Kept for the next dash this chef starts.
-                data.PendingPower = power;
-                data.PendingUntil = now + 1f;
+                case SprintTopic:
+                {
+                    if (!state.Has(Special.Sprinter)) return;
+                    bool was = now < data.SprintUntil;
+                    // The sprint carries its own end (the stamina left), so a lost "stop" can't last.
+                    data.SprintUntil = message.A > 0f ? now + message.A + 0.1f : 0f;
+                    if (!was && message.A > 0f) SpecialFx.Burst(state.Position, SprintColour, 0.9f, 0.35f);
+                    break;
+                }
+                case ChargeTopic:
+                {
+                    if (!state.Has(Special.ChargeDash)) return;
+                    if (message.A < 0f)
+                    {
+                        data.ChargeSeenAt = now;
+                        return;
+                    }
+                    data.ChargeSeenAt = -1f;
+                    if (message.A < 1f) return;
+                    ApplyCharge(state, data, Mathf.Clamp(message.A, 1f, ChargeMaxPower));
+                    if (message.A > 1.05f)
+                    {
+                        bool full = message.A >= ChargeMaxPower - 0.01f;
+                        SpecialFx.Text(state.Chef, full ? Lang.T("MAX POWER!", "LỰC TỐI ĐA!") : Lang.T("POWER x", "LỰC x") + message.A.ToString("0.0"),
+                            full ? ChargeFullColour : SpecialFx.ColourOf(Special.ChargeDash));
+                        SpecialFx.Burst(state.Position, full ? ChargeFullColour : SpecialFx.ColourOf(Special.ChargeDash),
+                            0.8f + 0.6f * (message.A - 1f), 0.45f);
+                    }
+                    break;
+                }
+                case MomentumTopic:
+                {
+                    if (!state.Has(Special.Momentum)) return;
+                    float old = data.Bonus;
+                    data.Bonus = Mathf.Clamp(message.A, 0f, MomentumMax);
+                    if (data.Bonus >= MomentumMax - 0.001f && old < MomentumMax - 0.001f)
+                    {
+                        SpecialFx.Text(state.Chef, SpecialCatalog.NameOf(Special.Momentum) + " +" + Mathf.RoundToInt(MomentumMax * 100f) + "%", MomentumColour);
+                        SpecialFx.Burst(state.Position, MomentumColour, 1.1f, 0.4f);
+                    }
+                    break;
+                }
+                case SureFootedTopic:
+                    if (state.Has(Special.SureFooted)) Glow(state.Chef, Special.SureFooted);
+                    return;
+                case SleepyTopic:
+                {
+                    if (!state.Has(Special.Sleepy)) return;
+                    float yawnAt = now + Mathf.Max(0f, message.B);
+                    // A re-sync of the same yawn keeps its warning shown.
+                    if (Mathf.Abs(yawnAt - data.YawnAt) > 1f || message.A > 0f) data.Warned = now >= yawnAt - SleepyWarn;
+                    data.YawnAt = yawnAt;
+                    if (message.A > 0f)
+                    {
+                        SpecialRuntime.AddBuffLocal(state, BuffId.Frozen, message.A, 1f, state);
+                        SpecialFx.Mark(state.Chef, SpecialFx.ColourOf(Special.Sleepy), message.A, "Zzz...", 0f);
+                        SpecialFx.Burst(state.Position, SpecialFx.ColourOf(Special.Sleepy), 1f, 0.5f);
+                    }
+                    break;
+                }
             }
         }
 
-        private static void OnMomentumMessage(SpecialMessage message)
+        private static void ApplyCharge(ChefState state, MoveData data, float power)
         {
-            ChefState state = SpecialRuntime.StateById(message.Chef);
-            if (state != null) Data(state).Bonus = Mathf.Clamp(message.A, 0f, MomentumMax);
+            float now = SpecialRuntime.Now;
+            // The owner sends this before its dash starts. Elsewhere the dash (DashSync's pulse,
+            // on the game's own channel) may have got here first: then power up the rest of it,
+            // unless that dash already had a power (it was an earlier one).
+            if (!state.Local && now - data.LastDashAt < 0.25f && !data.LastDashPowered)
+            {
+                data.Power = power;
+                data.PowerUntil = data.LastDashAt + DashTime(state);
+                data.LastDashPowered = true;
+            }
+            else
+            {
+                // Kept for the next dash this chef starts (the one on release).
+                data.PendingPower = power;
+                data.PendingUntil = now + 1f;
+            }
         }
 
         private static float DashTime(ChefState state)
@@ -305,7 +415,8 @@ namespace ChefSkills.Specials
             if (state.Has(Special.ChargeDash))
             {
                 data.ReleaseUntil = 0f;
-                if (now < data.PendingUntil)
+                data.LastDashPowered = now < data.PendingUntil;
+                if (data.LastDashPowered)
                 {
                     data.Power = data.PendingPower;
                     data.PowerUntil = now + DashTime(state);
@@ -313,7 +424,18 @@ namespace ChefSkills.Specials
                 }
             }
             if (state.Local && state.Has(Special.DoubleDash) && !SpecialRuntime.HasBuff(state, BuffId.NoDashCooldown))
+            {
+                // A second dash soon after the first: say so on every machine (only the owner's
+                // machine gets here, so the ...All calls aren't doubled).
+                bool chained = data.Charges < DashCharges - 0.5f && now - data.LastOwnDashAt < 1f;
                 data.Charges = Mathf.Max(0f, data.Charges - 1f);
+                if (chained)
+                {
+                    SpecialFx.TextAll(state.Chef, SpecialFx.NameBoth(Special.DoubleDash, "!", "!"), Special.DoubleDash);
+                    SpecialFx.BurstAll(state.Position, Special.DoubleDash);
+                }
+            }
+            if (state.Local) data.LastOwnDashAt = now;
             if (SpecialNet.IsServer && state.Has(Special.Clumsy) && !s_clumsyDrops.Contains(state))
                 s_clumsyDrops.Add(state);
         }
@@ -344,6 +466,14 @@ namespace ChefSkills.Specials
                     SpecialRuntime.Fail("Movement.Tick", error);
                 }
             }
+            try
+            {
+                if (s_anyGhost) GhostEffects(chefs);
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("Ghost.Fx", error);
+            }
             if (server)
             {
                 DropClumsy();
@@ -360,17 +490,20 @@ namespace ChefSkills.Specials
             if (state.Has(Special.BigChef)) KeepScale(state, BigScale);
             else if (state.Has(Special.TinyChef)) KeepScale(state, TinyScale);
 
-            if (server && state.Has(Special.Sleepy)) Sleepy(state);
+            MoveData data = Data(state);
+            float now = SpecialRuntime.Now;
+            if (server && state.Has(Special.Sleepy)) SleepyHost(state, data, now);
+            ShowEffects(state, data, now);
             if (!state.Local) return;
 
             string status = null;
-            if (state.Has(Special.Sprinter)) status = Join(status, Sprinter(state, dt));
-            if (state.Has(Special.DoubleDash)) status = Join(status, DoubleDash(state, dt));
-            if (state.Has(Special.ChargeDash)) status = Join(status, ChargeDash(state, dt));
-            if (state.Has(Special.Momentum)) status = Join(status, Momentum(state, dt));
-            if (state.Has(Special.Sleepy) && SpecialRuntime.HasBuff(state, BuffId.Frozen)) status = Join(status, "Yawning...");
-
-            state.SetStatus("Movement", status);
+            if (state.Has(Special.Sprinter)) status = Join(status, Sprinter(state, data, dt, now));
+            if (state.Has(Special.DoubleDash)) DoubleDash(state, data, dt, now);
+            if (state.Has(Special.ChargeDash)) ChargeDash(state, data, dt, now);
+            if (state.Has(Special.Momentum)) Momentum(state, data, dt);
+            if (state.Has(Special.HeavyBoots)) HeavyBoots(state, data);
+            if (state.Has(Special.Sleepy) && data.YawnAt > now) state.SetTimer(Special.Sleepy, data.YawnAt, SleepyEvery);
+            state.SetStatus("Movement", status, Special.Sprinter);
         }
 
         private static string Join(string a, string b)
@@ -393,11 +526,74 @@ namespace ChefSkills.Specials
             return scheme != null && scheme.m_dashButton != null && scheme.m_dashButton.IsDown();
         }
 
-        /// <summary>Owner: hold DASH to sprint while there is stamina; tells every machine.</summary>
-        private static string Sprinter(ChefState state, float dt)
+        /// <summary>Every machine: rings under chefs for what every machine knows about them.</summary>
+        private static void ShowEffects(ChefState state, MoveData data, float now)
         {
-            MoveData data = Data(state);
+            GameObject chef = state.Chef;
+
+            if (state.Has(Special.Sprinter) && now < data.SprintUntil)
+                SpecialFx.Mark(chef, SprintColour, RingSeconds, null, 0.85f);
+
+            if (state.Has(Special.ChargeDash))
+            {
+                // The owner knows the true charge; the others count from when it was announced.
+                float level = -1f;
+                if (state.Local && data.Charging && data.Charge >= ChargeShowAfter) level = data.Charge / ChargeFullSeconds;
+                else if (!state.Local && data.ChargeSeenAt >= 0f)
+                {
+                    float held = now - data.ChargeSeenAt;
+                    if (held > 4f) data.ChargeSeenAt = -1f;
+                    else level = (held + ChargeShowAfter) / ChargeFullSeconds;
+                }
+                if (level >= 0f)
+                {
+                    int step = Mathf.Clamp(Mathf.FloorToInt(Mathf.Clamp01(level) * 4f + 0.001f), 0, 4);
+                    Color colour = Color.Lerp(SpecialFx.ColourOf(Special.ChargeDash), ChargeFullColour, step / 4f);
+                    SpecialFx.Mark(chef, colour, RingSeconds, step >= 4 ? Lang.T("MAX", "TỐI ĐA") : null, 0.5f + 0.15f * step);
+                }
+            }
+
+            if (state.Has(Special.Momentum) && data.Bonus >= 0.099f)
+            {
+                int step = Mathf.Clamp(Mathf.RoundToInt(data.Bonus * 10f), 1, 3);
+                Color colour = Color.Lerp(MomentumColour, Color.white, 0.2f * (step - 1));
+                SpecialFx.Mark(chef, colour, RingSeconds, null, 0.55f + 0.1f * step);
+            }
+
+            Buff slip;
+            bool slipping = state.Buffs.TryGetValue(SlipstreamBuff, out slip) && slip.Until > now;
+            if (slipping)
+            {
+                SpecialFx.Mark(chef, SlipColour, RingSeconds, null, 0.75f);
+                if (!data.Slipping)
+                {
+                    SpecialFx.Text(chef, SpecialCatalog.NameOf(Special.Slipstream), SlipColour);
+                    ChefState leader = SpecialRuntime.StateById(slip.Source);
+                    if (leader != null && leader.Chef != null)
+                    {
+                        SpecialFx.Beam(leader.Position, state.Position, SlipColour, 0.6f);
+                        SpecialFx.Mark(leader.Chef, SpecialFx.ColourOf(Special.Slipstream), 0.8f, null, 0f);
+                    }
+                }
+            }
+            data.Slipping = slipping;
+
+            if (SpecialRuntime.HasBuff(state, OverdriveBuff))
+                SpecialFx.Mark(chef, SpecialFx.ColourOf(Special.Overdrive), RingSeconds, null, 0.95f);
+
+            if (state.Has(Special.Sleepy) && data.YawnAt > 0f && !data.Warned && now >= data.YawnAt - SleepyWarn)
+            {
+                data.Warned = true;
+                SpecialFx.Text(chef, Lang.T("*yawn*", "*ngáp*"), SpecialFx.ColourOf(Special.Sleepy));
+            }
+        }
+
+        /// <summary>Owner: hold DASH to sprint while there is stamina; tells every machine.</summary>
+        private static string Sprinter(ChefState state, MoveData data, float dt, float now)
+        {
             bool down = DashHeld(state);
+            bool pressed = down && !data.SprintWasDown;
+            data.SprintWasDown = down;
             bool can = Controllable(state);
             if (data.Sprinting)
             {
@@ -410,8 +606,9 @@ namespace ChefSkills.Specials
                         data.Stamina = 0f;
                         // Ran out while holding: let go first.
                         data.Exhausted = down;
+                        SpecialFx.Text(state.Chef, Lang.T("OUT OF BREATH", "HẾT HƠI"), SpecialFx.ColourOf(Special.Sprinter));
                     }
-                    Send(state, SprintTopic, 0f);
+                    Send(state, SprintTopic, 0f, 0f);
                 }
             }
             else
@@ -421,40 +618,54 @@ namespace ChefSkills.Specials
                 if (down && can && !data.Exhausted && data.Stamina >= SprintMinStart)
                 {
                     data.Sprinting = true;
-                    Send(state, SprintTopic, data.Stamina);
+                    Send(state, SprintTopic, data.Stamina, 0f);
                 }
+                else if (pressed && can && data.Stamina < SprintMinStart)
+                    SpecialFx.Text(state.Chef, Lang.T("TIRED", "MỆT"), SpecialFx.ColourOf(Special.Sprinter));
             }
-            return (data.Sprinting ? "SPRINT " : "Stamina ") + data.Stamina.ToString("0.0") + "s";
+            // The icon empties with the stamina and fills back up as it recovers.
+            float total = SprintStamina / SprintRegen;
+            state.SetTimer(Special.Sprinter, data.Stamina < SprintStamina - 0.01f ? now + (SprintStamina - data.Stamina) / SprintRegen : 0f, total);
+            return data.Exhausted ? Lang.T("Let go of DASH", "Thả nút LƯỚT ra") : null;
         }
 
         /// <summary>Owner: charges recharge one per normal dash recharge time.</summary>
-        private static string DoubleDash(ChefState state, float dt)
+        private static void DoubleDash(ChefState state, MoveData data, float dt, float now)
         {
-            MoveData data = Data(state);
             PlayerControls.MovementData movement = state.Controls.Movement;
-            if (movement != null)
-            {
-                // Outside Update_Movement this is the game's own value (MovementPatch restores it).
-                float recharge = movement.DashCooldown / Mathf.Max(0.1f, Plugin.Skills.Multiplier(state.Chef, Skill.Dashing));
-                data.Charges = Mathf.Min(DashCharges, data.Charges + dt / Mathf.Max(0.05f, recharge));
-            }
-            return "Dash " + Mathf.FloorToInt(data.Charges) + "/" + DashCharges;
+            if (movement == null) return;
+            // Outside Update_Movement this is the game's own value (MovementPatch restores it).
+            float recharge = Mathf.Max(0.05f, movement.DashCooldown / Mathf.Max(0.1f, Plugin.Skills.Multiplier(state.Chef, Skill.Dashing)));
+            data.Charges = Mathf.Min(DashCharges, data.Charges + dt / recharge);
+            int whole = Mathf.FloorToInt(data.Charges + 0.0001f);
+            state.SetCount(Special.DoubleDash, whole);
+            state.SetTimer(Special.DoubleDash, whole < DashCharges ? now + (whole + 1 - data.Charges) * recharge : 0f, recharge);
         }
 
         /// <summary>Owner: holding DASH charges; letting go dashes (the power goes to every machine).</summary>
-        private static string ChargeDash(ChefState state, float dt)
+        private static void ChargeDash(ChefState state, MoveData data, float dt, float now)
         {
-            MoveData data = Data(state);
             bool down = DashHeld(state);
             if (!Controllable(state))
             {
+                if (data.Charging && data.ChargeAnnounced) Send(state, ChargeTopic, 0f, 0f);
                 data.Charging = false;
+                data.ChargeAnnounced = false;
                 data.Charge = 0f;
             }
             else if (down)
             {
-                data.Charging = true;
+                if (!data.Charging)
+                {
+                    data.Charging = true;
+                    data.Charge = 0f;
+                }
                 data.Charge += dt;
+                if (!data.ChargeAnnounced && data.Charge >= ChargeShowAfter)
+                {
+                    data.ChargeAnnounced = true;
+                    Send(state, ChargeTopic, -1f, 0f);
+                }
             }
             else if (data.Charging)
             {
@@ -462,69 +673,94 @@ namespace ChefSkills.Specials
                 float power = 1f + Mathf.Clamp01(data.Charge / ChargeFullSeconds) * (ChargeMaxPower - 1f);
                 data.Charge = 0f;
                 // The dash itself happens in Update_Movement (a press is fed to the game there).
-                data.ReleaseUntil = SpecialRuntime.Now + ReleaseWindow;
-                if (power > 1.05f) Send(state, ChargeTopic, power);
+                // The power goes out first, so it is usually waiting on the host before the dash.
+                data.ReleaseUntil = now + ReleaseWindow;
+                if (power > 1.05f) Send(state, ChargeTopic, power, 0f);
+                else if (data.ChargeAnnounced) Send(state, ChargeTopic, 0f, 0f);
+                data.ChargeAnnounced = false;
             }
-            if (!data.Charging) return null;
-            return "Charge " + Mathf.RoundToInt(Mathf.Clamp01(data.Charge / ChargeFullSeconds) * 100f) + "%";
+            // The icon fills up as the charge builds (bright = full).
+            if (data.Charging)
+            {
+                float level = Mathf.Clamp01(data.Charge / ChargeFullSeconds);
+                state.SetTimer(Special.ChargeDash, now + (1f - level) * ChargeFullSeconds, ChargeFullSeconds);
+            }
+            else state.SetTimer(Special.ChargeDash, 0f, ChargeFullSeconds);
         }
 
-        /// <summary>Owner: +5% per second of running without stopping or interacting.</summary>
-        private static string Momentum(ChefState state, float dt)
+        /// <summary>Owner: running builds +10% per second up to +30%; stopping loses it, working resets it.</summary>
+        private static void Momentum(ChefState state, MoveData data, float dt)
         {
-            MoveData data = Data(state);
             PlayerControls controls = state.Controls;
             PlayerControls.ControlSchemeData scheme = controls.ControlScheme;
-            bool interacting = controls.GetCurrentlyInteracting() != null ||
-                (scheme != null && ((scheme.m_worksurfaceUseButton != null && scheme.m_worksurfaceUseButton.IsDown()) ||
-                                    (scheme.m_pickupButton != null && scheme.m_pickupButton.IsDown())));
             float x = scheme != null && scheme.m_moveX != null ? scheme.m_moveX.GetValue() : 0f;
             float y = scheme != null && scheme.m_moveY != null ? scheme.m_moveY.GetValue() : 0f;
             bool running = Controllable(state) && x * x + y * y > 0.25f && controls.GetUnclampedMovementSpeed() > 0.4f;
 
-            if (interacting || !Controllable(state))
+            if (controls.m_bRespawning || controls.GetCurrentlyInteracting() != null)
             {
-                data.RunTime = 0f;
+                // Chopping, washing, respawning: start again.
+                data.Raw = 0f;
                 data.StopTime = 0f;
             }
             else if (running)
             {
-                data.RunTime += dt;
+                data.Raw = Mathf.Min(MomentumMax, data.Raw + MomentumBuild * dt);
                 data.StopTime = 0f;
             }
             else
             {
                 data.StopTime += dt;
-                if (data.StopTime > MomentumGrace) data.RunTime = 0f;
+                if (data.StopTime > MomentumGrace) data.Raw = Mathf.Max(0f, data.Raw - MomentumDecay * dt);
             }
 
-            float bonus = Mathf.Min(MomentumMax, MomentumStep * Mathf.Floor(data.RunTime));
+            float bonus = Mathf.Min(MomentumMax, MomentumStepSize * Mathf.Floor(data.Raw / MomentumStepSize + 0.001f));
             if (!Mathf.Approximately(bonus, data.SentBonus))
             {
                 data.SentBonus = bonus;
-                Send(state, MomentumTopic, bonus);
+                Send(state, MomentumTopic, bonus, 0f);
             }
-            return data.Bonus > 0f ? "Momentum +" + Mathf.RoundToInt(data.Bonus * 100f) + "%" : null;
+            state.SetCount(Special.Momentum, Mathf.RoundToInt(data.Bonus * 100f));
         }
 
-        /// <summary>Host: every 30 s the chef yawns and can't move for a second (a broadcast buff).</summary>
-        private static void Sleepy(ChefState state)
+        /// <summary>Owner: a DASH press that does nothing says why.</summary>
+        private static void HeavyBoots(ChefState state, MoveData data)
         {
-            MoveData data = Data(state);
-            float now = SpecialRuntime.Now;
+            bool down = DashHeld(state);
+            if (down && !data.HeavyWasDown && Controllable(state))
+                SpecialFx.Text(state.Chef, Lang.T("TOO HEAVY TO DASH", "QUÁ NẶNG ĐỂ LƯỚT"), SpecialFx.ColourOf(Special.HeavyBoots));
+            data.HeavyWasDown = down;
+        }
+
+        /// <summary>Host: every 30 s the chef dozes off and can't move for a second (every machine is told).</summary>
+        private static void SleepyHost(ChefState state, MoveData data, float now)
+        {
             if (data.NextYawn <= 0f)
             {
                 data.NextYawn = now + SleepyEvery;
+                data.NextSync = now + SleepyResync;
+                Send(state, SleepyTopic, 0f, SleepyEvery);
                 return;
             }
-            if (now < data.NextYawn) return;
-            data.NextYawn = now + SleepyEvery;
-            SpecialRuntime.BroadcastBuff(state, BuffId.Frozen, SleepySeconds, 1f, state);
+            if (now >= data.NextYawn)
+            {
+                data.NextYawn = now + SleepyEvery;
+                data.NextSync = now + SleepyResync;
+                Send(state, SleepyTopic, SleepySeconds, SleepyEvery);
+                return;
+            }
+            if (now >= data.NextSync)
+            {
+                // Now and then, so a machine that joined the level late still knows when.
+                data.NextSync = now + SleepyResync;
+                Send(state, SleepyTopic, 0f, data.NextYawn - now);
+            }
         }
 
-        /// <summary>Host: teammates running close behind a Slipstream chef get +20% for a moment.</summary>
+        /// <summary>Host: teammates running close behind a Slipstream chef get +30% for a moment.</summary>
         private static void Slipstream(IList<ChefState> chefs)
         {
+            float now = SpecialRuntime.Now;
             for (int i = 0; i < chefs.Count; i++)
             {
                 ChefState leader = chefs[i];
@@ -545,8 +781,12 @@ namespace ChefSkills.Specials
                     if ((offset - forward * along).magnitude > SlipstreamWidth) continue;
                     Vector3 mateForward = mate.Forward;
                     mateForward.y = 0f;
-                    if (Vector3.Dot(mateForward.normalized, forward) < 0.5f) continue;
-                    SpecialRuntime.BroadcastBuff(mate, SlipstreamBuff, SlipstreamEvery * 2f, SlipstreamBonus, leader);
+                    if (Vector3.Dot(mateForward.normalized, forward) < 0.3f) continue;
+                    // Still plenty left from the last one: no need to send it again yet.
+                    Buff current;
+                    if (mate.Buffs.TryGetValue(SlipstreamBuff, out current) && current.Until - now > SlipstreamLinger - 0.45f)
+                        continue;
+                    SpecialRuntime.BroadcastBuff(mate, SlipstreamBuff, SlipstreamLinger, SlipstreamBonus, leader);
                 }
             }
         }
@@ -562,7 +802,12 @@ namespace ChefSkills.Specials
                 {
                     if (state.Chef == null) continue;
                     ServerPlayerAttachmentCarrier carrier = state.Chef.GetComponent<ServerPlayerAttachmentCarrier>();
-                    if (carrier != null && carrier.InspectCarriedItem() != null) carrier.TakeItem();
+                    GameObject item = carrier != null ? carrier.InspectCarriedItem() : null;
+                    if (item == null) continue;
+                    // The game's own drop (PlayerControlsHelper.DropHeldItem) is just this.
+                    carrier.TakeItem();
+                    SpecialFx.TextAll(state.Chef, Lang.Both("OOPS!", "ÁI CHÀ!"), Special.Clumsy);
+                    if (item != null) SpecialFx.BurstAll(item.transform.position, Special.Clumsy);
                 }
                 catch (Exception error)
                 {
@@ -587,6 +832,7 @@ namespace ChefSkills.Specials
         /// </summary>
         private static void ApplyGhost(IList<ChefState> chefs)
         {
+            if (!s_anyGhost) return;
             for (int i = 0; i < chefs.Count; i++)
             {
                 if (!chefs[i].Has(Special.Ghost) || chefs[i].Chef == null) continue;
@@ -602,6 +848,33 @@ namespace ChefSkills.Specials
                             if (Usable(b)) Physics.IgnoreCollision(a, b, true);
                     }
                 }
+            }
+        }
+
+        /// <summary>Every machine: a ghost overlapping another chef glows (and says so as it goes in).</summary>
+        private static void GhostEffects(IList<ChefState> chefs)
+        {
+            for (int i = 0; i < chefs.Count; i++)
+            {
+                ChefState ghost = chefs[i];
+                if (!ghost.Has(Special.Ghost) || ghost.Chef == null) continue;
+                bool near = false;
+                Vector3 at = ghost.Position;
+                for (int j = 0; j < chefs.Count && !near; j++)
+                {
+                    if (j == i || chefs[j].Chef == null) continue;
+                    Vector3 offset = chefs[j].Position - at;
+                    if (Mathf.Abs(offset.y) > 1.2f) continue;
+                    offset.y = 0f;
+                    near = offset.sqrMagnitude < GhostOverlap * GhostOverlap;
+                }
+                MoveData data = Data(ghost);
+                if (near)
+                {
+                    SpecialFx.Mark(ghost.Chef, GhostColour, RingSeconds, null, 0.8f);
+                    if (!data.GhostNear) SpecialFx.Text(ghost.Chef, SpecialCatalog.NameOf(Special.Ghost), SpecialFx.ColourOf(Special.Ghost));
+                }
+                data.GhostNear = near;
             }
         }
 
@@ -624,6 +897,64 @@ namespace ChefSkills.Specials
             copy.GravityMultiplier = surface.GravityMultiplier;
             s_unslipped[surface] = copy;
             return copy;
+        }
+
+        /// <summary>
+        /// What of a push (wind, a moving floor) a chef keeps under a rule: none (Sure-Footed),
+        /// only the part along where it faces (Weatherproof), or twice a push that helps and none
+        /// of one that holds it back (Conveyor Rider). Facing is the same on every machine (the
+        /// host takes it from the player's input), so every machine computes the same.
+        /// </summary>
+        internal static Vector3 Filter(Transform chef, Vector3 push, int rule)
+        {
+            if (rule == RuleBlock) return Vector3.zero;
+            Vector3 forward = chef.forward;
+            forward.y = 0f;
+            if (forward.sqrMagnitude < 1e-4f) return rule == RuleRider ? push * 2f : Vector3.zero;
+            forward.Normalize();
+            float along = Vector3.Dot(push, forward);
+            if (rule == RuleTailwind) return along > 0f ? forward * along : Vector3.zero;
+            return along >= 0f ? push * 2f : push - forward * along;
+        }
+
+        internal static Special SpecialOf(int rule)
+        {
+            if (rule == RuleRider) return Special.ConveyorRider;
+            if (rule == RuleTailwind) return Special.Weatherproof;
+            return Special.SureFooted;
+        }
+
+        /// <summary>
+        /// Local, from code every machine runs (physics patches): a ring under the chef while a
+        /// passive is working on it, with the special's name when it starts working again.
+        /// Throttled, so it can be called every physics step.
+        /// </summary>
+        /// <summary>
+        /// Owner's machine: Sure-Footed is holding the chef on a slippery floor. Movement runs only
+        /// on the host and the owner, so the owner tells every machine to glow (a few times a second).
+        /// </summary>
+        internal static void SureFootedHolding(GameObject chef)
+        {
+            ChefState state = SpecialRuntime.StateOf(chef);
+            if (state == null || !state.Local) return;
+            float now = Time.unscaledTime;
+            if (now - state.Get("SureFooted.SentAt", -100f) < 0.3f) return;
+            state.Set("SureFooted.SentAt", now);
+            Send(state, SureFootedTopic, 0f, 0f);
+        }
+
+        internal static void Glow(GameObject chef, Special special)
+        {
+            if (chef == null) return;
+            int key = unchecked(chef.GetInstanceID() * 131 + (int)special);
+            float now = Time.unscaledTime;
+            float last;
+            bool had = s_glowAt.TryGetValue(key, out last);
+            if (had && now - last < 0.2f) return;
+            s_glowAt[key] = now;
+            Color colour = Color.Lerp(SpecialFx.ColourOf(special), Color.white, 0.25f);
+            SpecialFx.Mark(chef, colour, 0.45f, null, 0.7f);
+            if (!had || now - last > 1.5f) SpecialFx.Text(chef, SpecialCatalog.NameOf(special), SpecialFx.ColourOf(special));
         }
     }
 
@@ -679,6 +1010,7 @@ namespace ChefSkills.Specials
 
                 if (MovementSpecials.WantsReleaseDash(state) && state.Controls != null)
                 {
+                    // The same ControlSchemeData object the game's Update_Movement reads.
                     PlayerControls.ControlSchemeData scheme = state.Controls.ControlScheme;
                     if (scheme != null && scheme.m_dashButton != null && !(scheme.m_dashButton is MovementPressButton))
                     {
@@ -772,7 +1104,9 @@ namespace ChefSkills.Specials
 
     /// <summary>
     /// Immovable / Big Chef: no knock starts. Tiny Chef: knocks send it further. Big Chef's dash
-    /// bumps send others further. Every machine that simulates the knock applies the same rule.
+    /// bumps send others further. Every machine that simulates the knock applies the same rule;
+    /// the host (which sees every knock: its own simulation, and the players' reports of theirs)
+    /// shows what happened on every machine.
     /// </summary>
     [HarmonyPatch(typeof(ClientPlayerControlsImpl_Default), "ApplyImpact")]
     internal static class MovementSpecialsImpactPatch
@@ -785,17 +1119,40 @@ namespace ChefSkills.Specials
             {
                 GameObject chef = __instance.gameObject;
                 ChefState state = SpecialRuntime.StateOf(chef);
-                if (state != null && (state.Has(Special.Immovable) || state.Has(Special.BigChef))) return false;
+                bool server = SpecialNet.IsServer;
+                if (state != null && (state.Has(Special.Immovable) || state.Has(Special.BigChef)))
+                {
+                    if (server && _xzImpactVelocity.sqrMagnitude > 0.01f)
+                    {
+                        Special why = state.Has(Special.Immovable) ? Special.Immovable : Special.BigChef;
+                        SpecialFx.TextAll(chef, Lang.Both("BLOCKED!", "CHẶN!"), why);
+                        SpecialFx.MarkAll(chef, why, 0.6f, null);
+                    }
+                    return false;
+                }
                 float factor = 1f;
-                if (state != null && state.Has(Special.TinyChef)) factor *= MovementSpecials.KnockFactor;
+                Special cause = Special.None;
+                if (state != null && state.Has(Special.TinyChef))
+                {
+                    factor *= MovementSpecials.KnockFactor;
+                    cause = Special.TinyChef;
+                }
                 if (MovementKnock.Dasher != null)
                 {
                     // In a head-on bump the dasher is knocked too; then the other chef is the knocker.
                     GameObject knocker = chef == MovementKnock.Dasher ? MovementKnock.Bumped : MovementKnock.Dasher;
                     if (knocker != null && knocker != chef && SpecialRuntime.Has(knocker, Special.BigChef))
+                    {
                         factor *= MovementSpecials.KnockFactor;
+                        cause = Special.BigChef;
+                    }
                 }
-                if (factor != 1f) _xzImpactVelocity *= factor;
+                if (factor != 1f)
+                {
+                    _xzImpactVelocity *= factor;
+                    if (server && cause != Special.None)
+                        SpecialFx.TextAll(chef, cause == Special.BigChef ? Lang.Both("BIG BUMP!", "HÚC MẠNH!") : Lang.Both("WHOA!", "ỐI!"), cause);
+                }
                 return true;
             }
             catch (Exception error)
@@ -819,6 +1176,7 @@ namespace ChefSkills.Specials
                 if (_surface.Slippiness <= 0f && _surface.Slidiness <= 0f) return;
                 if (__instance == null || !SpecialRuntime.Has(__instance.gameObject, Special.SureFooted)) return;
                 _surface = MovementSpecials.Unslipped(_surface);
+                MovementSpecials.SureFootedHolding(__instance.gameObject);
             }
             catch (Exception error)
             {
@@ -836,7 +1194,10 @@ namespace ChefSkills.Specials
             if (!MovementSpecials.AnySureFooted || !SpecialRuntime.InLevel || _object == null) return true;
             try
             {
-                return !SpecialRuntime.Has(_object, Special.SureFooted) || _object.GetComponent<PlayerControls>() == null;
+                if (!SpecialRuntime.Has(_object, Special.SureFooted) || _object.GetComponent<PlayerControls>() == null) return true;
+                SpecialFx.TextAll(_object, Lang.Both("NO SLIP!", "KHÔNG TRƯỢT!"), Special.SureFooted);
+                SpecialFx.MarkAll(_object, Special.SureFooted, 0.6f, null);
+                return false;
             }
             catch (Exception error)
             {
@@ -846,7 +1207,10 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>Sure-Footed / Weatherproof: wind doesn't push the chef (every machine).</summary>
+    /// <summary>
+    /// Wind on a chef: none with Sure-Footed, only the part pushing it the way it faces with
+    /// Weatherproof (every machine).
+    /// </summary>
     [HarmonyPatch(typeof(WindAccumulator), "Update")]
     internal static class MovementSpecialsWindPatch
     {
@@ -854,11 +1218,16 @@ namespace ChefSkills.Specials
 
         private static void Postfix(WindAccumulator __instance)
         {
-            if (MovementSpecials.NoWind.Count == 0 || !SpecialRuntime.InLevel || TotalForceField == null) return;
+            if (MovementSpecials.WindRule.Count == 0 || !SpecialRuntime.InLevel || TotalForceField == null) return;
             try
             {
-                if (__instance != null && MovementSpecials.NoWind.Contains(__instance.gameObject.GetInstanceID()))
-                    TotalForceField.SetValue(__instance, Vector3.zero);
+                int rule;
+                if (__instance == null || !MovementSpecials.WindRule.TryGetValue(__instance.gameObject.GetInstanceID(), out rule))
+                    return;
+                Vector3 force = (Vector3)TotalForceField.GetValue(__instance);
+                if (force.sqrMagnitude < 1e-4f) return;
+                TotalForceField.SetValue(__instance, MovementSpecials.Filter(__instance.transform, force, rule));
+                if (force.sqrMagnitude > 0.04f) MovementSpecials.Glow(__instance.gameObject, MovementSpecials.SpecialOf(rule));
             }
             catch (Exception error)
             {
@@ -869,7 +1238,8 @@ namespace ChefSkills.Specials
 
     /// <summary>
     /// Moving floors (travelators, the only IMovingSurface): Conveyor Rider is carried twice as
-    /// fast; Sure-Footed / Weatherproof aren't carried. Every machine.
+    /// fast and never held back; Weatherproof only carried the way it faces; Sure-Footed not
+    /// carried. Every machine.
     /// </summary>
     [HarmonyPatch(typeof(SurfaceMovable), "Update")]
     internal static class MovementSpecialsSurfacePatch
@@ -878,14 +1248,16 @@ namespace ChefSkills.Specials
 
         private static void Postfix(SurfaceMovable __instance)
         {
-            if (MovementSpecials.SurfaceFactor.Count == 0 || !SpecialRuntime.InLevel || VelocityField == null) return;
+            if (MovementSpecials.SurfaceRule.Count == 0 || !SpecialRuntime.InLevel || VelocityField == null) return;
             try
             {
-                float factor;
-                if (__instance == null || !MovementSpecials.SurfaceFactor.TryGetValue(__instance.gameObject.GetInstanceID(), out factor))
+                int rule;
+                if (__instance == null || !MovementSpecials.SurfaceRule.TryGetValue(__instance.gameObject.GetInstanceID(), out rule))
                     return;
                 Vector3 velocity = (Vector3)VelocityField.GetValue(__instance);
-                if (velocity.sqrMagnitude > 0f) VelocityField.SetValue(__instance, velocity * factor);
+                if (velocity.sqrMagnitude < 1e-4f) return;
+                VelocityField.SetValue(__instance, MovementSpecials.Filter(__instance.transform, velocity, rule));
+                if (velocity.sqrMagnitude > 0.04f) MovementSpecials.Glow(__instance.gameObject, MovementSpecials.SpecialOf(rule));
             }
             catch (Exception error)
             {

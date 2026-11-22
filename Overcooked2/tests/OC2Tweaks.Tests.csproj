@@ -12,5 +12,6 @@
     <Compile Include="..\OC2Tweaks\ConnectionMonitor.cs" Link="ConnectionMonitor.cs" />
     <Compile Include="..\OC2Tweaks\MenuText.cs" Link="MenuText.cs" />
     <Compile Include="..\OC2Tweaks\MenuOptions.cs" Link="MenuOptions.cs" />
+    <Compile Include="..\OC2Tweaks\Lang.cs" Link="Lang.cs" />
   </ItemGroup>
 </Project>

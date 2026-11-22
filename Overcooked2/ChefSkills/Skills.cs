@@ -50,14 +50,43 @@ namespace ChefSkills
         private static readonly ConfigEntry<int>[] Percent = new ConfigEntry<int>[Count];
         private static ConfigEntry<int> _maxLevel;
 
-        /// <summary>Skill name on the screen.</summary>
-        internal static readonly string[] Names =
+        // Skill names in English (also what the log uses) and in Vietnamese.
+        private static readonly string[] NamesEn =
         {
             "COOKING", "SLOW BURN", "CHOPPING", "WASHING", "SERVING", "RUNNING", "DASHING", "THROWING", "FIREFIGHTING",
         };
 
+        private static readonly string[] NamesVi =
+        {
+            "NẤU", "LÂU CHÁY", "THÁI", "RỬA ĐĨA", "PHỤC VỤ", "CHẠY", "LƯỚT", "NÉM", "CHỮA CHÁY",
+        };
+
+        /// <summary>Skill name on the screen.</summary>
+        internal static string[] Names
+        {
+            get { return Lang.Vi ? NamesVi : NamesEn; }
+        }
+
         /// <summary>The line under a player's skills that explains the highlighted one.</summary>
-        internal static readonly string[] Descriptions =
+        internal static string[] Descriptions
+        {
+            get { return Lang.Vi ? DescriptionsVi : DescriptionsEn; }
+        }
+
+        private static readonly string[] DescriptionsVi =
+        {
+            "Nồi, chảo, bát trộn bạn cho đồ vào nấu và trộn nhanh cỡ nào",
+            "Món bạn nấu giữ được bao lâu trước khi cháy",
+            "Mỗi nhát thái của bạn tính được bao nhiêu",
+            "Bạn rửa đĩa bẩn nhanh cỡ nào",
+            "Đĩa quay lại sớm cỡ nào sau khi bạn giao món",
+            "Bạn chạy nhanh cỡ nào",
+            "Bạn lướt xa cỡ nào và hồi lướt nhanh cỡ nào",
+            "Bạn ném xa cỡ nào",
+            "Bình chữa cháy của bạn dập lửa nhanh cỡ nào",
+        };
+
+        private static readonly string[] DescriptionsEn =
         {
             "How fast pots, pans and mixers you fill cook and mix",
             "How long the food you cooked lasts before it burns",
@@ -242,7 +271,7 @@ namespace ChefSkills
             {
                 if (levels[i] == 0) continue;
                 if (text.Length > 0) text.Append(", ");
-                text.Append(Names[i]).Append(' ').Append(levels[i] > 0 ? "+" : "").Append(levels[i])
+                text.Append(NamesEn[i]).Append(' ').Append(levels[i] > 0 ? "+" : "").Append(levels[i])
                     .Append(" (").Append(PercentChange((Skill)i, levels[i]) > 0 ? "+" : "")
                     .Append(PercentChange((Skill)i, levels[i])).Append("%)");
             }

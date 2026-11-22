@@ -12,49 +12,74 @@ namespace ChefSkills.Specials
     /// Carrying specials: PACK MULE, POCKET, WAITER, TELEKINESIS, STRONG ARM, HAND-OFF, PICKPOCKET
     /// and the VEGETARIAN quirk.
     ///
-    /// The "stash" (Pack Mule's back, Pocket, Waiter's second dish) keeps one real item per chef
-    /// out of play. On the host the item is taken from the chef's hand with the game's own
-    /// TakeItem, attached to the chef (IAttachment.Attach, so it is kinematic, counts as held and
-    /// follows the chef, even through respawns) without entering a carrier slot, then deactivated
-    /// on every machine (the game itself keeps "free objects" inside containers inactive the same
-    /// way; inactive items have no colliders, so nothing can touch them, and their UI hides). Giving
-    /// it back is a normal Detach + CarryItem. The host tells every machine which item is stashed
-    /// (TopicStash), and each machine hides it and, for Pack Mule / Waiter, shows a mesh-only copy
-    /// on the chef. Nothing in the item itself changes, so the game's sync stays valid.
+    /// The "stash" (Pack Mule's back, Pocket, Waiter's second dish) keeps real items out of play.
+    /// On the host an item is taken from the chef's hand with the game's own TakeItem, attached to
+    /// the chef (IAttachment.Attach, so it is kinematic, counts as held and follows the chef, even
+    /// through respawns) without entering a carrier slot, then deactivated on every machine (the
+    /// game keeps "free objects" inside containers inactive the same way; inactive items have no
+    /// colliders, so nothing can touch them, and their UI hides). Giving it back is a normal Detach
+    /// + CarryItem. The host tells every machine which item was stashed or given back
+    /// (TopicStash); each machine hides or shows it and, for Pack Mule / Waiter, shows a mesh-only
+    /// copy on the chef. Nothing in the item itself changes, so the game's own sync stays valid.
+    /// The item's layers are restored when it comes back (a respawn re-layers the chef's children).
     /// </summary>
     internal sealed class CarryingModule : ISpecialModule
     {
-        // Host -> all: Chef = chef, I = stashed entity (0 = none), A = kind (Special), D = entity given back.
+        // Host -> all: Chef = chef, I = entity stashed (0 = none), A = kind (Special), D = entity given back (0 = none).
         internal const ushort TopicStash = (ushort)((int)Special.PackMule * 10 + 0);
         // Owner -> host: Chef = chef, I = held entity, Vector1 = facing.
         internal const ushort TopicToss = (ushort)((int)Special.StrongArm * 10 + 0);
-        // Owner -> host: Chef = chef, I = teammate chef.
+        // Owner -> host: Chef = chef, I = teammate chef, Vector1 = chef's position at the press.
         internal const ushort TopicHandOff = (ushort)((int)Special.HandOff * 10 + 0);
-        // Host -> all: Chef = chef that refused raw meat or fish (its player hears a "no").
+        // Host -> all: Chef = chef whose hand-off was refused, Text = why.
+        internal const ushort TopicHandOffDenied = (ushort)((int)Special.HandOff * 10 + 1);
+        // Owner -> host: Chef = thief, I = chef it dashed into, Vector1 = thief's position.
+        internal const ushort TopicPickpocket = (ushort)((int)Special.Pickpocket * 10 + 0);
+        // Host -> all: Chef = chef that refused raw meat or fish, I = what it refused (entity, 0 = none).
         internal const ushort TopicVegetarian = (ushort)((int)Special.Vegetarian * 10 + 0);
 
+        private const int PocketSize = 3;
         private const float TelekinesisRange = 6f;
         private const float TelekinesisArc = 30f;
-        private const float HandOffRange = 1.5f;
+        private const float TelekinesisWideArc = 60f;
+        private const float HandOffRange = 1.7f;
         private const float HandOffArc = 50f;
+        private const float PickpocketRange = 3f;
+        private const float TossCatchRadius = 1.1f;
+        private const float TossSeconds = 2.5f;
         private const float TickSeconds = 0.2f;
 
-        private sealed class Stash
+        private sealed class Stashed
         {
             public GameObject Item;
             public uint Entity;
+            public uint Chef;
             public Special Kind;
             public GameObject Visual;
             public ServerLimitedQuantityItem Limited;
+            public Transform[] Parts;
+            public int[] Layers;
         }
 
-        // Chef entity ID -> what it has stashed (every machine).
-        private static readonly Dictionary<uint, Stash> s_stash = new Dictionary<uint, Stash>();
-        private static readonly List<uint> s_keys = new List<uint>();
+        private sealed class Flight
+        {
+            public GameObject Item;
+            public ChefState Thrower;
+            public Vector3 From;
+            public float StartedAt;
+        }
+
+        // Every stashed item (every machine), in the order it was stashed.
+        private static readonly List<Stashed> s_stashed = new List<Stashed>();
+        private static readonly List<Stashed> s_scratch = new List<Stashed>();
+        // Strong Arm tosses still in the air (host).
+        private static readonly List<Flight> s_flights = new List<Flight>();
         private static readonly Dictionary<uint, float> s_deniedAt = new Dictionary<uint, float>();
         // Keeps a stashed item from being removed by the limited-quantity cleanup.
         private static readonly Generic<bool> s_invincible = AlwaysTrue;
         private static float s_nextTick;
+
+        private static readonly Color Refused = new Color(1f, 0.3f, 0.3f);
 
         private static readonly string[] MeatWords =
         {
@@ -72,6 +97,8 @@ namespace ChefSkills.Specials
             SpecialNet.Register(TopicStash, OnStashMessage);
             SpecialNet.Register(TopicToss, OnTossRequest);
             SpecialNet.Register(TopicHandOff, OnHandOffRequest);
+            SpecialNet.Register(TopicHandOffDenied, OnHandOffDenied);
+            SpecialNet.Register(TopicPickpocket, OnPickpocketRequest);
             SpecialNet.Register(TopicVegetarian, OnVegetarianDenied);
 
             SpecialRuntime.Tick += OnTick;
@@ -98,6 +125,11 @@ namespace ChefSkills.Specials
             return id == EntitySerialisationRegistry.kInvalidEntityID ? 0 : id;
         }
 
+        internal static bool IsEntity(GameObject obj)
+        {
+            return EntityOf(obj) != 0;
+        }
+
         private static GameObject EntityObject(uint id)
         {
             if (id == 0) return null;
@@ -105,10 +137,21 @@ namespace ChefSkills.Specials
             return entry != null ? entry.m_GameObject : null;
         }
 
+        private static GameObject ChefObject(uint chef)
+        {
+            ChefState state = SpecialRuntime.StateById(chef);
+            return state != null && state.Chef != null ? state.Chef : EntityObject(chef);
+        }
+
         private static Vector2 FlatForward(Vector3 forward)
         {
             Vector2 xz = new Vector2(forward.x, forward.z);
             return xz.sqrMagnitude > 0.0001f ? xz.normalized : new Vector2(0f, 1f);
+        }
+
+        private static bool Respawning(ChefState state)
+        {
+            return state == null || state.Controls == null || state.Controls.m_bRespawning;
         }
 
         private static bool Busy(ChefState state)
@@ -125,6 +168,12 @@ namespace ChefSkills.Specials
             return container != null && container.GetContentsCount() > 0;
         }
 
+        /// <summary>A loose piece of food (what fits in a pocket).</summary>
+        private static bool IsIngredient(GameObject item)
+        {
+            return item != null && item.GetComponent<IngredientPropertiesComponent>() != null && item.GetComponent<ServerPlate>() == null;
+        }
+
         private static string CleanName(GameObject item)
         {
             if (item == null) return "";
@@ -134,19 +183,110 @@ namespace ChefSkills.Specials
             return name.Replace('_', ' ').Trim();
         }
 
-        // --- stash: host side ---------------------------------------------------------------------
+        // --- stash records (every machine) -------------------------------------------------------
 
-        private static Stash StashOf(ChefState state)
+        private static Stashed RecordOf(GameObject item)
         {
-            Stash stash;
-            if (state == null || !s_stash.TryGetValue(state.Id, out stash)) return null;
-            if (stash.Item == null)
-            {
-                DropRecord(state.Id);
-                return null;
-            }
-            return stash;
+            if (item == null) return null;
+            for (int i = 0; i < s_stashed.Count; i++)
+                if (s_stashed[i].Item == item) return s_stashed[i];
+            return null;
         }
+
+        /// <summary>This chef's stashed items of this kind still in play, oldest first.</summary>
+        private static List<Stashed> StashOf(uint chef, Special kind)
+        {
+            var list = new List<Stashed>();
+            for (int i = 0; i < s_stashed.Count; i++)
+            {
+                Stashed record = s_stashed[i];
+                if (record.Chef == chef && record.Kind == kind && record.Item != null) list.Add(record);
+            }
+            return list;
+        }
+
+        private static void Forget(Stashed record)
+        {
+            if (record == null) return;
+            DestroyVisual(record);
+            s_stashed.Remove(record);
+        }
+
+        private static void DestroyVisual(Stashed record)
+        {
+            if (record != null && record.Visual != null) Object.Destroy(record.Visual);
+            if (record != null) record.Visual = null;
+        }
+
+        /// <summary>Hides a stashed item on this machine and records it (idempotent).</summary>
+        private static Stashed HideLocal(uint chef, GameObject item, Special kind)
+        {
+            Stashed record = RecordOf(item);
+            if (record == null)
+            {
+                record = new Stashed { Item = item, Entity = EntityOf(item), Chef = chef, Kind = kind };
+                s_stashed.Add(record);
+            }
+            else if (record.Chef != chef || record.Kind != kind)
+            {
+                DestroyVisual(record);
+                record.Chef = chef;
+                record.Kind = kind;
+            }
+            if (item.activeSelf)
+            {
+                // A respawn re-layers everything under the chef: remember the item's own layers.
+                record.Parts = item.GetComponentsInChildren<Transform>(true);
+                record.Layers = new int[record.Parts.Length];
+                for (int i = 0; i < record.Parts.Length; i++) record.Layers[i] = record.Parts[i].gameObject.layer;
+                // Copy the look while it is still visible, then take it out of play.
+                if (record.Visual == null && kind != Special.Pocket) record.Visual = BuildVisual(ChefObject(chef), item, kind);
+                item.SetActive(false);
+            }
+            return record;
+        }
+
+        /// <summary>Shows a stashed item again on this machine and forgets it (idempotent). Returns its chef (0 if none).</summary>
+        private static uint RevealLocal(GameObject item)
+        {
+            if (item == null) return 0;
+            Stashed record = RecordOf(item);
+            uint chef = 0;
+            if (record != null)
+            {
+                chef = record.Chef;
+                if (record.Parts != null)
+                    for (int i = 0; i < record.Parts.Length; i++)
+                        if (record.Parts[i] != null && record.Parts[i].gameObject.layer != record.Layers[i])
+                            record.Parts[i].gameObject.layer = record.Layers[i];
+                Forget(record);
+            }
+            if (!item.activeSelf) item.SetActive(true);
+            return chef;
+        }
+
+        /// <summary>The local player's skill bar: how many items are stored, and what.</summary>
+        private static void UpdateHud(ChefState state)
+        {
+            if (state == null || !state.Local) return;
+            string status = null;
+            if (state.Has(Special.PackMule) || state.Has(Special.Pocket))
+            {
+                Special kind = state.Has(Special.Pocket) ? Special.Pocket : Special.PackMule;
+                List<Stashed> list = StashOf(state.Id, kind);
+                state.SetCount(kind, list.Count);
+                if (list.Count > 0)
+                {
+                    var names = new List<string>();
+                    for (int i = 0; i < list.Count; i++) names.Add(CleanName(list[i].Item));
+                    status = (kind == Special.Pocket ? Lang.T("Pocket: ", "Túi: ") : Lang.T("Back: ", "Lưng: ")) + string.Join(", ", names.ToArray());
+                }
+            }
+            if (state.Has(Special.Waiter)) state.SetCount(Special.Waiter, StashOf(state.Id, Special.Waiter).Count > 0 ? 2 : 0);
+            state.SetStatus("Carrying", status, state.Has(Special.Pocket) ? Special.Pocket : Special.PackMule);
+        }
+
+        // --- stash: host side ---------------------------------------------------------------------
 
         /// <summary>Can this held item be stashed (a normal networked attachment)?</summary>
         private static bool Stashable(GameObject item)
@@ -154,40 +294,47 @@ namespace ChefSkills.Specials
             if (item == null || EntityOf(item) == 0) return false;
             if (item.GetComponent<ServerPhysicalAttachment>() == null) return false;
             // A backpack lives in the Back slot; never in the hand, but be safe.
-            ServerBackpack backpack = item.GetComponent<ServerBackpack>();
-            return backpack == null;
+            return item.GetComponent<ServerBackpack>() == null;
         }
 
         /// <summary>Host: moves the chef's held item into its stash. Doesn't broadcast.</summary>
-        private static bool ServerStashHeld(ChefState state, ServerPlayerAttachmentCarrier carrier, Special kind)
+        private static Stashed ServerStashHeld(ChefState state, ServerPlayerAttachmentCarrier carrier, Special kind)
         {
             GameObject item = carrier.InspectCarriedItem();
-            if (!Stashable(item)) return false;
+            if (!Stashable(item)) return null;
             PlayerAttachmentCarrier parent = state.Chef.GetComponent<PlayerAttachmentCarrier>();
             IAttachment attachment = item.GetComponent<IAttachment>();
-            if (parent == null || attachment == null) return false;
+            if (parent == null || attachment == null) return null;
 
             carrier.TakeItem();
             // Attached to the chef but in no carrier slot: kinematic, "held", follows the chef.
             if (attachment.IsAttached()) attachment.Detach();
             attachment.Attach(parent);
-            ServerLimitedQuantityItem limited = item.GetComponent<ServerLimitedQuantityItem>();
-            if (limited != null) limited.AddInvincibilityCondition(s_invincible);
-            HideLocal(state, item, kind);
-            Stash stash;
-            if (s_stash.TryGetValue(state.Id, out stash)) stash.Limited = limited;
-            return true;
+            Stashed record = HideLocal(state.Id, item, kind);
+            if (record.Limited == null)
+            {
+                record.Limited = item.GetComponent<ServerLimitedQuantityItem>();
+                if (record.Limited != null) record.Limited.AddInvincibilityCondition(s_invincible);
+            }
+            return record;
         }
 
-        /// <summary>Host: puts the stashed item back in the chef's hand (or drops it if the hand is full).</summary>
-        private static uint ServerGiveBack(ChefState state, ServerPlayerAttachmentCarrier carrier, Stash stash)
+        /// <summary>
+        /// Host: takes an item out of the stash into the chef's hand (or, with no carrier or a full
+        /// hand, leaves it loose where it is). Doesn't broadcast. Returns its entity.
+        /// </summary>
+        private static uint ServerGiveBack(ServerPlayerAttachmentCarrier carrier, Stashed record)
         {
-            GameObject item = stash.Item;
-            uint id = stash.Entity;
-            if (stash.Limited != null) stash.Limited.RemoveInvincibilityCondition(s_invincible);
-            DestroyVisual(stash);
+            GameObject item = record.Item;
+            uint id = record.Entity;
+            if (record.Limited != null) record.Limited.RemoveInvincibilityCondition(s_invincible);
+            record.Limited = null;
+            if (item == null)
+            {
+                Forget(record);
+                return id;
+            }
             RevealLocal(item);
-            if (item == null) return id;
             IAttachment attachment = item.GetComponent<IAttachment>();
             if (attachment != null && attachment.IsAttached()) attachment.Detach();
             // Same as the game's own pickup of a loose item (ServerCarryableItem.HandlePickup).
@@ -195,40 +342,61 @@ namespace ChefSkills.Specials
             return id;
         }
 
-        private static void BroadcastStash(ChefState state, uint stashed, Special kind, uint revealed)
+        private static void BroadcastStash(uint chef, uint stashed, Special kind, uint revealed)
         {
             SpecialNet.SendToAll(new SpecialMessage
             {
-                Topic = TopicStash, Chef = state.Id, I = (int)stashed, A = (int)kind, D = revealed
+                Topic = TopicStash, Chef = chef, I = (int)stashed, A = (int)kind, D = revealed
             });
         }
 
-        /// <summary>PACK MULE / POCKET: swap the held item and the stashed one.</summary>
+        /// <summary>Host: a chef is being removed (its player left): its stashed items drop where it stands.</summary>
+        internal static void ServerReleaseChef(uint chef)
+        {
+            if (chef == 0 || s_stashed.Count == 0) return;
+            s_scratch.Clear();
+            for (int i = 0; i < s_stashed.Count; i++)
+                if (s_stashed[i].Chef == chef) s_scratch.Add(s_stashed[i]);
+            for (int i = 0; i < s_scratch.Count; i++)
+            {
+                Stashed record = s_scratch[i];
+                uint revealed = ServerGiveBack(null, record);
+                BroadcastStash(chef, 0, record.Kind, revealed);
+            }
+            s_scratch.Clear();
+        }
+
+        /// <summary>
+        /// PACK MULE (one item of any kind, shown on the back) and POCKET (up to three ingredients,
+        /// hidden): EMOTE stores what the hands hold, or takes the last stored item out into empty
+        /// hands; when full, it swaps.
+        /// </summary>
         private static bool ExecuteSwap(ChefState state)
         {
             ServerPlayerAttachmentCarrier carrier = ServerCarrier(state);
-            if (carrier == null || state.Controls == null || state.Controls.m_bRespawning) return false;
+            if (carrier == null || state.Controls == null) return state.Refuse(Lang.Both("NOT READY", "CHƯA SẴN SÀNG"));
+            if (state.Controls.m_bRespawning) return state.Refuse(Lang.Both("RESPAWNING", "ĐANG HỒI SINH"));
             Special kind = state.Active == Special.Pocket ? Special.Pocket : Special.PackMule;
+            int capacity = kind == Special.Pocket ? PocketSize : 1;
             GameObject hand = carrier.InspectCarriedItem();
-            Stash previous = StashOf(state);
-            if (hand == null && previous == null) return false;
-            if (hand != null && !Stashable(hand)) return false;
-            // Taking something into the hands mid-chop would confuse the station.
-            if (hand == null && Busy(state)) return false;
+            List<Stashed> stored = StashOf(state.Id, kind);
 
-            if (previous != null) s_stash.Remove(state.Id);
-            uint stashed = 0;
-            if (hand != null)
+            if (hand == null)
             {
-                if (!ServerStashHeld(state, carrier, kind))
-                {
-                    if (previous != null) s_stash[state.Id] = previous;
-                    return false;
-                }
-                stashed = EntityOf(hand);
+                if (stored.Count == 0) return state.Refuse(kind == Special.Pocket ? Lang.Both("POCKET IS EMPTY", "TÚI ĐANG TRỐNG") : Lang.Both("NOTHING TO SWAP", "KHÔNG CÓ GÌ ĐỂ ĐỔI"));
+                // Taking something into the hands mid-chop would confuse the station.
+                if (Busy(state)) return state.Refuse(Lang.Both("HANDS BUSY", "TAY ĐANG BẬN"));
+                uint given = ServerGiveBack(carrier, stored[stored.Count - 1]);
+                BroadcastStash(state.Id, 0, kind, given);
+                return true;
             }
-            uint revealed = previous != null ? ServerGiveBack(state, carrier, previous) : 0;
-            BroadcastStash(state, stashed, kind, revealed);
+
+            if (!Stashable(hand)) return state.Refuse(Lang.Both("CAN'T STORE THAT", "KHÔNG CẤT ĐƯỢC"));
+            if (kind == Special.Pocket && !IsIngredient(hand)) return state.Refuse(Lang.Both("ONLY FOOD FITS", "CHỈ CẤT ĐƯỢC ĐỒ ĂN"));
+            Stashed swapWith = stored.Count >= capacity ? stored[stored.Count - 1] : null;
+            if (ServerStashHeld(state, carrier, kind) == null) return state.Refuse(Lang.Both("CAN'T STORE THAT", "KHÔNG CẤT ĐƯỢC"));
+            uint revealed = swapWith != null ? ServerGiveBack(carrier, swapWith) : 0;
+            BroadcastStash(state.Id, EntityOf(hand), kind, revealed);
             return true;
         }
 
@@ -236,91 +404,36 @@ namespace ChefSkills.Specials
 
         private static void OnStashMessage(SpecialMessage message)
         {
-            ChefState state = SpecialRuntime.StateById(message.Chef);
+            if (!SpecialRuntime.InLevel) return;
+            Special kind = (Special)(int)message.A;
             uint revealed = (uint)message.D;
-            if (revealed != 0) RevealLocal(EntityObject(revealed));
-            if (state == null) return;
-            GameObject item = EntityObject((uint)message.I);
-            if (message.I != 0 && item != null) HideLocal(state, item, (Special)(int)message.A);
-            else if (message.I == 0) DropRecord(state.Id);
-            UpdateStatus(state);
-        }
+            GameObject shown = EntityObject(revealed);
+            uint previousOwner = RevealLocal(shown);
+            GameObject item = message.I != 0 ? EntityObject((uint)message.I) : null;
+            if (item != null) HideLocal(message.Chef, item, kind);
 
-        /// <summary>Hides a stashed item on this machine and records it (idempotent).</summary>
-        private static void HideLocal(ChefState state, GameObject item, Special kind)
-        {
-            Stash stash;
-            if (s_stash.TryGetValue(state.Id, out stash) && stash.Item != item)
-            {
-                // Replaced without a reveal (shouldn't happen): forget the old visual only.
-                DestroyVisual(stash);
-                stash = null;
-            }
-            if (stash == null)
-            {
-                stash = new Stash { Item = item, Entity = EntityOf(item), Kind = kind };
-                s_stash[state.Id] = stash;
-            }
-            stash.Kind = kind;
-            if (item.activeSelf)
-            {
-                // Copy the look while it is still visible, then take it out of play.
-                if (stash.Visual == null && kind != Special.Pocket) stash.Visual = BuildVisual(state, item, kind);
-                item.SetActive(false);
-            }
-            UpdateStatus(state);
-        }
+            ChefState state = SpecialRuntime.StateById(message.Chef);
+            UpdateHud(state);
+            if (previousOwner != 0 && previousOwner != message.Chef) UpdateHud(SpecialRuntime.StateById(previousOwner));
 
-        /// <summary>Shows a stashed item again on this machine and forgets it (idempotent).</summary>
-        private static void RevealLocal(GameObject item)
-        {
-            if (item == null) return;
-            s_keys.Clear();
-            foreach (KeyValuePair<uint, Stash> pair in s_stash)
-                if (pair.Value.Item == item) s_keys.Add(pair.Key);
-            for (int i = 0; i < s_keys.Count; i++)
-            {
-                DropRecord(s_keys[i]);
-                UpdateStatus(SpecialRuntime.StateById(s_keys[i]));
-            }
-            if (!item.activeSelf) item.SetActive(true);
-        }
-
-        private static void DropRecord(uint chef)
-        {
-            Stash stash;
-            if (!s_stash.TryGetValue(chef, out stash)) return;
-            DestroyVisual(stash);
-            s_stash.Remove(chef);
-        }
-
-        private static void DestroyVisual(Stash stash)
-        {
-            if (stash != null && stash.Visual != null) Object.Destroy(stash.Visual);
-            if (stash != null) stash.Visual = null;
-        }
-
-        private static void UpdateStatus(ChefState state)
-        {
-            if (state == null) return;
-            Special active = state.Active;
-            if (active != Special.PackMule && active != Special.Pocket) return;
-            Stash stash;
-            state.SetStatus("Carrying", s_stash.TryGetValue(state.Id, out stash) && stash.Item != null
-                ? (active == Special.Pocket ? "Pocket: " : "Back: ") + CleanName(stash.Item)
-                : null);
+            // What every player sees: the item that comes out gets a ring; a dish going up the
+            // Waiter's arm says "x2" (actives already get a burst and their name from the framework).
+            if (shown != null && shown.activeInHierarchy) SpecialFx.Mark(shown, kind, 1f, null);
+            if (item != null && kind == Special.Waiter && state != null && state.Chef != null)
+                SpecialFx.Text(state.Chef, "x2", SpecialFx.ColourOf(Special.Waiter));
         }
 
         /// <summary>
         /// A mesh-only copy of the item (no colliders, no scripts) on the chef's back (Pack Mule)
         /// or balanced above its hand (Waiter). Purely cosmetic and local.
         /// </summary>
-        private static GameObject BuildVisual(ChefState state, GameObject item, Special kind)
+        private static GameObject BuildVisual(GameObject chefObject, GameObject item, Special kind)
         {
+            if (chefObject == null || item == null) return null;
             try
             {
-                Transform chef = state.Chef.transform;
-                PlayerAttachmentCarrier carrier = state.Chef.GetComponent<PlayerAttachmentCarrier>();
+                Transform chef = chefObject.transform;
+                PlayerAttachmentCarrier carrier = chefObject.GetComponent<PlayerAttachmentCarrier>();
                 Vector3 local;
                 float scale;
                 if (kind == Special.Waiter)
@@ -373,8 +486,10 @@ namespace ChefSkills.Specials
 
         private static void Clear()
         {
-            foreach (Stash stash in s_stash.Values) DestroyVisual(stash);
-            s_stash.Clear();
+            foreach (Stashed record in s_stashed) DestroyVisual(record);
+            s_stashed.Clear();
+            s_scratch.Clear();
+            s_flights.Clear();
             s_deniedAt.Clear();
             s_nextTick = 0f;
             WaiterPatch.Reentered = false;
@@ -382,50 +497,64 @@ namespace ChefSkills.Specials
 
         private static void OnTick(float deltaTime)
         {
-            if (s_stash.Count == 0) return;
+            bool server = SpecialNet.IsServer;
+            if (server && s_flights.Count > 0) UpdateFlights();
+            if (s_stashed.Count == 0) return;
             if (SpecialRuntime.Now < s_nextTick) return;
             s_nextTick = SpecialRuntime.Now + TickSeconds;
-            bool server = SpecialNet.IsServer;
 
-            s_keys.Clear();
-            s_keys.AddRange(s_stash.Keys);
-            for (int i = 0; i < s_keys.Count; i++)
+            s_scratch.Clear();
+            s_scratch.AddRange(s_stashed);
+            for (int i = 0; i < s_scratch.Count; i++)
             {
-                uint chef = s_keys[i];
-                Stash stash = s_stash[chef];
-                ChefState state = SpecialRuntime.StateById(chef);
-                if (state == null || state.Chef == null || stash.Item == null)
+                Stashed record = s_scratch[i];
+                if (!s_stashed.Contains(record)) continue;
+                ChefState state = SpecialRuntime.StateById(record.Chef);
+                if (record.Item == null)
                 {
-                    // The chef left or the item was destroyed: nothing to give back.
-                    DropRecord(chef);
-                    if (server && state != null) BroadcastStash(state, 0, stash.Kind, 0);
+                    // Destroyed (on the host too, so on every machine): nothing to give back.
+                    Forget(record);
+                    UpdateHud(state);
+                    continue;
+                }
+                if (state == null || state.Chef == null)
+                {
+                    // The chef is gone: the host lets its items drop; clients wait for that.
+                    if (server)
+                    {
+                        uint dropped = ServerGiveBack(null, record);
+                        BroadcastStash(record.Chef, 0, record.Kind, dropped);
+                    }
                     continue;
                 }
 
                 // The copy disappears with the chef while it respawns.
-                bool respawning = state.Controls != null && state.Controls.m_bRespawning;
-                if (stash.Visual != null && stash.Visual.activeSelf == respawning) stash.Visual.SetActive(!respawning);
+                bool respawning = Respawning(state);
+                if (record.Visual != null && record.Visual.activeSelf == respawning) record.Visual.SetActive(!respawning);
+                if (record.Kind == Special.Waiter && !respawning) SpecialFx.Mark(state.Chef, Special.Waiter, 0.5f, "x2");
 
                 if (!server) continue;
-                if (!stash.Item.transform.IsChildOf(state.Chef.transform))
+                if (!record.Item.transform.IsChildOf(state.Chef.transform))
                 {
                     // Something else took it: let it be a normal item again.
-                    RevealLocal(stash.Item);
-                    BroadcastStash(state, 0, stash.Kind, stash.Entity);
+                    if (record.Limited != null) record.Limited.RemoveInvincibilityCondition(s_invincible);
+                    record.Limited = null;
+                    RevealLocal(record.Item);
+                    BroadcastStash(record.Chef, 0, record.Kind, record.Entity);
                     continue;
                 }
                 // WAITER: once the hands are free, the second dish comes down into them.
-                if (stash.Kind == Special.Waiter && !Busy(state))
+                if (record.Kind == Special.Waiter && !Busy(state))
                 {
                     ServerPlayerAttachmentCarrier carrier = ServerCarrier(state);
                     if (carrier != null && carrier.InspectCarriedItem() == null)
                     {
-                        s_stash.Remove(chef);
-                        uint revealed = ServerGiveBack(state, carrier, stash);
-                        BroadcastStash(state, 0, Special.Waiter, revealed);
+                        uint revealed = ServerGiveBack(carrier, record);
+                        BroadcastStash(record.Chef, 0, Special.Waiter, revealed);
                     }
                 }
             }
+            s_scratch.Clear();
         }
 
         // --- WAITER -------------------------------------------------------------------------------
@@ -437,7 +566,8 @@ namespace ChefSkills.Specials
         internal static bool TryWaiterStack(ChefState state, PlayerControls controls, GameObject held, GameObject target)
         {
             ServerPlayerAttachmentCarrier carrier = ServerCarrier(state);
-            if (carrier == null || carrier.InspectCarriedItem() != held || StashOf(state) != null) return false;
+            if (carrier == null || carrier.InspectCarriedItem() != held || Respawning(state)) return false;
+            if (StashOf(state.Id, Special.Waiter).Count > 0) return false;
             Vector2 direction = FlatForward(controls.transform.forward);
             IHandlePlacement placement = PlayerControlsHelper.GetControllingPlacementHandler_Server(target);
             if (placement != null && placement.CanHandlePlacement(carrier, direction, new PlacementContext(PlacementContext.Source.Player)))
@@ -447,20 +577,17 @@ namespace ChefSkills.Specials
             IHandlePickup pickup = PlayerControlsHelper.GetControllingPickupHandler_Server(other);
             if (pickup == null) return false;
 
-            if (!ServerStashHeld(state, carrier, Special.Waiter)) return false;
+            Stashed record = ServerStashHeld(state, carrier, Special.Waiter);
+            if (record == null) return false;
             if (pickup.CanHandlePickup(carrier)) pickup.HandlePickup(carrier, direction);
             if (carrier.InspectCarriedItem() == other)
             {
-                BroadcastStash(state, EntityOf(held), Special.Waiter, 0);
+                BroadcastStash(state.Id, EntityOf(held), Special.Waiter, 0);
                 return true;
             }
-            // Couldn't take the other dish: put ours back in the hand as if nothing happened.
-            Stash stash = StashOf(state);
-            if (stash != null)
-            {
-                s_stash.Remove(state.Id);
-                ServerGiveBack(state, carrier, stash);
-            }
+            // Couldn't take the other dish: put ours back in the hand as if nothing happened
+            // (nothing was broadcast, and the game's carry messages cancel out).
+            ServerGiveBack(carrier, record);
             return false;
         }
 
@@ -479,15 +606,16 @@ namespace ChefSkills.Specials
         /// <summary>Host, after a dish went onto the pass: hand in the stashed dish too.</summary>
         internal static void WaiterDeliverSecond(ChefState state, PlayerControls controls, GameObject target)
         {
-            Stash stash = StashOf(state);
-            if (stash == null || !IsDish(stash.Item)) return;
+            List<Stashed> stored = StashOf(state.Id, Special.Waiter);
+            if (stored.Count == 0 || !IsDish(stored[0].Item)) return;
             ServerPlayerAttachmentCarrier carrier = ServerCarrier(state);
             if (carrier == null || carrier.InspectCarriedItem() != null) return;
-            s_stash.Remove(state.Id);
-            uint revealed = ServerGiveBack(state, carrier, stash);
-            BroadcastStash(state, 0, stash.Kind, revealed);
-            if (carrier.InspectCarriedItem() == stash.Item)
-                PlayerControlsHelper.PlaceHeldItem_Server(controls, target);
+            GameObject dish = stored[0].Item;
+            uint revealed = ServerGiveBack(carrier, stored[0]);
+            BroadcastStash(state.Id, 0, Special.Waiter, revealed);
+            if (carrier.InspectCarriedItem() != dish) return;
+            PlayerControlsHelper.PlaceHeldItem_Server(controls, target);
+            if (carrier.InspectCarriedItem() == null) SpecialFx.TextAll(state.Chef, Lang.Both("x2 SERVED!", "x2 ĐÃ GIAO!"), Special.Waiter);
         }
 
         // --- TELEKINESIS --------------------------------------------------------------------------
@@ -495,18 +623,43 @@ namespace ChefSkills.Specials
         private static bool ExecuteTelekinesis(ChefState state)
         {
             ServerPlayerAttachmentCarrier carrier = ServerCarrier(state);
-            if (carrier == null || carrier.InspectCarriedItem() != null || Busy(state)) return false;
-            Vector3 forward = state.Forward;
+            if (carrier == null || state.Controls == null) return state.Refuse(Lang.Both("NOT READY", "CHƯA SẴN SÀNG"));
+            if (state.Controls.m_bRespawning) return state.Refuse(Lang.Both("RESPAWNING", "ĐANG HỒI SINH"));
+            if (carrier.InspectCarriedItem() != null) return state.Refuse(Lang.Both("HANDS FULL", "TAY ĐANG CẦM ĐỒ"));
+            if (Busy(state)) return state.Refuse(Lang.Both("HANDS BUSY", "TAY ĐANG BẬN"));
+            // Aim from where the player saw their chef (the host's view of a remote one lags).
+            Vector3 forward = state.RequestForward;
             forward.y = 0f;
-            if (forward.sqrMagnitude < 0.0001f) return false;
+            if (forward.sqrMagnitude < 0.0001f) forward = state.Forward;
+            forward.y = 0f;
+            if (forward.sqrMagnitude < 0.0001f) return state.Refuse(Lang.Both("NOTHING TO PULL", "KHÔNG CÓ GÌ ĐỂ KÉO"));
             forward.Normalize();
-            Vector3 origin = state.Position;
+            Vector3 origin = state.RequestPosition.sqrMagnitude > 0.0001f ? state.RequestPosition : state.Position;
 
+            Vector3 from;
+            IHandlePickup best = FindPull(state, carrier, origin, forward, TelekinesisArc, out from);
+            if (best == null) best = FindPull(state, carrier, origin, forward, TelekinesisWideArc, out from);
+            if (best == null) return state.Refuse(Lang.Both("NOTHING TO PULL", "KHÔNG CÓ GÌ ĐỂ KÉO"));
+            // The game's own pickup, just from further away: counter, floor or crate alike.
+            best.HandlePickup(carrier, FlatForward(forward));
+            GameObject pulled = carrier.InspectCarriedItem();
+            if (pulled == null) return state.Refuse(Lang.Both("NOTHING TO PULL", "KHÔNG CÓ GÌ ĐỂ KÉO"));
+            SpecialFx.BurstAll(from, Special.Telekinesis);
+            SpecialFx.BeamAll(from, state.Position, Special.Telekinesis, 0.6f);
+            SpecialFx.MarkAll(pulled, Special.Telekinesis, 0.8f, null);
+            return true;
+        }
+
+        private static IHandlePickup FindPull(ChefState state, ServerPlayerAttachmentCarrier carrier, Vector3 origin,
+            Vector3 forward, float arc, out Vector3 from)
+        {
+            from = origin;
             Collider[] colliders = Physics.OverlapSphere(origin + forward * (TelekinesisRange * 0.5f),
                 TelekinesisRange * 0.5f + 0.4f, ~0, QueryTriggerInteraction.Collide);
             var seen = new HashSet<int>();
             IHandlePickup best = null;
             float bestScore = float.MaxValue;
+            bool vegetarian = state.Has(Special.Vegetarian);
             for (int i = 0; i < colliders.Length; i++)
             {
                 Collider collider = colliders[i];
@@ -519,22 +672,20 @@ namespace ChefSkills.Specials
                 float distance = offset.magnitude;
                 if (distance > TelekinesisRange) continue;
                 float angle = distance > 0.5f ? Vector3.Angle(forward, offset) : 0f;
-                if (angle > TelekinesisArc) continue;
+                if (angle > arc) continue;
 
                 IHandlePickup handler = PlayerControlsHelper.GetControllingPickupHandler_Server(candidate);
                 if (handler == null || !handler.CanHandlePickup(carrier)) continue;
-                if (state.Has(Special.Vegetarian) && IsRawMeat(PickupItemOf(candidate))) continue;
-                float score = distance + angle * 0.05f;
+                if (vegetarian && IsRawMeat(PickupItemOf(candidate))) continue;
+                float score = distance + angle * 0.08f;
                 if (score < bestScore)
                 {
                     bestScore = score;
                     best = handler;
+                    from = candidate.transform.position;
                 }
             }
-            if (best == null) return false;
-            // The game's own pickup, just from further away: counter, floor or crate alike.
-            best.HandlePickup(carrier, FlatForward(forward));
-            return carrier.InspectCarriedItem() != null;
+            return best;
         }
 
         /// <summary>The object a pickup would be aimed at for this collider (null: none, or part of a chef).</summary>
@@ -563,14 +714,14 @@ namespace ChefSkills.Specials
 
         /// <summary>
         /// Host: a Strong Arm chef "throws" something the game won't throw (pot, pan, plate, dish,
-        /// filled wrap): it leaves the hands as a normal dropped item flying at throw speed. It is a
-        /// plain physics object (not a thrown one), so nobody catches it and it lands where it lands.
+        /// filled wrap): it leaves the hands as a loose item flying at throw speed. A teammate it
+        /// flies into (with empty hands) catches it; otherwise it lands where it lands.
         /// </summary>
         private static void OnTossRequest(SpecialMessage message)
         {
             if (!SpecialRuntime.InLevel || !SpecialNet.IsServer) return;
             ChefState state = SpecialRuntime.StateById(message.Chef);
-            if (state == null || !state.Has(Special.StrongArm) || state.Controls == null || state.Controls.m_bRespawning) return;
+            if (state == null || !state.Has(Special.StrongArm) || Respawning(state)) return;
             ServerPlayerAttachmentCarrier carrier = ServerCarrier(state);
             GameObject item = carrier != null ? carrier.InspectCarriedItem() : null;
             if (item == null || EntityOf(item) != (uint)message.I) return;
@@ -590,8 +741,66 @@ namespace ChefSkills.Specials
             force *= Plugin.Skills.Multiplier(state.Chef, Skill.Throwing) * 0.85f;
             Vector3 velocity = new Vector3(direction.x * force, Mathf.Tan(inclination * Mathf.Deg2Rad) * force, direction.y * force);
 
+            Vector3 from = item.transform.position;
             carrier.TakeItem();
             attachment.AccessMotion().SetVelocity(velocity);
+            s_flights.Add(new Flight { Item = item, Thrower = state, From = from, StartedAt = SpecialRuntime.Now });
+            SpecialFx.MarkAll(item, Special.StrongArm, 1.2f, null);
+            SpecialFx.BurstAll(state.Position, Special.StrongArm);
+        }
+
+        /// <summary>Host, every frame while something tossed is in the air: catches and landings.</summary>
+        private static void UpdateFlights()
+        {
+            for (int i = s_flights.Count - 1; i >= 0; i--)
+            {
+                Flight flight = s_flights[i];
+                GameObject item = flight.Item;
+                IAttachment attachment = item != null ? item.GetComponent<IAttachment>() : null;
+                if (item == null || attachment == null || attachment.IsAttached() || !item.activeInHierarchy)
+                {
+                    s_flights.RemoveAt(i);
+                    continue;
+                }
+                float age = SpecialRuntime.Now - flight.StartedAt;
+                if (age > 0.12f && TryCatch(flight, item))
+                {
+                    s_flights.RemoveAt(i);
+                    continue;
+                }
+                RigidbodyMotion motion = attachment.AccessMotion();
+                bool settled = age > 0.35f && motion != null && motion.GetVelocity().sqrMagnitude < 0.25f;
+                if (settled || age > TossSeconds)
+                {
+                    SpecialFx.BurstAll(item.transform.position, Special.StrongArm);
+                    s_flights.RemoveAt(i);
+                }
+            }
+        }
+
+        private static bool TryCatch(Flight flight, GameObject item)
+        {
+            if (flight.Thrower == null) return false;
+            Vector3 at = item.transform.position;
+            foreach (ChefState mate in SpecialRuntime.Teammates(flight.Thrower))
+            {
+                if (mate.Chef == null || Respawning(mate) || mate.Has(Special.Butterfingers)) continue;
+                Vector3 offset = at - mate.Position;
+                if (offset.y < -0.6f || offset.y > 2.4f) continue;
+                offset.y = 0f;
+                if (offset.magnitude > TossCatchRadius) continue;
+                ServerPlayerAttachmentCarrier carrier = ServerCarrier(mate);
+                if (carrier == null || carrier.InspectCarriedItem() != null || Busy(mate)) continue;
+                if (mate.Has(Special.Vegetarian) && IsRawMeat(item)) continue;
+                IHandlePickup handler = PlayerControlsHelper.GetControllingPickupHandler_Server(item);
+                if (handler == null || !handler.CanHandlePickup(carrier)) continue;
+                handler.HandlePickup(carrier, FlatForward(-new Vector3(offset.x, 0f, offset.z)));
+                if (carrier.InspectCarriedItem() != item) continue;
+                SpecialFx.BeamAll(flight.From, mate.Position, Special.StrongArm, 0.6f);
+                SpecialFx.TextAll(mate.Chef, Lang.Both("CAUGHT!", "BẮT ĐƯỢC!"), Special.StrongArm);
+                return true;
+            }
+            return false;
         }
 
         // --- HAND-OFF and PICKPOCKET --------------------------------------------------------------
@@ -604,14 +813,14 @@ namespace ChefSkills.Specials
             if (item == null || to.InspectCarriedItem() != null) return false;
             if (receiver != null && receiver.Has(Special.Vegetarian) && IsRawMeat(item))
             {
-                DenyVegetarian(receiver);
+                DenyVegetarian(receiver, item);
                 return false;
             }
             from.TakeItem();
             IAttachment attachment = item.GetComponent<IAttachment>();
             if (attachment != null && attachment.IsAttached()) attachment.Detach();
             to.CarryItem(item);
-            return true;
+            return to.InspectCarriedItem() == item;
         }
 
         /// <summary>Owner machine: the teammate this chef faces closely, or null.</summary>
@@ -623,7 +832,7 @@ namespace ChefSkills.Specials
             forward.y = 0f;
             foreach (ChefState other in SpecialRuntime.Teammates(state))
             {
-                if (other.Chef == null) continue;
+                if (other.Chef == null || Respawning(other)) continue;
                 Vector3 offset = other.Position - state.Position;
                 offset.y = 0f;
                 float distance = offset.magnitude;
@@ -644,14 +853,90 @@ namespace ChefSkills.Specials
             ChefState state = SpecialRuntime.StateById(message.Chef);
             ChefState mate = SpecialRuntime.StateById((uint)message.I);
             if (state == null || mate == null || state == mate || !state.Has(Special.HandOff)) return;
-            if (mate.Team != state.Team || Busy(state) || Busy(mate)) return;
-            Vector3 offset = mate.Position - state.Position;
+            if (mate.Team != state.Team)
+            {
+                DenyHandOff(state, Lang.Both("CAN'T HAND OFF", "KHÔNG TRAO ĐƯỢC"));
+                return;
+            }
+            if (Busy(state) || Busy(mate))
+            {
+                DenyHandOff(state, Busy(state) ? Lang.Both("HANDS BUSY", "TAY ĐANG BẬN") : Lang.Both("TEAMMATE BUSY", "ĐỒNG ĐỘI ĐANG BẬN"));
+                return;
+            }
+            // Both views can lag here: measure from where the player saw their own chef.
+            Vector3 offset = mate.Position - message.Vector1;
             offset.y = 0f;
-            if (offset.magnitude > HandOffRange + 0.7f) return;
+            if (offset.magnitude > HandOffRange + 1.2f)
+            {
+                DenyHandOff(state, Lang.Both("TOO FAR", "QUÁ XA"));
+                return;
+            }
             ServerPlayerAttachmentCarrier mine = ServerCarrier(state), theirs = ServerCarrier(mate);
-            if (mine == null || theirs == null) return;
-            if (mine.InspectCarriedItem() == null) Transfer(theirs, mine, state);
-            else if (theirs.InspectCarriedItem() == null) Transfer(mine, theirs, mate);
+            if (mine == null || theirs == null)
+            {
+                DenyHandOff(state, Lang.Both("CAN'T HAND OFF", "KHÔNG TRAO ĐƯỢC"));
+                return;
+            }
+            bool taking = mine.InspectCarriedItem() == null;
+            GameObject item = taking ? theirs.InspectCarriedItem() : mine.InspectCarriedItem();
+            bool moved = taking ? Transfer(theirs, mine, state) : theirs.InspectCarriedItem() == null && Transfer(mine, theirs, mate);
+            if (!moved)
+            {
+                DenyHandOff(state, Lang.Both("CAN'T HAND OFF", "KHÔNG TRAO ĐƯỢC"));
+                return;
+            }
+            ChefState giver = taking ? mate : state, receiver = taking ? state : mate;
+            SpecialFx.BeamAll(giver.Position, receiver.Position, Special.HandOff, 0.5f);
+            SpecialFx.MarkAll(item, Special.HandOff, 0.8f, null);
+            SpecialFx.TextAll(receiver.Chef, SpecialFx.NameBoth(Special.HandOff, "", ""), Special.HandOff);
+        }
+
+        private static void DenyHandOff(ChefState state, string reason)
+        {
+            SpecialNet.SendToAll(new SpecialMessage { Topic = TopicHandOffDenied, Chef = state.Id, Text = reason });
+        }
+
+        private static void OnHandOffDenied(SpecialMessage message)
+        {
+            ChefState state = SpecialRuntime.StateById(message.Chef);
+            if (state != null && state.Local) SpecialHud.Deny(state, message.Text);
+        }
+
+        /// <summary>Owner machine: this chef's dash hit another chef.</summary>
+        internal static void RequestPickpocket(ChefState state, ChefState victim)
+        {
+            float next = state.Get<float>("Pickpocket.Next", 0f);
+            if (SpecialRuntime.Now < next) return;
+            state.Set("Pickpocket.Next", SpecialRuntime.Now + 0.4f);
+            SpecialNet.SendToHost(new SpecialMessage
+            {
+                Topic = TopicPickpocket, Chef = state.Id, I = (int)victim.Id, Vector1 = state.Position
+            });
+        }
+
+        private static void OnPickpocketRequest(SpecialMessage message)
+        {
+            if (!SpecialRuntime.InLevel || !SpecialNet.IsServer) return;
+            ChefState state = SpecialRuntime.StateById(message.Chef);
+            ChefState victim = SpecialRuntime.StateById((uint)message.I);
+            if (state == null || victim == null || state == victim || !state.Has(Special.Pickpocket)) return;
+            if (Respawning(state) || Respawning(victim)) return;
+            Vector3 offset = victim.Position - message.Vector1;
+            offset.y = 0f;
+            if (offset.magnitude > PickpocketRange) return;
+            ServerPlayerAttachmentCarrier mine = ServerCarrier(state), theirs = ServerCarrier(victim);
+            if (mine == null || theirs == null || mine.InspectCarriedItem() != null) return;
+            GameObject item = theirs.InspectCarriedItem();
+            if (item == null) return;
+            if (victim.Has(Special.StickyFingers))
+            {
+                SpecialFx.TextAll(victim.Chef, SpecialFx.NameBoth(Special.StickyFingers, "!", "!"), Special.StickyFingers);
+                return;
+            }
+            if (!Transfer(theirs, mine, state)) return;
+            SpecialFx.BeamAll(victim.Position, state.Position, Special.Pickpocket, 0.6f);
+            SpecialFx.MarkAll(item, Special.Pickpocket, 1f, null);
+            SpecialFx.TextAll(victim.Chef, Lang.Both("PICKPOCKETED!", "BỊ MÓC TÚI!"), Special.Pickpocket);
         }
 
         // --- VEGETARIAN ---------------------------------------------------------------------------
@@ -706,18 +991,23 @@ namespace ChefSkills.Specials
             return target;
         }
 
-        internal static void DenyVegetarian(ChefState state)
+        /// <summary>Host: a Vegetarian refused <paramref name="what"/> (an item, counter or crate; may be null).</summary>
+        internal static void DenyVegetarian(ChefState state, GameObject what)
         {
             float last;
             if (s_deniedAt.TryGetValue(state.Id, out last) && SpecialRuntime.Now - last < 0.5f) return;
             s_deniedAt[state.Id] = SpecialRuntime.Now;
-            SpecialNet.SendToAll(new SpecialMessage { Topic = TopicVegetarian, Chef = state.Id });
+            SpecialNet.SendToAll(new SpecialMessage { Topic = TopicVegetarian, Chef = state.Id, I = (int)EntityOf(what) });
         }
 
         private static void OnVegetarianDenied(SpecialMessage message)
         {
             ChefState state = SpecialRuntime.StateById(message.Chef);
-            if (state != null && state.Local) SpecialHud.Deny(state);
+            if (state == null || state.Chef == null) return;
+            SpecialFx.Text(state.Chef, Lang.T("NO MEAT!", "KHÔNG ĂN THỊT!"), SpecialFx.ColourOf(Special.Vegetarian));
+            GameObject refused = EntityObject((uint)message.I);
+            if (refused != null) SpecialFx.Mark(refused, Refused, 0.8f, null, 0f);
+            if (state.Local) SpecialHud.Deny(state, SpecialCatalog.NameOf(Special.Vegetarian));
         }
     }
 
@@ -737,6 +1027,7 @@ namespace ChefSkills.Specials
             try
             {
                 if (!SpecialRuntime.InLevel || Reentered || _control == null || _target == null) return true;
+                if (!SpecialRuntime.AnyHas(Special.Waiter)) return true;
                 ChefState state = SpecialRuntime.StateOf(_control.gameObject);
                 if (state == null || !state.Has(Special.Waiter)) return true;
                 ServerPlayerAttachmentCarrier carrier = CarryingModule.ServerCarrier(state);
@@ -814,7 +1105,7 @@ namespace ChefSkills.Specials
                 ILogicalButton button = controls.ControlScheme.m_pickupButton;
                 if (!button.HasUnclaimedPressEvent()) return true;
                 ChefState mate = CarryingModule.HandOffTarget(state);
-                if (mate == null) return true;
+                if (mate == null || mate.Controls == null || mate.Controls.GetCurrentlyInteracting() != null) return true;
                 ClientPlayerAttachmentCarrier mine = controls.GetComponent<ClientPlayerAttachmentCarrier>();
                 ClientPlayerAttachmentCarrier theirs = mate.Chef.GetComponent<ClientPlayerAttachmentCarrier>();
                 if (mine == null || theirs == null) return true;
@@ -824,7 +1115,7 @@ namespace ChefSkills.Specials
                 button.ClaimPressEvent();
                 SpecialNet.SendToHost(new SpecialMessage
                 {
-                    Topic = CarryingModule.TopicHandOff, Chef = state.Id, I = (int)mate.Id
+                    Topic = CarryingModule.TopicHandOff, Chef = state.Id, I = (int)mate.Id, Vector1 = state.Position
                 });
                 return false;
             }
@@ -851,6 +1142,8 @@ namespace ChefSkills.Specials
             try
             {
                 if (!SpecialRuntime.InLevel || !justReleased || isSuppressed || ControlsField == null) return;
+                if (!SpecialRuntime.AnyHas(Special.StrongArm)) return;
+                if (!SpecialNet.IsServer && !SpecialNet.Online) return;
                 PlayerControls controls = ControlsField.GetValue(__instance) as PlayerControls;
                 if (controls == null || controls.m_bRespawning) return;
                 ChefState state = SpecialRuntime.StateOf(controls.gameObject);
@@ -874,7 +1167,10 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>PICKPOCKET, on the host: a dash that hits a chef takes its item into empty hands.</summary>
+    /// <summary>
+    /// PICKPOCKET, on the dasher's own machine (only there is the dash timed: the host never sees a
+    /// remote chef's dash as a dash): a dash that hits a chef asks the host to take its item.
+    /// </summary>
     [HarmonyPatch(typeof(ClientPlayerControlsImpl_Default), "OnDashCollision")]
     internal static class PickpocketPatch
     {
@@ -888,15 +1184,21 @@ namespace ChefSkills.Specials
             try
             {
                 if (!SpecialRuntime.InLevel || _otherPlayer == null || ControlsField == null || DashTimerField == null) return;
-                if (!SpecialNet.IsServer) return;
+                if (!SpecialRuntime.AnyHas(Special.Pickpocket)) return;
+                if (!SpecialNet.IsServer && !SpecialNet.Online) return;
                 // Read before the game's method ends the dash (a head-on bump resets both timers).
                 if ((float)DashTimerField.GetValue(__instance) <= 0f) return;
                 PlayerControls controls = ControlsField.GetValue(__instance) as PlayerControls;
                 if (controls == null || controls.m_bRespawning || _otherPlayer.m_bRespawning) return;
                 ChefState state = SpecialRuntime.StateOf(controls.gameObject);
-                if (state == null || !state.Has(Special.Pickpocket)) return;
-                CarryingModule.Transfer(_otherPlayer.GetComponent<ServerPlayerAttachmentCarrier>(),
-                    controls.GetComponent<ServerPlayerAttachmentCarrier>(), state);
+                if (state == null || !state.Local || !state.Has(Special.Pickpocket)) return;
+                ChefState victim = SpecialRuntime.StateOf(_otherPlayer.gameObject);
+                if (victim == null || victim == state) return;
+                // What this machine sees; the host checks again before moving anything.
+                ClientPlayerAttachmentCarrier mine = controls.GetComponent<ClientPlayerAttachmentCarrier>();
+                ClientPlayerAttachmentCarrier theirs = _otherPlayer.GetComponent<ClientPlayerAttachmentCarrier>();
+                if (mine == null || theirs == null || mine.InspectCarriedItem() != null || theirs.InspectCarriedItem() == null) return;
+                CarryingModule.RequestPickpocket(state, victim);
             }
             catch (Exception error)
             {
@@ -913,11 +1215,13 @@ namespace ChefSkills.Specials
         {
             try
             {
-                if (!SpecialRuntime.InLevel || _target == null) return true;
+                if (!SpecialRuntime.InLevel || _target == null || !SpecialRuntime.AnyHas(Special.Vegetarian)) return true;
                 ChefState state = SpecialRuntime.StateOf(__instance.gameObject);
                 if (state == null || !state.Has(Special.Vegetarian)) return true;
-                if (!CarryingModule.IsRawMeat(CarryingModule.PickupItemOf(_target))) return true;
-                CarryingModule.DenyVegetarian(state);
+                GameObject item = CarryingModule.PickupItemOf(_target);
+                if (!CarryingModule.IsRawMeat(item)) return true;
+                // Mark the real item when there is one (a crate's item is only a prefab: mark the crate).
+                CarryingModule.DenyVegetarian(state, CarryingModule.IsEntity(item) ? item : _target);
                 return false;
             }
             catch (Exception error)
@@ -936,7 +1240,7 @@ namespace ChefSkills.Specials
         {
             try
             {
-                if (!__result || !SpecialRuntime.InLevel || _object == null) return;
+                if (!__result || !SpecialRuntime.InLevel || _object == null || !SpecialRuntime.AnyHas(Special.Vegetarian)) return;
                 ChefState state = SpecialRuntime.StateOf(__instance.gameObject);
                 if (state == null || !state.Has(Special.Vegetarian)) return;
                 if (CarryingModule.IsRawMeat(_object.AccessGameObject())) __result = false;
@@ -944,6 +1248,43 @@ namespace ChefSkills.Specials
             catch (Exception error)
             {
                 SpecialRuntime.Fail("Vegetarian.Catch", error);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A player left mid-level: before the game removes their chef (it waits until nothing is
+    /// attached to it), whatever the chef had stashed drops where it stands, on every machine.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class CarryingLeavePatch
+    {
+        private static MethodBase s_target;
+
+        private static bool Prepare()
+        {
+            if (s_target == null)
+            {
+                Type type = AccessTools.TypeByName("DisconnectionHandler");
+                s_target = type != null ? AccessTools.Method(type, "DeleteChef", new[] { typeof(uint) }) : null;
+            }
+            return s_target != null;
+        }
+
+        private static MethodBase TargetMethod()
+        {
+            return s_target;
+        }
+
+        private static void Prefix(uint uEntityID)
+        {
+            try
+            {
+                if (SpecialRuntime.InLevel && SpecialNet.IsServer) CarryingModule.ServerReleaseChef(uEntityID);
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("Carrying.Leave", error);
             }
         }
     }

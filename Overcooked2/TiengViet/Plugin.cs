@@ -1,0 +1,103 @@
+using System;
+using BepInEx;
+using BepInEx.Configuration;
+using BepInEx.Logging;
+using HarmonyLib;
+
+[assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.0.0.0")]
+
+namespace TiengViet
+{
+    internal enum GameLanguage { English, Vietnamese }
+
+    /// <summary>
+    /// Tiếng Việt: plays Overcooked! 2 and every mod in this collection in Vietnamese.
+    ///
+    /// The game has no language menu on PC (it follows Steam's language), so this adds one: a
+    /// LANGUAGE / NGÔN NGỮ row at the top of Settings → Game Settings (see <see cref="LanguageRow"/>).
+    /// While Vietnamese is chosen, every text the game looks up by tag comes from the bundled
+    /// table (vi.tsv, see <see cref="Translations"/>), and the choice is published to the other
+    /// mods through <see cref="Slot"/>, which each of them reads through its own Lang class. The
+    /// change applies at once: text on screen is redrawn in the new language.
+    ///
+    /// The game's title font has no Vietnamese letters such as ạ, ả, ơ or ư, so a title that
+    /// needs one is drawn in a Windows font that has them (<see cref="HeaderFont"/>).
+    /// </summary>
+    [BepInPlugin(Id, "Tieng Viet", Version)]
+    [BepInProcess("Overcooked2.exe")]
+    public sealed class Plugin : BaseUnityPlugin
+    {
+        public const string Id = "com.manhl.overcooked2.tiengviet";
+        public const string Version = "1.0.0";
+
+        /// <summary>The AppDomain slot every mod in the collection reads: "vi" or "en".</summary>
+        internal const string Slot = "com.manhl.overcooked2.language";
+
+        internal static ManualLogSource Log;
+        internal static ConfigEntry<GameLanguage> Language;
+        internal static ConfigEntry<string> HeaderFonts;
+
+        internal static bool Vietnamese { get { return Language != null && Language.Value == GameLanguage.Vietnamese; } }
+
+        private Harmony harmony;
+
+        private void Awake()
+        {
+            Log = Logger;
+            Language = Config.Bind("General", "Language", GameLanguage.Vietnamese,
+                "Ngôn ngữ của game và các mod trong bộ này. Đổi được ngay trong game: Cài đặt → Cài đặt trò chơi → NGÔN NGỮ.\n" +
+                "Language of the game and of this collection's mods. Also in game: Settings → Game Settings → LANGUAGE.");
+            HeaderFonts = Config.Bind("General", "HeaderFont", "Segoe UI Bold, Arial Bold, Arial",
+                "Phông Windows dùng cho tiêu đề có chữ tiếng Việt mà phông tiêu đề của game không có (ạ, ả, ơ, ư...). " +
+                "Tên đầu tiên có trên máy sẽ được dùng; để trống thì không đổi phông.\n" +
+                "Windows fonts used for titles that need Vietnamese letters the game's title font lacks; the first one installed is used. Empty: never swap.");
+
+            Publish();
+            Translations.Load();
+
+            harmony = new Harmony(Id);
+            Patch(typeof(LocalizationGet), "the game's text lookup");
+            Patch(typeof(LanguageRow), "the language option in Game Settings");
+            Patch(typeof(HeaderFont.TextSet), "the title font fix");
+            Patch(typeof(HeaderFont.TextEnable), "the title font fix");
+
+            Language.SettingChanged += delegate { Apply(); };
+            HeaderFonts.SettingChanged += delegate { HeaderFont.Reset(); HeaderFont.Sweep(); };
+            Log.LogInfo("Tiếng Việt " + Version + ": " + (Vietnamese ? "tiếng Việt" : "English") + ", " +
+                Translations.Count + " game texts translated.");
+        }
+
+        /// <summary>Every plugin has loaded by now, so other mods' types can be found.</summary>
+        private void Start()
+        {
+            try { HeaderFont.PatchFontReaders(harmony); }
+            catch (Exception error) { Log.LogError("Could not patch MOD Settings' font check: " + error); }
+        }
+
+        private void Patch(Type patch, string what)
+        {
+            try { harmony.PatchAll(patch); }
+            catch (Exception error) { Log.LogError("Could not patch " + what + ": " + error); }
+        }
+
+        private static void Publish()
+        {
+            AppDomain.CurrentDomain.SetData(Slot, Vietnamese ? "vi" : "en");
+        }
+
+        /// <summary>Switches everything on screen to the language just chosen.</summary>
+        internal static void Apply()
+        {
+            Publish();
+            Refresh.All();
+            LanguageRow.SyncAll();
+            Log.LogInfo("Language: " + (Vietnamese ? "tiếng Việt" : "English"));
+        }
+
+        private void OnDestroy()
+        {
+            if (harmony != null) harmony.UnpatchSelf();
+        }
+    }
+}

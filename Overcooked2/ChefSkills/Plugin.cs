@@ -6,8 +6,8 @@ using BepInEx.Logging;
 using HarmonyLib;
 using UnityEngine;
 
-[assembly: System.Reflection.AssemblyVersion("4.0.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("4.0.0.0")]
+[assembly: System.Reflection.AssemblyVersion("4.1.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("4.1.0.0")]
 
 namespace ChefSkills
 {
@@ -18,7 +18,9 @@ namespace ChefSkills
     /// dash, throw and firefighting speed for that player's chef for the rest of the level (see
     /// Patches.cs).
     /// </summary>
-    [BepInPlugin(Id, "Chef Skills", "4.0.0")]
+    [BepInPlugin(Id, "Chef Skills", "4.1.0")]
+    // Loads after TiengViet when it is installed, so the language it sets applies from the start.
+    [BepInDependency("com.manhl.overcooked2.tiengviet", BepInDependency.DependencyFlags.SoftDependency)]
     [BepInProcess("Overcooked2.exe")]
     public sealed class Plugin : BaseUnityPlugin
     {
@@ -37,6 +39,7 @@ namespace ChefSkills
                 "Bật màn chọn kỹ năng trước mỗi màn và hiệu ứng của kỹ năng.");
             SkillStats.Bind(Config);
             SpecialCatalog.Bind(Config);
+            SpecialInput.Bind(Config);
 
             _harmony = new Harmony(Id);
             try

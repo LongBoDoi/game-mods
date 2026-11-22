@@ -123,8 +123,15 @@ namespace ChefSkills
             public ILogicalButton Select;
             public ILogicalButton Cancel;
             public ILogicalButton Skip;
+            public ILogicalButton Hide;
             public bool SkipArmed;
             public float SkipHeld;
+            // Waiting for this player to press a new skill key (the KEY row), and what came of the last try.
+            public SpecialInput.Capture Capture;
+            // The special picker, while it is open for this player.
+            public SkillPicker Picker;
+            public string Notice;
+            public float NoticeAt = -10f;
 
             public int FreePoints
             {
@@ -199,7 +206,7 @@ namespace ChefSkills
             // is locked in (see SkillSync). Offline this is null and only local players take part.
             _sync = SkillSync.Begin();
             _view = SkillSelectView.Build(art, players[0],
-                _sync != null && _sync.IsHost ? "HOLD: SKIP FOR ALL" : "HOLD: SKIP");
+                _sync != null && _sync.IsHost ? Lang.T("HOLD: SKIP FOR ALL", "GIỮ: BỎ QUA CHO CẢ PHÒNG") : Lang.T("HOLD: SKIP", "GIỮ: BỎ QUA"));
             _open = true;
 
             var slots = new List<Slot>();
@@ -209,7 +216,7 @@ namespace ChefSkills
                 var slot = new Slot
                 {
                     Player = player,
-                    Title = _sync != null && players.Count == 1 ? "YOU" : "PLAYER " + ((int)player + 1),
+                    Title = _sync != null && players.Count == 1 ? Lang.T("YOU", "BẠN") : Lang.T("PLAYER ", "NGƯỜI CHƠI ") + ((int)player + 1),
                     Colour = colour,
                     ColourIndex = GameArt.ColourIndex(colour),
                     Chefs = chefs[player].ToArray(),
@@ -222,7 +229,9 @@ namespace ChefSkills
                     Select = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UISelectNotStart, player),
                     Cancel = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UICancel, player),
                     Skip = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UISkip, player),
+                    Hide = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UIChangeMode, player),
                 };
+                slot.Hide.ClaimPressEvent();
                 // Ignore presses left over from the loading screen.
                 slot.Up.ClaimPressEvent();
                 slot.Down.ClaimPressEvent();
@@ -260,7 +269,16 @@ namespace ChefSkills
 
                 // Once the host's level has started, a locked build here can't be unlocked again.
                 bool canUnlock = _sync == null || !_sync.HostStarted;
-                foreach (Slot slot in slots) HandleInput(slot, canUnlock, TakenByOthers(slot, slots, lastRemote));
+                if (HandleHide(slots))
+                {
+                    // Hidden to look at the kitchen: nothing on the cards changes meanwhile.
+                    foreach (Slot slot in slots) ClaimAll(slot);
+                }
+                else
+                {
+                    HandleMouse(slots);
+                    foreach (Slot slot in slots) HandleInput(slot, canUnlock, TakenByOthers(slot, slots, lastRemote));
+                }
 
                 bool everyoneReady = true;
                 foreach (Slot slot in slots) everyoneReady &= slot.Ready;
@@ -293,6 +311,7 @@ namespace ChefSkills
                 }
 
                 _view.Render(Cards(slots, remote), everyoneReady, _sync != null && _sync.WaitingForHost);
+                RenderPickers(slots, remote);
 
                 if (everyoneReady)
                 {
@@ -375,7 +394,9 @@ namespace ChefSkills
                     Colour = slot.Colour, Levels = slot.Levels, Selected = slot.Selected,
                     FreePoints = slot.FreePoints, DeniedAt = slot.DeniedAt, DeniedReason = slot.DeniedReason,
                     State = slot.Ready ? SkillSync.CardState.Ready : SkillSync.CardState.Choosing,
-                    Specials = slot.Specials
+                    Specials = slot.Specials, KeyName = SpecialInput.NameFor(slot.Player),
+                    DetailsKeyName = SpecialInput.DetailsKeyName() ?? Lang.T("NONE", "KHÔNG CÓ"),
+                    Capturing = slot.Capture != null, CapturingDetails = slot.Capture != null && slot.Capture.Details, Notice = slot.Notice, NoticeAt = slot.NoticeAt
                 });
             if (remote != null)
                 foreach (SkillSync.RemoteCard card in remote)
@@ -389,8 +410,120 @@ namespace ChefSkills
             return cards;
         }
 
+        /// <summary>
+        /// HIDE (the game's change-mode button: Y on a pad, Ctrl on the keyboard; or Tab) hides the
+        /// screen so the players can look at the kitchen, and shows it again; SELECT or BACK also
+        /// bring it back. True while it is hidden.
+        /// </summary>
+        private static bool HandleHide(List<Slot> slots)
+        {
+            bool capturing = false;
+            foreach (Slot slot in slots) capturing |= slot.Capture != null || slot.Picker != null;
+            if (capturing) return false;
+            bool toggle = false;
+            foreach (Slot slot in slots)
+                if (slot.Hide.JustPressed())
+                {
+                    slot.Hide.ClaimPressEvent();
+                    toggle = true;
+                }
+            if (Input.GetKeyDown(KeyCode.Tab)) toggle = true;
+            if (_view.Hidden)
+                foreach (Slot slot in slots)
+                    if (slot.Select.JustPressed() || slot.Cancel.JustPressed())
+                    {
+                        slot.Select.ClaimPressEvent();
+                        slot.Cancel.ClaimPressEvent();
+                        _view.SetHidden(false);
+                        PlaySound(GameOneShotAudioTag.UIHighlight);
+                        return false;
+                    }
+            if (toggle)
+            {
+                _view.SetHidden(!_view.Hidden);
+                PlaySound(GameOneShotAudioTag.UIHighlight);
+            }
+            return _view.Hidden;
+        }
+
+        /// <summary>Throws away this player's pending presses (they meant nothing just now).</summary>
+        private static void ClaimAll(Slot slot)
+        {
+            slot.Up.ClaimPressEvent();
+            slot.Down.ClaimPressEvent();
+            slot.Left.ClaimPressEvent();
+            slot.Right.ClaimPressEvent();
+            slot.Select.ClaimPressEvent();
+            slot.Cancel.ClaimPressEvent();
+            slot.Hide.ClaimPressEvent();
+        }
+
         private static void HandleInput(Slot slot, bool canUnlock, HashSet<Special> taken)
         {
+            if (slot.Capture != null)
+            {
+                // Setting a new skill or details key: every press goes to that until it's done.
+                string result;
+                bool done = slot.Capture.Poll(out result);
+                ClaimAll(slot);
+                if (!done) return;
+                bool saved = slot.Capture.Saved;
+                slot.Capture = null;
+                slot.Notice = result;
+                slot.NoticeAt = Time.unscaledTime;
+                PlaySound(saved ? GameOneShotAudioTag.UISelect : GameOneShotAudioTag.UIBack);
+                return;
+            }
+            if (slot.Picker != null)
+            {
+                // The special picker is open: every press goes to it.
+                Special picked = Special.None;
+                SkillPicker.Outcome outcome;
+                try
+                {
+                    outcome = slot.Picker.HandleInput(slot.Up, slot.Down, slot.Left, slot.Right,
+                        slot.Select, slot.Cancel, slot.Specials, taken, out picked);
+                }
+                catch (Exception error)
+                {
+                    Plugin.Log.LogError("Bảng chọn kỹ năng bị lỗi: " + error);
+                    outcome = SkillPicker.Outcome.Closed;
+                }
+                ClaimAll(slot);
+                switch (outcome)
+                {
+                    case SkillPicker.Outcome.Moved:
+                        PlaySound(GameOneShotAudioTag.UIHighlight);
+                        break;
+                    case SkillPicker.Outcome.Refused:
+                        PlaySound(GameOneShotAudioTag.UIBack);
+                        break;
+                    case SkillPicker.Outcome.Picked:
+                        slot.Specials[(int)slot.Picker.Slot] = (int)picked;
+                        ClosePicker(slot);
+                        PlaySound(GameOneShotAudioTag.UISelect);
+                        break;
+                    case SkillPicker.Outcome.Closed:
+                        ClosePicker(slot);
+                        PlaySound(GameOneShotAudioTag.UIBack);
+                        break;
+                }
+                return;
+            }
+            if (!slot.Ready && IsSpecialRow(slot.Selected) && slot.Select.JustPressed())
+            {
+                slot.Select.ClaimPressEvent();
+                OpenPicker(slot, false);
+                return;
+            }
+            bool keyRow = slot.Selected == SkillSelectView.KeyRow || slot.Selected == SkillSelectView.DetailsRow;
+            if (!slot.Ready && keyRow && slot.Select.JustPressed())
+            {
+                slot.Select.ClaimPressEvent();
+                slot.Capture = new SpecialInput.Capture(slot.Player, slot.Selected == SkillSelectView.DetailsRow);
+                PlaySound(GameOneShotAudioTag.UISelect);
+                return;
+            }
             if (slot.Select.JustPressed())
             {
                 slot.Select.ClaimPressEvent();
@@ -403,7 +536,7 @@ namespace ChefSkills
                     foreach (int pick in slot.Specials)
                         if (taken.Contains((Special)pick)) clash = (Special)pick;
                     if (clash != Special.None)
-                        Deny(slot, SpecialCatalog.NameOf(clash) + " IS TAKEN: ONE PER KITCHEN");
+                        Deny(slot, SpecialCatalog.NameOf(clash) + Lang.T(" IS TAKEN: ONE PER KITCHEN", " ĐÃ CÓ NGƯỜI CHỌN: MỖI BẾP MỘT"));
                     else if (slot.FreePoints == 0)
                     {
                         PlaySound(GameOneShotAudioTag.UISelect);
@@ -436,7 +569,9 @@ namespace ChefSkills
 
             if (slot.Selected >= SkillStats.Count)
             {
-                HandleSpecialInput(slot, (SpecialSlot)(slot.Selected - SkillStats.Count), taken);
+                // Special and key rows: SELECT opens the picker / sets the key; Left/Right do nothing.
+                slot.Left.ClaimPressEvent();
+                slot.Right.ClaimPressEvent();
                 return;
             }
 
@@ -466,28 +601,76 @@ namespace ChefSkills
             }
         }
 
-        /// <summary>
-        /// LEFT/RIGHT on a special row steps through that slot's choices ("none" first), skipping
-        /// ones that clash with this card's other picks or that another player has locked in.
-        /// </summary>
-        private static void HandleSpecialInput(Slot slot, SpecialSlot which, HashSet<Special> taken)
+        private static bool IsSpecialRow(int row)
         {
-            int step = 0;
-            if (slot.Left.JustPressed()) { slot.Left.ClaimPressEvent(); step = -1; }
-            if (slot.Right.JustPressed()) { slot.Right.ClaimPressEvent(); step = 1; }
-            if (step == 0) return;
+            return SpecialCatalog.Enabled && row >= SkillStats.Count && row < SkillStats.Count + SpecialCatalog.SlotCount;
+        }
 
-            List<Special> choices = SpecialCatalog.Choices(which);
-            int current = Math.Max(0, choices.IndexOf((Special)slot.Specials[(int)which]));
-            for (int tries = 1; tries <= choices.Count; tries++)
+        /// <summary>Opens the special picker for the slot's highlighted ACTIVE / PASSIVE / QUIRK row.</summary>
+        private static void OpenPicker(Slot slot, bool byMouse)
+        {
+            if (_view == null || _view.Overlay == null || !IsSpecialRow(slot.Selected)) return;
+            var which = (SpecialSlot)(slot.Selected - SkillStats.Count);
+            string owner = _slots != null && _slots.Count > 1 ? slot.Title : null;
+            try
             {
-                Special next = choices[((current + step * tries) % choices.Count + choices.Count) % choices.Count];
-                if (!SpecialCatalog.Fits(slot.Specials, which, next) || taken.Contains(next)) continue;
-                slot.Specials[(int)which] = (int)next;
-                PlaySound(GameOneShotAudioTag.UIHighlight);
+                slot.Picker = SkillPicker.Open(_view.Overlay, _view.Art, slot.Player, owner, which, (Special)slot.Specials[(int)which], byMouse);
+                PlaySound(GameOneShotAudioTag.UISelect);
+            }
+            catch (Exception error)
+            {
+                // A broken picker must not end the whole skill screen: close it and say why.
+                Plugin.Log.LogError("Không mở được bảng chọn kỹ năng: " + error);
+                SkillPicker.CloseAll();
+                foreach (Slot other in _slots ?? new List<Slot>()) other.Picker = null;
+                Deny(slot, Lang.T("CAN'T OPEN THE LIST (SEE LOG)", "KHÔNG MỞ ĐƯỢC DANH SÁCH (XEM LOG)"));
+            }
+        }
+
+        private static void ClosePicker(Slot slot)
+        {
+            if (slot.Picker != null) slot.Picker.Close();
+            slot.Picker = null;
+        }
+
+        /// <summary>
+        /// A click on a special row of one of this machine's cards opens the picker for it (when no
+        /// picker is open and the screen isn't hidden).
+        /// </summary>
+        private static void HandleMouse(List<Slot> slots)
+        {
+            if (_view == null || _view.Hidden || !Input.GetMouseButtonDown(0)) return;
+            foreach (Slot slot in slots)
+                if (slot.Picker != null || slot.Capture != null) return;
+            string key;
+            int row;
+            if (!_view.SpecialRowAt(Input.mousePosition, out key, out row)) return;
+            foreach (Slot slot in slots)
+            {
+                if ("L" + (int)slot.Player != key || slot.Ready) continue;
+                slot.Selected = row;
+                OpenPicker(slot, true);
                 return;
             }
-            Deny(slot);
+        }
+
+        /// <summary>Draws the open pickers (over the cards).</summary>
+        private static void RenderPickers(List<Slot> slots, List<SkillSync.RemoteCard> remote)
+        {
+            foreach (Slot slot in slots)
+            {
+                if (slot.Picker == null) continue;
+                try
+                {
+                    slot.Picker.Render(slot.Specials, TakenByOthers(slot, slots, remote));
+                }
+                catch (Exception error)
+                {
+                    // A broken picker closes; the skill screen carries on.
+                    Plugin.Log.LogError("Bảng chọn kỹ năng bị lỗi: " + error);
+                    ClosePicker(slot);
+                }
+            }
         }
 
         private static void Deny(Slot slot)
@@ -520,6 +703,7 @@ namespace ChefSkills
             // the other machines this one is done, so nobody waits for its players.
             if (_sync != null && !_sync.Finished && _slots != null) _sync.Finish(Entries(_slots, true), false);
             _sync = null;
+            SkillPicker.CloseAll();
             _slots = null;
             if (_view != null) _view.Destroy();
             _view = null;

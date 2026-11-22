@@ -18,29 +18,33 @@ namespace OC2Tweaks
             string reason;
             if (!Moderation.HostCanManage(out reason)) { report(reason); return; }
             bool canBan = party.SteamId != null && Plugin.Bans.Ready;
+            bool vi = Lang.Vi;
             Dialogs.Ask(MenuText.SafeName(party.Name),
-                "Đuổi người chơi này khỏi phòng? Họ vẫn có thể vào lại." +
-                (party.Count > 1 ? " Cả " + party.Count + " người chơi chung máy sẽ rời phòng." : "") +
-                (canBan ? " Chọn Cấm để chặn hẳn tài khoản này." : ""),
-                "Đuổi", delegate { report(Moderation.Remove(party, false)); },
-                canBan ? "Cấm..." : null, canBan ? (Action)delegate { AskBan(party, report); } : null);
+                (vi ? "Đuổi người chơi này khỏi phòng? Họ vẫn có thể vào lại." : "Kick this player from the room? They can still rejoin.") +
+                (party.Count > 1 ? (vi ? " Cả " + party.Count + " người chơi chung máy sẽ rời phòng."
+                    : " All " + party.Count + " players on that machine will leave.") : "") +
+                (canBan ? (vi ? " Chọn Cấm để chặn hẳn tài khoản này." : " Choose Ban to block this account for good.") : ""),
+                vi ? "Đuổi" : "Kick", delegate { report(Moderation.Remove(party, false)); },
+                canBan ? (vi ? "Cấm..." : "Ban...") : null, canBan ? (Action)delegate { AskBan(party, report); } : null);
         }
 
         internal static void AskBan(DisplayParty party, Action<string> report)
         {
             Dialogs.Ask(MenuText.SafeName(party.Name),
-                "Cấm và đuổi người chơi này? Tài khoản Steam được lưu lại và sẽ tự động bị đuổi mỗi khi vào phòng bạn làm chủ.",
-                "Cấm", delegate { report(Moderation.Remove(party, true)); }, null, null);
+                Lang.T("Ban and kick this player? Their Steam account is saved and kicked automatically whenever it joins a room you host.",
+                    "Cấm và đuổi người chơi này? Tài khoản Steam được lưu lại và sẽ tự động bị đuổi mỗi khi vào phòng bạn làm chủ."),
+                Lang.T("Ban", "Cấm"), delegate { report(Moderation.Remove(party, true)); }, null, null);
         }
 
         internal static void AskUnban(BanRecord record, Action<string> report)
         {
             Dialogs.Ask(MenuText.SafeName(record.Name),
-                "Bỏ cấm tài khoản này? Họ sẽ có thể vào phòng của bạn như bình thường.",
-                "Bỏ cấm", delegate
+                Lang.T("Lift the ban on this account? They'll be able to join your rooms as normal.",
+                    "Bỏ cấm tài khoản này? Họ sẽ có thể vào phòng của bạn như bình thường."),
+                Lang.T("Unban", "Bỏ cấm"), delegate
                 {
                     Plugin.Bans.Unban(record.SteamId);
-                    report("Đã bỏ cấm " + MenuText.SafeName(record.Name) + ".");
+                    report(Lang.T("Unbanned ", "Đã bỏ cấm ") + MenuText.SafeName(record.Name) + ".");
                 }, null, null);
         }
 
@@ -63,7 +67,7 @@ namespace OC2Tweaks
             T17DialogBox dialog = T17DialogBoxManager.GetDialog(false);
             if (dialog == null) { Plugin.Log.LogWarning("Không mở được hộp thoại xác nhận."); return; }
             dialog.Initialize(MenuText.Literal(title), MenuText.Literal(message), MenuText.Literal(confirm),
-                decline != null ? MenuText.Literal(decline) : null, cancel ? MenuText.Literal("Hủy") : null,
+                decline != null ? MenuText.Literal(decline) : null, cancel ? MenuText.Literal(Lang.T("Cancel", "Hủy")) : null,
                 T17DialogBox.Symbols.Unassigned);
             DialogFonts.Apply(dialog);
             dialog.OnConfirm = (T17DialogBox.DialogEvent)Delegate.Combine(dialog.OnConfirm, Guard(onConfirm));
@@ -228,7 +232,8 @@ namespace OC2Tweaks
                             if (!party.IsLocal && (party.Primary.Machine == user.Machine ||
                                 (user.SessionId != null && ReferenceEquals(party.Session, user.SessionId))))
                             { target = party; break; }
-                    if (target == null) Prompts.Tell("Người chơi này đã rời phòng hoặc không thể đuổi từ máy của bạn.");
+                    if (target == null) Prompts.Tell(Lang.T("This player has left the room or can't be kicked from your machine.",
+                        "Người chơi này đã rời phòng hoặc không thể đuổi từ máy của bạn."));
                     else Prompts.AskRemove(target, Prompts.Tell);
                 }
                 catch (Exception error) { Plugin.Log.LogError("Bộ công cụ: không mở được lựa chọn đuổi: " + error); }

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Reflection;
 using HarmonyLib;
 using Steamworks;
@@ -9,44 +8,15 @@ using UnityEngine;
 
 namespace EmoteSync
 {
-    /// <summary>A voice-pack emote another machine showed: which bubble, and the file name it picked.</summary>
-    internal sealed class SentEmote
-    {
-        public int Seq;
-        public string Key;
-        public int Index;
-        public string Text;
-        public float SeenAt;
-
-        // "1|seq|key|index|base64"
-        public string Format()
-        {
-            return "1|" + Seq.ToString(CultureInfo.InvariantCulture) + "|" + Key + "|" +
-                Index.ToString(CultureInfo.InvariantCulture) + "|" + EmoteProfile.Encode(Text);
-        }
-
-        public static SentEmote Parse(string value)
-        {
-            if (string.IsNullOrEmpty(value)) return null;
-            string[] parts = value.Split('|');
-            if (parts.Length < 5 || parts[0] != "1") return null;
-            var sent = new SentEmote { Key = parts[2], Text = EmoteProfile.Decode(parts[4]) };
-            if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out sent.Seq) ||
-                !int.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out sent.Index))
-                return null;
-            return sent;
-        }
-    }
-
     /// <summary>
-    /// Shares emote settings between the machines in an online game through Steam lobby member
-    /// data, the per-member key/value store Steam keeps for each lobby and sends to everyone in it
-    /// (the game itself never uses it). Each machine writes two keys of its own:
-    ///   emotesync.profile  its HostTools emote settings (see <see cref="EmoteProfile"/>), rewritten
-    ///                      whenever they change;
-    ///   emotesync.emote    the last voice-pack emote it showed, with the file name it picked.
-    /// A machine that writes no profile has no Emote Sync, and its chefs' bubbles are left as the
-    /// game draws them.
+    /// Shares emote settings and emotes between the machines in an online game through Steam lobby
+    /// member data, the per-member key/value store Steam keeps for each lobby and sends to everyone
+    /// in it (the game itself never uses it). Each machine writes two keys of its own:
+    ///   emotesync.profile  its emote settings (see <see cref="EmoteProfile"/>), rewritten whenever
+    ///                      they change, or "2|off" when HostTools' emote text is off;
+    ///   emotesync.emote    the last emote one of its players started (see <see cref="SentEmote"/>).
+    /// A machine that writes neither has no Emote Sync (or an older one), and its chefs' bubbles are
+    /// left as the game draws them.
     /// </summary>
     internal static class EmoteNet
     {
@@ -54,14 +24,14 @@ namespace EmoteSync
         private const string EmoteKey = "emotesync.emote";
         private const float LocalRefreshSeconds = 0.25f;
         private const float PublishSeconds = 0.5f;
-        private const float PollSeconds = 0.1f;
+        private const float PollSeconds = 0.05f;
 
         private sealed class Member
         {
             public string RawProfile;
             public EmoteProfile Profile;
+            public bool HasSync;
             public string RawEmote;
-            public SentEmote Emote;
         }
 
         private static readonly FieldInfo LobbyField =
@@ -75,12 +45,18 @@ namespace EmoteSync
         private static CSteamID s_self = CSteamID.Nil;
         private static string s_writtenProfile;
         private static EmoteProfile s_local;
+        private static bool s_localRead;
         private static float s_nextLocal, s_nextPublish, s_nextPoll;
-        private static bool s_pollNow;
         private static int s_seq = Environment.TickCount & 0xFFFFF;
 
         /// <summary>In an online Steam lobby with Emote Sync running.</summary>
         internal static bool Online { get { return s_lobby.IsValid(); } }
+
+        /// <summary>
+        /// Online, and every other machine in the lobby runs this Emote Sync, so every in-kitchen
+        /// emote arrives as a <see cref="SentEmote"/> naming exactly whose chef it is.
+        /// </summary>
+        internal static bool EveryoneHasSync { get; private set; }
 
         /// <summary>This machine's settings (null when HostTools' emote text feature is off).</summary>
         internal static EmoteProfile Local
@@ -88,9 +64,10 @@ namespace EmoteSync
             get
             {
                 float now = Time.realtimeSinceStartup;
-                if (s_local == null || now >= s_nextLocal)
+                if (!s_localRead || now >= s_nextLocal)
                 {
                     s_local = HostTools.ReadLocal();
+                    s_localRead = true;
                     s_nextLocal = now + LocalRefreshSeconds;
                 }
                 return s_local;
@@ -103,19 +80,18 @@ namespace EmoteSync
             return s_members.TryGetValue(member.m_SteamID, out m) ? m.Profile : null;
         }
 
-        internal static SentEmote EmoteOf(CSteamID member)
+        internal static bool HasSync(CSteamID member)
         {
-            s_pollNow = true;
             Member m;
-            return s_members.TryGetValue(member.m_SteamID, out m) ? m.Emote : null;
+            return s_members.TryGetValue(member.m_SteamID, out m) && m.HasSync;
         }
 
-        /// <summary>Tells the other machines which voice-pack file name a local emote shows.</summary>
-        internal static void Publish(string key, int index, string text)
+        /// <summary>Tells the other machines about an emote one of this machine's players started.</summary>
+        internal static void Publish(SentEmote sent)
         {
             if (!Online) return;
             s_seq = (s_seq + 1) & 0x7FFFFFFF;
-            var sent = new SentEmote { Seq = s_seq, Key = key, Index = index, Text = text ?? "" };
+            sent.Seq = s_seq;
             SteamMatchmaking.SetLobbyMemberData(s_lobby, EmoteKey, sent.Format());
         }
 
@@ -133,8 +109,12 @@ namespace EmoteSync
             if (now >= s_nextPublish)
             {
                 s_nextPublish = now + PublishSeconds;
-                EmoteProfile local = enabled ? Local : null;
-                string value = local != null ? local.Format() : "";
+                string value = "";
+                if (enabled)
+                {
+                    EmoteProfile local = Local;
+                    value = local != null ? local.Format() : EmoteProfile.Off;
+                }
                 if (value != s_writtenProfile)
                 {
                     SteamMatchmaking.SetLobbyMemberData(lobby, ProfileKey, value);
@@ -142,11 +122,10 @@ namespace EmoteSync
                 }
             }
 
-            if (enabled && (s_pollNow || now >= s_nextPoll))
+            if (enabled && now >= s_nextPoll)
             {
-                s_pollNow = false;
                 s_nextPoll = now + PollSeconds;
-                Poll(lobby, now);
+                Poll(lobby);
             }
         }
 
@@ -157,12 +136,14 @@ namespace EmoteSync
             s_writtenProfile = null;
             s_nextPublish = 0f;
             s_nextPoll = 0f;
+            EveryoneHasSync = false;
             s_self = lobby.IsValid() ? SteamUser.GetSteamID() : CSteamID.Nil;
         }
 
-        private static void Poll(CSteamID lobby, float now)
+        private static void Poll(CSteamID lobby)
         {
             s_present.Clear();
+            bool everyone = true;
             int count = SteamMatchmaking.GetNumLobbyMembers(lobby);
             for (int i = 0; i < count; i++)
             {
@@ -183,17 +164,30 @@ namespace EmoteSync
                 {
                     member.RawProfile = profile;
                     member.Profile = EmoteProfile.Parse(profile);
+                    member.HasSync = EmoteProfile.IsOurs(profile);
                 }
+                if (!member.HasSync) everyone = false;
 
                 string emote = SteamMatchmaking.GetLobbyMemberData(lobby, id, EmoteKey);
                 if (emote != member.RawEmote)
                 {
                     member.RawEmote = emote;
-                    member.Emote = SentEmote.Parse(emote);
                     // Whatever a member had written before this machine first saw them is old news.
-                    if (member.Emote != null) member.Emote.SeenAt = isNew ? float.NegativeInfinity : now;
+                    SentEmote sent = isNew ? null : SentEmote.Parse(emote);
+                    if (sent != null)
+                    {
+                        try
+                        {
+                            EmoteView.RemoteEmote(id, sent);
+                        }
+                        catch (Exception error)
+                        {
+                            EmoteView.LogOnce("receive", error);
+                        }
+                    }
                 }
             }
+            EveryoneHasSync = everyone && s_present.Count > 0;
 
             s_gone.Clear();
             foreach (ulong id in s_members.Keys)

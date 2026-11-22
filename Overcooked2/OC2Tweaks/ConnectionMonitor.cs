@@ -251,9 +251,10 @@ namespace OC2Tweaks
         {
             var player = Get(session);
             if (player == null || !ValidPing(player.Sample))
-                return HostLacksMod(session, now) ? "Độ trễ: chủ phòng chưa cài OC2Tweaks" : "Độ trễ: đang đo...";
-            return "Độ trễ: " + player.Sample.PingMs.ToString("0") + " ms" +
-                (IsCurrent(session, now) ? "" : " (đang cập nhật)");
+                return HostLacksMod(session, now) ? Lang.T("Ping: host doesn't have OC2Tweaks", "Độ trễ: chủ phòng chưa cài OC2Tweaks")
+                    : Lang.T("Ping: measuring...", "Độ trễ: đang đo...");
+            return Lang.T("Ping: ", "Độ trễ: ") + player.Sample.PingMs.ToString("0") + " ms" +
+                (IsCurrent(session, now) ? "" : Lang.T(" (updating)", " (đang cập nhật)"));
         }
 
         // ---- relay, host side ----

@@ -13,7 +13,9 @@ namespace ChefSkills
     {
         public ushort Topic;
         public uint Chef;
-        public float A, B, C, D, E, F;
+        public float A, B, C, D, E, F, G;
+        /// <summary>A short text (at most 200 bytes of UTF-8 are sent): a refusal reason, an effect label.</summary>
+        public string Text;
         public int I;
         /// <summary>The machine that first sent it (filled in on receipt; this machine when local).</summary>
         public CSteamID From;
@@ -53,23 +55,29 @@ namespace ChefSkills
             internal const ushort ActivateRequest = 1;
             /// <summary>Host -> all: a special was used. I = special, A = cooldown, B = duration.</summary>
             internal const ushort Activated = 2;
-            /// <summary>Host -> all: an activation was refused (nothing to use it on). I = special.</summary>
+            /// <summary>Host -> all: an activation was refused (nothing to use it on). I = special, Text = why.</summary>
             internal const ushort Denied = 3;
             /// <summary>Any -> all: a buff started. I = buff, A = duration, B = strength, D = source chef.</summary>
             internal const ushort Buff = 4;
+            /// <summary>Any -> all: a visual effect (see SpecialFx).</summary>
+            internal const ushort Fx = 5;
         }
 
         private const int Channel = 7;
         private const byte Magic = 0xC5;
-        private const byte Protocol = 1;
+        private const byte Protocol = 2;
         private const byte RouteToHost = 1;
         private const byte RouteToAll = 2;
         private const byte RouteRelay = 3;
-        private const int Size = 3 + 2 + 4 + 6 * 4 + 4 + 8;
+        // Fixed part: header, topic, chef, A..G, I, origin; then a length byte and the text.
+        private const int Size = 3 + 2 + 4 + 7 * 4 + 4 + 8;
+        // Room for a text in both languages (Lang.Both; Vietnamese takes 2-3 bytes a letter in UTF-8).
+        // Size + 1 + MaxText stays within the 256-byte receive buffer.
+        private const int MaxText = 200;
 
         private static readonly Dictionary<ushort, List<Action<SpecialMessage>>> Handlers =
             new Dictionary<ushort, List<Action<SpecialMessage>>>();
-        private static readonly byte[] SendBuffer = new byte[Size];
+        private static readonly byte[] SendBuffer = new byte[Size + 1 + MaxText];
         private static readonly byte[] ReceiveBuffer = new byte[256];
         private static readonly HashSet<ushort> Warned = new HashSet<ushort>();
 
@@ -139,12 +147,17 @@ namespace ChefSkills
         {
             CSteamID self = Self();
             message.From = self;
-            Dispatch(message);
+            // Out first, then handled here: a handler may send messages of its own (the host's
+            // Activated handlers do), and the others must get them after this one, in the order
+            // this machine handles them. Handled first, they would reach the others first.
             CSteamID lobby;
             bool host;
-            if (!SkillSync.TryGetLobby(out lobby, out host) || !SkillSync.EveryoneHasMod) return;
-            if (host) SendToClients(lobby, message, self, self);
-            else Send(SteamMatchmaking.GetLobbyOwner(lobby), RouteRelay, message, self);
+            if (SkillSync.TryGetLobby(out lobby, out host) && SkillSync.EveryoneHasMod)
+            {
+                if (host) SendToClients(lobby, message, self, self);
+                else Send(SteamMatchmaking.GetLobbyOwner(lobby), RouteRelay, message, self);
+            }
+            Dispatch(message);
         }
 
         /// <summary>Reads everything waiting on the channel. Called every frame by the plugin.</summary>
@@ -174,7 +187,7 @@ namespace ChefSkills
         {
             if (length < Size || ReceiveBuffer[0] != Magic || ReceiveBuffer[1] != Protocol) return;
             byte route = ReceiveBuffer[2];
-            SpecialMessage message = Decode(ReceiveBuffer);
+            SpecialMessage message = Decode(ReceiveBuffer, length);
             ulong origin = BitConverter.ToUInt64(ReceiveBuffer, Size - 8);
             message.From = new CSteamID(origin != 0 ? origin : sender.m_SteamID);
 
@@ -187,10 +200,11 @@ namespace ChefSkills
                     if (host) Dispatch(message);
                     break;
                 case RouteRelay:
-                    // A client's message for everyone: handle it here and pass it on.
+                    // A client's message for everyone: pass it on, then handle it here (the same
+                    // order as SendToAll, so what a handler sends follows it).
                     if (!host) break;
-                    Dispatch(message);
                     SendToClients(lobby, message, message.From, Self());
+                    Dispatch(message);
                     break;
                 case RouteToAll:
                     // Only the host sends these.
@@ -237,8 +251,8 @@ namespace ChefSkills
             if (!to.IsValid()) return;
             try
             {
-                Encode(SendBuffer, route, message, origin);
-                SteamNetworking.SendP2PPacket(to, SendBuffer, (uint)Size, EP2PSend.k_EP2PSendReliable, Channel);
+                int length = Encode(SendBuffer, route, message, origin);
+                SteamNetworking.SendP2PPacket(to, SendBuffer, (uint)length, EP2PSend.k_EP2PSendReliable, Channel);
             }
             catch (Exception error)
             {
@@ -258,7 +272,7 @@ namespace ChefSkills
             }
         }
 
-        private static void Encode(byte[] buffer, byte route, SpecialMessage m, CSteamID origin)
+        private static int Encode(byte[] buffer, byte route, SpecialMessage m, CSteamID origin)
         {
             buffer[0] = Magic;
             buffer[1] = Protocol;
@@ -272,11 +286,20 @@ namespace ChefSkills
             Put(buffer, ref o, BitConverter.GetBytes(m.D));
             Put(buffer, ref o, BitConverter.GetBytes(m.E));
             Put(buffer, ref o, BitConverter.GetBytes(m.F));
+            Put(buffer, ref o, BitConverter.GetBytes(m.G));
             Put(buffer, ref o, BitConverter.GetBytes(m.I));
             Put(buffer, ref o, BitConverter.GetBytes(origin.m_SteamID));
+            byte[] text = string.IsNullOrEmpty(m.Text) ? new byte[0] : System.Text.Encoding.UTF8.GetBytes(m.Text);
+            // Too long for both languages: send the English alone rather than cut a letter in half.
+            if (text.Length > MaxText && m.Text.IndexOf(Lang.Split) >= 0)
+                text = System.Text.Encoding.UTF8.GetBytes(m.Text.Substring(0, m.Text.IndexOf(Lang.Split)));
+            int count = Math.Min(text.Length, MaxText);
+            buffer[o++] = (byte)count;
+            Buffer.BlockCopy(text, 0, buffer, o, count);
+            return o + count;
         }
 
-        private static SpecialMessage Decode(byte[] buffer)
+        private static SpecialMessage Decode(byte[] buffer, int length)
         {
             int o = 3;
             var m = new SpecialMessage();
@@ -288,7 +311,13 @@ namespace ChefSkills
             m.D = BitConverter.ToSingle(buffer, o); o += 4;
             m.E = BitConverter.ToSingle(buffer, o); o += 4;
             m.F = BitConverter.ToSingle(buffer, o); o += 4;
+            m.G = BitConverter.ToSingle(buffer, o); o += 4;
             m.I = BitConverter.ToInt32(buffer, o);
+            if (length > Size)
+            {
+                int count = Math.Min(buffer[Size], length - Size - 1);
+                if (count > 0) m.Text = System.Text.Encoding.UTF8.GetString(buffer, Size + 1, count);
+            }
             return m;
         }
 

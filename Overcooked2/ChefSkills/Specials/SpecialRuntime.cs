@@ -82,20 +82,74 @@ namespace ChefSkills
         internal bool EmoteWasDown;
         internal float PendingUntil;
 
+        /// <summary>
+        /// Where the player's own machine had the chef, and which way it faced, when the active was
+        /// pressed. The host's view of a remote chef lags its owner's by a few frames, so an
+        /// Execute that aims (vault, blink, the teammate you face...) should aim from these. On the
+        /// host's own chefs they are simply the chef's position and facing at the press.
+        /// </summary>
+        public Vector3 RequestPosition;
+        public Vector3 RequestForward = Vector3.forward;
+
+        /// <summary>Set by Execute (with <see cref="Refuse"/>) when it returns false: shown to the player.</summary>
+        internal string RefuseReason;
+
+        /// <summary>
+        /// Execute: say why it can't be used now (e.g. "NO COUNTER IN FRONT"); returns false so it
+        /// reads <c>return state.Refuse("...");</c>. The player sees it over their skill bar.
+        /// </summary>
+        public bool Refuse(string reason)
+        {
+            RefuseReason = reason;
+            return false;
+        }
+
+        /// <summary>
+        /// Timers the skill bar shows on a special's icon (a passive's recharge, a charge
+        /// building up...): special -> (until, total) in <see cref="SpecialRuntime.Now"/> seconds.
+        /// </summary>
+        internal readonly Dictionary<Special, Vector2> Timers = new Dictionary<Special, Vector2>();
+
+        /// <summary>
+        /// Shows a recharge sweep on this special's icon in the skill bar until <paramref name="until"/>
+        /// (SpecialRuntime.Now), out of <paramref name="total"/> seconds. Local chefs only matter.
+        /// </summary>
+        public void SetTimer(Special special, float until, float total)
+        {
+            Timers[special] = new Vector2(until, Mathf.Max(0.01f, total));
+        }
+
+        /// <summary>A number on the special's icon (charges, stacks, stored items); 0 hides it.</summary>
+        internal readonly Dictionary<Special, int> Counts = new Dictionary<Special, int>();
+
+        public void SetCount(Special special, int count)
+        {
+            if (count == 0) Counts.Remove(special);
+            else Counts[special] = count;
+        }
+
         public readonly Dictionary<int, Buff> Buffs = new Dictionary<int, Buff>();
 
         /// <summary>Scratch space for modules, cleared with the level. Key by your special's name.</summary>
         public readonly Dictionary<string, object> Data = new Dictionary<string, object>();
 
-        // Lines modules show under the chef's active (local chefs only), one per module key.
+        // Status chips over the skill bar (local chefs only), one per module key: text and the
+        // special it belongs to (its colour and icon letters).
         private readonly SortedDictionary<string, string> _statuses = new SortedDictionary<string, string>();
+        private readonly Dictionary<string, Special> _statusSpecials = new Dictionary<string, Special>();
         private string _status;
 
         /// <summary>
-        /// Sets (or clears, with null/empty) this module's line under the chef's active. Each
+        /// Sets (or clears, with null/empty) this module's status chip over the skill bar. Each
         /// module uses its own key, so modules never overwrite each other.
         /// </summary>
         public void SetStatus(string module, string text)
+        {
+            SetStatus(module, text, Special.None);
+        }
+
+        /// <summary>The same, with the special the chip belongs to (shown in its colour, with its icon).</summary>
+        public void SetStatus(string module, string text, Special special)
         {
             string current;
             bool had = _statuses.TryGetValue(module, out current);
@@ -103,13 +157,28 @@ namespace ChefSkills
             {
                 if (!had) return;
                 _statuses.Remove(module);
+                _statusSpecials.Remove(module);
             }
             else
             {
+                _statusSpecials[module] = special;
                 if (had && current == text) return;
                 _statuses[module] = text;
             }
             _status = _statuses.Count > 0 ? string.Join("\n", new List<string>(_statuses.Values).ToArray()) : null;
+        }
+
+        /// <summary>Every module's chip: key, text (in key order).</summary>
+        public IEnumerable<KeyValuePair<string, string>> Statuses
+        {
+            get { return _statuses; }
+        }
+
+        /// <summary>The special a module's chip belongs to (None when not given).</summary>
+        public Special StatusSpecial(string module)
+        {
+            Special special;
+            return _statusSpecials.TryGetValue(module, out special) ? special : Special.None;
         }
 
         /// <summary>Every module's line, joined (null when none).</summary>
@@ -195,6 +264,8 @@ namespace ChefSkills
 
         /// <summary>Every frame during a level, every machine (check SpecialNet.IsServer for server work).</summary>
         internal static event Action<float> Tick;
+        /// <summary>Every frame during a level, every machine, even while the game is paused (UI work).</summary>
+        internal static event Action Frame;
         /// <summary>Once the skill screen has closed and the level is about to start.</summary>
         internal static event Action LevelStarted;
         /// <summary>The level was left (or a new one is loading).</summary>
@@ -238,6 +309,7 @@ namespace ChefSkills
             SpecialNet.Register(SpecialNet.Topic.Activated, OnActivated);
             SpecialNet.Register(SpecialNet.Topic.Denied, OnDenied);
             SpecialNet.Register(SpecialNet.Topic.Buff, OnBuff);
+            SpecialFx.Register();
 
             int count = 0;
             foreach (Type type in typeof(SpecialRuntime).Assembly.GetTypes())
@@ -258,7 +330,7 @@ namespace ChefSkills
             {
                 SpecialInfo info = SpecialCatalog.Info(special);
                 if (info != null && info.Kind == SpecialKind.Active && !s_actives.ContainsKey(special))
-                    missing.Add(info.Name);
+                    missing.Add(info.NameEn);
             }
             Plugin.Log.LogInfo("Kỹ năng đặc biệt: " + count + " nhóm" +
                 (missing.Count > 0 ? "; chưa có cách dùng: " + string.Join(", ", missing.ToArray()) : ""));
@@ -278,6 +350,7 @@ namespace ChefSkills
             s_byObject.Clear();
             if (s_hud != null) s_hud.Destroy();
             s_hud = null;
+            SpecialFx.Clear();
         }
 
         /// <summary>The skill screen has closed: loadouts are set, the level starts.</summary>
@@ -388,7 +461,7 @@ namespace ChefSkills
         {
             if (target == null) return;
             // Lone Wolf: nothing from a teammate.
-            if (source != null && source != target && target.Has(Special.LoneWolf)) return;
+            if (source != null && source != target && source.Team == target.Team && target.Has(Special.LoneWolf)) return;
             Buff current;
             float until = s_now + duration;
             if (target.Buffs.TryGetValue(buff, out current) && current.Until > s_now)
@@ -552,6 +625,25 @@ namespace ChefSkills
 
             if (!TimeManager.IsPaused(TimeManager.PauseLayer.Main)) Raise(Tick, Time.deltaTime, "Tick");
             if (s_hud != null) s_hud.Update(s_chefs);
+            if (Frame != null)
+            {
+                try
+                {
+                    Frame();
+                }
+                catch (Exception error)
+                {
+                    Fail("Frame", error);
+                }
+            }
+            try
+            {
+                SpecialFx.Update();
+            }
+            catch (Exception error)
+            {
+                Fail("Fx", error);
+            }
         }
 
         /// <summary>Finds the chefs (new ones, gone ones) and refreshes their loadouts.</summary>
@@ -600,18 +692,19 @@ namespace ChefSkills
         private static void ReadActivation(ChefState state)
         {
             PlayerControls controls = state.Controls;
-            PlayerControls.ControlSchemeData scheme = controls != null ? controls.ControlScheme : null;
-            bool down = scheme != null && scheme.m_curseButton != null && scheme.m_curseButton.IsDown();
+            bool down = SpecialInput.IsDown(state);
             bool pressed = down && !state.EmoteWasDown;
             state.EmoteWasDown = down;
             if (!pressed || state.Active == Special.None) return;
-            if (!controls.enabled || controls.IsSuppressed() || HasBuff(state, BuffId.Frozen)) return;
+            if (!controls.enabled || controls.IsSuppressed() || HasBuff(state, BuffId.Frozen) || SpecialHud.GameMenuOpen()) return;
             if (s_now < state.CooldownUntil || s_now < state.PendingUntil)
             {
-                SpecialHud.Deny(state);
+                SpecialHud.Deny(state, s_now < state.PendingUntil ? null : Lang.Both("NOT READY", "CHƯA HỒI CHIÊU XONG"));
                 return;
             }
 
+            state.RequestPosition = state.Position;
+            state.RequestForward = state.Forward;
             if (IsServer)
             {
                 ServerActivate(state, state.Active);
@@ -640,7 +733,16 @@ namespace ChefSkills
         private static void OnActivateRequest(SpecialMessage message)
         {
             ChefState state = StateById(message.Chef);
-            if (state == null || (int)state.Active != message.I) return;
+            if (state == null) return;
+            if ((int)state.Active != message.I)
+            {
+                // The loadouts disagree (one machine hasn't refreshed yet): say so rather than
+                // leaving the player's press hanging.
+                SpecialNet.SendToAll(new SpecialMessage { Topic = SpecialNet.Topic.Denied, Chef = state.Id, I = message.I, Text = Lang.Both("NOT SYNCED YET", "CHƯA ĐỒNG BỘ XONG") });
+                return;
+            }
+            state.RequestPosition = message.Vector1;
+            state.RequestForward = message.Vector2.sqrMagnitude > 0.01f ? message.Vector2 : state.Forward;
             ServerActivate(state, state.Active);
         }
 
@@ -649,7 +751,10 @@ namespace ChefSkills
         {
             ActiveHandler handler;
             bool ok = false;
-            if (s_now + CooldownSlack >= state.CooldownUntil && s_actives.TryGetValue(special, out handler))
+            state.RefuseReason = null;
+            if (s_now + CooldownSlack < state.CooldownUntil) state.RefuseReason = Lang.Both("NOT READY", "CHƯA HỒI CHIÊU XONG");
+            else if (!s_actives.TryGetValue(special, out handler)) state.RefuseReason = Lang.Both("NOT AVAILABLE", "KHÔNG DÙNG ĐƯỢC");
+            else
             {
                 try
                 {
@@ -658,11 +763,14 @@ namespace ChefSkills
                 catch (Exception error)
                 {
                     Fail(special + ".Execute", error);
+                    state.RefuseReason = Lang.Both("ERROR (SEE LOG)", "LỖI (XEM LOG)");
                 }
             }
             if (!ok)
             {
-                SpecialNet.SendToAll(new SpecialMessage { Topic = SpecialNet.Topic.Denied, Chef = state.Id, I = (int)special });
+                string reason = state.RefuseReason ?? Lang.Both("NOTHING TO USE IT ON", "KHÔNG CÓ GÌ ĐỂ DÙNG");
+                Plugin.Log.LogInfo("Kỹ năng " + SpecialCatalog.EnglishNameOf(special) + " không dùng được: " + reason.Split(Lang.Split)[0]);
+                SpecialNet.SendToAll(new SpecialMessage { Topic = SpecialNet.Topic.Denied, Chef = state.Id, I = (int)special, Text = reason });
                 return;
             }
             SpecialInfo info = SpecialCatalog.Info(special);
@@ -710,6 +818,9 @@ namespace ChefSkills
                 }
             }
             if (state.Local) SpecialHud.Used(state);
+            // Everyone sees that a special went off, and whose.
+            SpecialFx.Burst(state.Position, SpecialFx.ColourOf(special), 1.6f, 0.55f);
+            SpecialFx.Text(state.Chef, SpecialCatalog.NameOf(special) + "!", SpecialFx.ColourOf(special));
         }
 
         private static void OnDenied(SpecialMessage message)
@@ -717,7 +828,7 @@ namespace ChefSkills
             ChefState state = StateById(message.Chef);
             if (state == null) return;
             state.PendingUntil = 0f;
-            if (state.Local) SpecialHud.Deny(state);
+            if (state.Local) SpecialHud.Deny(state, message.Text);
         }
 
         /// <summary>Shortens a chef's active cooldown by <paramref name="seconds"/> (every machine).</summary>

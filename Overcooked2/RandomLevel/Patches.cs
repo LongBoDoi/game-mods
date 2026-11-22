@@ -13,7 +13,8 @@ namespace RandomLevel
             if (menu == null) return;
             const string path = "SettingsBody/ContentPC/Viewport/Content/RandomLevel_All";
             if (menu.transform.Find(path) != null) return;
-            var button = OC2DIYLevel.UIUtils.AddButton(menu, "RandomLevel_All", "Chơi ngẫu nhiên — tất cả màn", "Chơi ngẫu nhiên — tất cả màn", Plugin.StartRandom);
+            string label = Lang.T("Play random — all levels", "Chơi ngẫu nhiên — tất cả màn");
+            var button = OC2DIYLevel.UIUtils.AddButton(menu, "RandomLevel_All", label, label, Plugin.StartRandom);
             if (button != null) button.transform.SetAsFirstSibling();
         }
     }

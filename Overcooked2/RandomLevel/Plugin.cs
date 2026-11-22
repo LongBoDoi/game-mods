@@ -14,6 +14,8 @@ using UnityEngine.SceneManagement;
 namespace RandomLevel
 {
     [BepInPlugin(Id, "Overcooked 2 - Màn ngẫu nhiên", "1.1.3")]
+    // Loads after TiengViet when it is installed, so the language it sets applies from the start.
+    [BepInDependency("com.manhl.overcooked2.tiengviet", BepInDependency.DependencyFlags.SoftDependency)]
     [BepInDependency("dev.gua.overcooked.diylevel", "0.10.0")]
     [BepInProcess("Overcooked2.exe")]
     public sealed class Plugin : BaseUnityPlugin
@@ -36,9 +38,11 @@ namespace RandomLevel
         {
             Log = Logger;
             exitKey = Config.Bind("General", "ExitResultsKey", new KeyboardShortcut(KeyCode.F7),
-                "Về menu chính từ bảng kết quả khi đang chơi ngẫu nhiên.");
+                Lang.T("Return to the main menu from the results screen during random play.",
+                    "Về menu chính từ bảng kết quả khi đang chơi ngẫu nhiên."));
             skipKey = Config.Bind("General", "SkipKey", new KeyboardShortcut(KeyCode.F8),
-                "Bỏ qua màn đang chơi để tải ngay một màn ngẫu nhiên khác. Chỉ chủ phòng; cần ít nhất 2 màn hợp lệ.");
+                Lang.T("Skip the current level and load another random one at once. Host only; needs at least 2 valid levels.",
+                    "Bỏ qua màn đang chơi để tải ngay một màn ngẫu nhiên khác. Chỉ chủ phòng; cần ít nhất 2 màn hợp lệ."));
             harmony = new Harmony(Id);
             try
             {
@@ -152,7 +156,7 @@ namespace RandomLevel
             GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(scale, scale, 1));
             resultsHintStyle.normal.textColor = ResultsInputReady ? Color.white : Color.gray;
             GUI.Label(new Rect(Screen.width / scale - 570, 18, 550, 36),
-                exitKey.Value + " — Về menu chính", resultsHintStyle);
+                exitKey.Value + Lang.T(" — Main menu", " — Về menu chính"), resultsHintStyle);
             GUI.matrix = oldMatrix;
         }
 

@@ -29,7 +29,14 @@ namespace OC2Tweaks
         }
 
         private enum Tab { Options, Keys, Bans }
-        private static readonly string[] TabNames = { "TÙY CHỌN", "PHÍM TẮT", "ĐÃ CẤM" };
+        private static string[] TabNames
+        {
+            get
+            {
+                return Lang.Vi ? new[] { "TÙY CHỌN", "PHÍM TẮT", "ĐÃ CẤM" }
+                    : new[] { "OPTIONS", "HOTKEYS", "BANNED" };
+            }
+        }
 
         private static readonly Color TextColour = new Color(0.953f, 0.918f, 0.929f, 1f);
         private static readonly Color TabIdle = new Color(0.17f, 0.33f, 0.49f, 1f);
@@ -201,11 +208,12 @@ namespace OC2Tweaks
         private void PaintTabs()
         {
             if (tabFills == null) return;
+            string[] names = TabNames;
             for (int i = 0; i < tabFills.Length; i++)
             {
                 tabFills[i].color = i == (int)tab ? TabActive : TabIdle;
                 string count = i == (int)Tab.Bans && bans.Length > 0 ? " (" + bans.Length + ")" : "";
-                tabLabels[i].text = TabNames[i] + count;
+                tabLabels[i].text = names[i] + count;
             }
             PaintCap(previousFill, previousCap, previousIcon, Plugin.PreviousTabKey);
             PaintCap(nextFill, nextCap, nextIcon, Plugin.NextTabKey);
@@ -469,52 +477,64 @@ namespace OC2Tweaks
 
         private void OptionRows()
         {
-            Toggle("match.host", "Luôn làm chủ phòng khi tìm trận", Plugin.ForceHostReady,
+            Toggle("match.host", Lang.T("Always host when matchmaking", "Luôn làm chủ phòng khi tìm trận"), Plugin.ForceHostReady,
                 () => Plugin.ForceHost.Value, on => Plugin.ForceHost.Value = on,
                 Plugin.ForceHostReady
-                    ? "Khi tìm trận Arcade/Versus công khai, bạn tự tạo phòng và chờ người khác vào thay vì vào phòng của người khác. Áp dụng từ lần tìm trận tiếp theo."
-                    : "Không bật được chức năng này trên bản game hiện tại. Xem BepInEx/LogOutput.log.");
-            Toggle("overlay.on", "Hiện độ trễ ở góc màn hình", true,
+                    ? Lang.T("In public Arcade/Versus matchmaking you open your own room and wait for others to join, instead of joining theirs. Applies from your next search.",
+                        "Khi tìm trận Arcade/Versus công khai, bạn tự tạo phòng và chờ người khác vào thay vì vào phòng của người khác. Áp dụng từ lần tìm trận tiếp theo.")
+                    : Lang.T("This can't be turned on in this version of the game. See BepInEx/LogOutput.log.",
+                        "Không bật được chức năng này trên bản game hiện tại. Xem BepInEx/LogOutput.log."));
+            Toggle("overlay.on", Lang.T("Show ping in a screen corner", "Hiện độ trễ ở góc màn hình"), true,
                 () => Plugin.PingOverlay.Value, on => Plugin.PingOverlay.Value = on,
-                "Một danh sách nhỏ độ trễ của mọi người ở góc màn hình, kể cả khi đang chơi. Không nhận chuột hay phím, tự ẩn khi không ở trong phòng trực tuyến.");
-            Choice("overlay.corner", "Vị trí bảng độ trễ", () => MenuText.CornerNames,
+                Lang.T("A small list of everyone's ping in a corner of the screen, even while playing. Takes no mouse or keys, and hides itself outside online rooms.",
+                    "Một danh sách nhỏ độ trễ của mọi người ở góc màn hình, kể cả khi đang chơi. Không nhận chuột hay phím, tự ẩn khi không ở trong phòng trực tuyến."));
+            Choice("overlay.corner", Lang.T("Ping list position", "Vị trí bảng độ trễ"), () => MenuText.CornerNames,
                 () => Array.IndexOf(MenuText.Corners, Plugin.PingOverlayCorner.Value),
                 i => Plugin.PingOverlayCorner.Value = MenuText.Corners[i],
-                "Góc màn hình hiện danh sách độ trễ. Xanh lá dưới 80 ms, vàng dưới 150 ms, đỏ khi cao hơn, xám khi đang chờ số mới.");
-            Toggle("restart.on", "Chơi lại màn bằng một phím", QuickRestart.Ready,
+                Lang.T("The screen corner that shows the ping list. Green under 80 ms, yellow under 150 ms, red above, grey while waiting for a new reading.",
+                    "Góc màn hình hiện danh sách độ trễ. Xanh lá dưới 80 ms, vàng dưới 150 ms, đỏ khi cao hơn, xám khi đang chờ số mới."));
+            Toggle("restart.on", Lang.T("One-key level restart", "Chơi lại màn bằng một phím"), QuickRestart.Ready,
                 () => Plugin.QuickRestartEnabled.Value && QuickRestart.Ready, on => Plugin.QuickRestartEnabled.Value = on,
                 QuickRestart.Ready
-                    ? "Nhấn phím chơi lại (thẻ Phím tắt) khi đang chơi để chơi lại màn ngay, như Tạm dừng → Chơi lại → Đồng ý nhưng không qua menu. Chỉ chủ phòng cần bật; cả phòng chơi lại cùng nhau."
-                    : "Không bật được: bản game này không còn InGamePauseMenu.OnRestartConfirmed.");
+                    ? Lang.T("Press the restart key (Hotkeys tab) while playing to restart the level at once, like Pause → Restart → Confirm without the menu. Only the host needs it on; the whole room restarts together.",
+                        "Nhấn phím chơi lại (thẻ Phím tắt) khi đang chơi để chơi lại màn ngay, như Tạm dừng → Chơi lại → Đồng ý nhưng không qua menu. Chỉ chủ phòng cần bật; cả phòng chơi lại cùng nhau.")
+                    : Lang.T("Can't be turned on: this version of the game no longer has InGamePauseMenu.OnRestartConfirmed.",
+                        "Không bật được: bản game này không còn InGamePauseMenu.OnRestartConfirmed."));
         }
 
         private void KeyRows()
         {
-            KeyRow("key.restart", "Chơi lại màn", Plugin.QuickRestartKey,
-                "Chỉ có tác dụng khi đang chơi một màn, và bỏ qua lần nhấn thứ hai trong vòng " +
-                QuickRestart.Cooldown.ToString("0") + " giây.");
-            KeyRow("key.overlay", "Bật/tắt bảng độ trễ", Plugin.PingOverlayKey,
-                "Bật hoặc tắt danh sách độ trễ ở góc màn hình ở bất cứ đâu.");
-            KeyRow("key.previous", "Thẻ trước", Plugin.PreviousTabKey,
-                "Chuyển sang thẻ bên trái trên màn hình này. Tay cầm: LB.");
-            KeyRow("key.next", "Thẻ sau", Plugin.NextTabKey,
-                "Chuyển sang thẻ bên phải trên màn hình này. Tay cầm: RB.");
+            string cooldown = QuickRestart.Cooldown.ToString("0");
+            KeyRow("key.restart", Lang.T("Restart level", "Chơi lại màn"), Plugin.QuickRestartKey,
+                Lang.Vi ? "Chỉ có tác dụng khi đang chơi một màn, và bỏ qua lần nhấn thứ hai trong vòng " + cooldown + " giây."
+                    : "Only works while playing a level, and ignores a second press within " + cooldown + " seconds.");
+            KeyRow("key.overlay", Lang.T("Toggle ping list", "Bật/tắt bảng độ trễ"), Plugin.PingOverlayKey,
+                Lang.T("Turns the corner ping list on or off from anywhere.",
+                    "Bật hoặc tắt danh sách độ trễ ở góc màn hình ở bất cứ đâu."));
+            KeyRow("key.previous", Lang.T("Previous tab", "Thẻ trước"), Plugin.PreviousTabKey,
+                Lang.T("Switches to the tab on the left on this screen. Pad: LB.",
+                    "Chuyển sang thẻ bên trái trên màn hình này. Tay cầm: LB."));
+            KeyRow("key.next", Lang.T("Next tab", "Thẻ sau"), Plugin.NextTabKey,
+                Lang.T("Switches to the tab on the right on this screen. Pad: RB.",
+                    "Chuyển sang thẻ bên phải trên màn hình này. Tay cầm: RB."));
         }
 
         private void BanRows()
         {
             if (!Plugin.Bans.Ready)
-                Info("bans.broken", "Không dùng được danh sách cấm", "", null,
-                    "Tệp danh sách cấm bị lỗi hoặc không đọc được. Xem BepInEx/LogOutput.log, sửa tệp rồi khởi động lại game. Bạn vẫn đuổi được người chơi.");
+                Info("bans.broken", Lang.T("Ban list unavailable", "Không dùng được danh sách cấm"), "", null,
+                    Lang.T("The ban list file is damaged or can't be read. See BepInEx/LogOutput.log, fix the file and restart the game. You can still kick players.",
+                        "Tệp danh sách cấm bị lỗi hoặc không đọc được. Xem BepInEx/LogOutput.log, sửa tệp rồi khởi động lại game. Bạn vẫn đuổi được người chơi."));
             else if (bans.Length == 0)
-                Info("bans.none", "Chưa cấm ai", "", null,
-                    "Tài khoản bị cấm sẽ tự động bị đuổi mỗi khi vào phòng bạn làm chủ.");
+                Info("bans.none", Lang.T("Nobody banned yet", "Chưa cấm ai"), "", null,
+                    Lang.T("Banned accounts are kicked automatically whenever they join a room you host.",
+                        "Tài khoản bị cấm sẽ tự động bị đuổi mỗi khi vào phòng bạn làm chủ."));
             foreach (BanRecord ban in bans)
             {
                 BanRecord record = ban;
                 string date = ban.BannedUtc.ToLocalTime().ToString("dd/MM/yyyy");
                 Info("b:" + ban.SteamId, MenuText.SafeName(ban.Name), date, delegate { Prompts.AskUnban(record, Report); },
-                    "Bị cấm ngày " + date + ". Chọn để bỏ cấm.").Title.supportRichText = false;
+                    Lang.Vi ? "Bị cấm ngày " + date + ". Chọn để bỏ cấm." : "Banned on " + date + ". Select to lift the ban.").Title.supportRichText = false;
             }
         }
 
@@ -626,7 +646,8 @@ namespace OC2Tweaks
         {
             Row row = null;
             row = Info(key, title, MenuText.KeyLabel(setting.Value.ToString()), delegate { StartCapture(row, setting); },
-                about + " Chọn rồi nhấn phím mới; giữ Ctrl, Shift hoặc Alt để dùng tổ hợp.");
+                about + Lang.T(" Select it, then press the new key; hold Ctrl, Shift or Alt for a combination.",
+                    " Chọn rồi nhấn phím mới; giữ Ctrl, Shift hoặc Alt để dùng tổ hợp."));
             row.Refresh = delegate
             {
                 if (captureRow == row || row.Value == null) return;
@@ -655,10 +676,12 @@ namespace OC2Tweaks
             if (m_CachedEventSystem != null && captureLock == null) captureLock = m_CachedEventSystem.Disable(this);
             if (row.Value != null)
             {
-                row.Value.text = "Nhấn phím...";
+                row.Value.text = Lang.T("Press a key...", "Nhấn phím...");
                 row.Value.color = Waiting;
             }
-            status = "Nhấn phím mới cho \"" + row.Title.text + "\". Giữ Ctrl, Shift hoặc Alt để tạo tổ hợp. Esc để hủy.";
+            status = Lang.Vi
+                ? "Nhấn phím mới cho \"" + row.Title.text + "\". Giữ Ctrl, Shift hoặc Alt để tạo tổ hợp. Esc để hủy."
+                : "Press the new key for \"" + row.Title.text + "\". Hold Ctrl, Shift or Alt for a combination. Esc to cancel.";
             statusAt = float.MaxValue;
             ShowHint(status);
         }
@@ -672,7 +695,7 @@ namespace OC2Tweaks
                 if (!Input.GetKeyDown(key)) continue;
                 if (key == KeyCode.Escape || key >= KeyCode.JoystickButton0)
                 {
-                    StopCapture("Đã hủy đổi phím.");
+                    StopCapture(Lang.T("Key change cancelled.", "Đã hủy đổi phím."));
                     return;
                 }
                 if (key >= KeyCode.Mouse0 && key <= KeyCode.Mouse6) continue;
@@ -753,7 +776,7 @@ namespace OC2Tweaks
             try { change(); }
             catch (Exception error)
             {
-                status = "Không lưu được thay đổi: " + error.Message;
+                status = Lang.T("Couldn't save the change: ", "Không lưu được thay đổi: ") + error.Message;
                 statusAt = Time.realtimeSinceStartup;
                 ShowHint(status);
                 Plugin.Log.LogError(error);
@@ -819,7 +842,7 @@ namespace OC2Tweaks
             Row row;
             if (current == null || !byObject.TryGetValue(current, out row) || !rows.Contains(row))
             {
-                if (current == done.gameObject && status == null) ShowHint("Mọi thay đổi đã được lưu ngay khi bạn chọn.");
+                if (current == done.gameObject && status == null) ShowHint(Lang.T("Every change was saved as soon as you made it.", "Mọi thay đổi đã được lưu ngay khi bạn chọn."));
                 return;
             }
             // A result just reported outlives the selection settling back after its pop-up

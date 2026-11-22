@@ -151,7 +151,7 @@ namespace OC2Tweaks
                 float y = box.y + pad + i * line;
                 GUI.color = Color.white;
                 GUI.Label(new Rect(box.x + pad, y, width - pad * 2 - valueWidth - 4, line),
-                    (party.IsLocal ? "Bạn" : MenuText.SafeName(party.Name)) + (party.Count > 1 ? " (" + party.Count + ")" : ""),
+                    (party.IsLocal ? Lang.T("You", "Bạn") : MenuText.SafeName(party.Name)) + (party.Count > 1 ? " (" + party.Count + ")" : ""),
                     nameStyle);
 
                 float ms;

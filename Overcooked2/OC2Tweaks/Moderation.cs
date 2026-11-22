@@ -59,14 +59,18 @@ namespace OC2Tweaks
 
         internal static bool HostCanManage(out string reason)
         {
-            if (!SessionStatus.IsInSession()) { reason = "Hãy tạo phòng trực tuyến để quản lý người chơi."; return false; }
-            if (!SessionStatus.IsHost()) { reason = "Chỉ chủ phòng hiện tại mới có thể đuổi hoặc cấm người chơi."; return false; }
+            if (!SessionStatus.IsInSession())
+            { reason = Lang.T("Open an online room to manage players.", "Hãy tạo phòng trực tuyến để quản lý người chơi."); return false; }
+            if (!SessionStatus.IsHost())
+            { reason = Lang.T("Only the current host can kick or ban players.", "Chỉ chủ phòng hiện tại mới có thể đuổi hoặc cấm người chơi."); return false; }
             IConnectionModeSwitchStatus status = ConnectionModeSwitcher.GetStatus();
             if (status == null || status.GetProgress() != eConnectionModeSwitchProgress.Complete)
-            { reason = "Hãy chờ quá trình chuyển kết nối hoàn tất."; return false; }
+            { reason = Lang.T("Wait for the connection switch to finish.", "Hãy chờ quá trình chuyển kết nối hoàn tất."); return false; }
             var users = ServerUserSystem.m_Users;
-            if (users == null || users.Count == 0) { reason = "Đang chờ danh sách người chơi trong phòng."; return false; }
-            reason = "Bạn là chủ phòng. Danh sách cập nhật liên tục, kể cả khi đang chơi màn.";
+            if (users == null || users.Count == 0)
+            { reason = Lang.T("Waiting for the room's player list.", "Đang chờ danh sách người chơi trong phòng."); return false; }
+            reason = Lang.T("You're the host. The list updates constantly, even during a level.",
+                "Bạn là chủ phòng. Danh sách cập nhật liên tục, kể cả khi đang chơi màn.");
             return true;
         }
 
@@ -91,7 +95,7 @@ namespace OC2Tweaks
                 result.Add(new RemoteParty
                 {
                     Primary = user, Session = user.SessionId, SteamId = SteamId(user.SessionId),
-                    Name = user.SessionId.DisplayName ?? user.DisplayName ?? "Người chơi", Count = count
+                    Name = user.SessionId.DisplayName ?? user.DisplayName ?? Lang.T("Player", "Người chơi"), Count = count
                 });
             }
             return result.ToArray();
@@ -132,7 +136,7 @@ namespace OC2Tweaks
                 result.Add(new DisplayParty
                 {
                     Primary = user, Session = user.SessionId, SteamId = SteamId(user.SessionId),
-                    Name = user.SessionId.DisplayName ?? user.DisplayName ?? "Người chơi", Count = count,
+                    Name = user.SessionId.DisplayName ?? user.DisplayName ?? Lang.T("Player", "Người chơi"), Count = count,
                     IsLocal = isLocal
                 });
             }
@@ -154,9 +158,11 @@ namespace OC2Tweaks
                 if (ReferenceEquals(party.Primary, selected.Primary) &&
                     ReferenceEquals(party.Session, selected.Session) && party.SteamId == selected.SteamId)
                 { current = party; break; }
-            if (current == null) return "Người chơi đã rời phòng hoặc phiên chơi đã thay đổi. Hãy chọn lại người chơi.";
+            if (current == null) return Lang.T("The player has left the room or the session has changed. Pick the player again.",
+                "Người chơi đã rời phòng hoặc phiên chơi đã thay đổi. Hãy chọn lại người chơi.");
             if (ban && (current.SteamId == null || !Plugin.Bans.Ready))
-                return "Không thể cấm: cần mã tài khoản Steam hợp lệ và danh sách cấm có thể lưu được.";
+                return Lang.T("Can't ban: needs a valid Steam account ID and a ban list that can be saved.",
+                    "Không thể cấm: cần mã tài khoản Steam hợp lệ và danh sách cấm có thể lưu được.");
             // Snapshot before RemoveUser: its callbacks disconnect and can recursively remove this party.
             var targets = new List<User>();
             var users = ServerUserSystem.m_Users;
@@ -178,8 +184,9 @@ namespace OC2Tweaks
                 if (ServerUserSystem.m_Users.Contains(target)) ServerUserSystem.RemoveUser(target, true);
             Plugin.Log.LogInfo((ban ? "Đã cấm và đuổi " : "Đã đuổi ") + current.Name +
                 " (" + (current.SteamId ?? "không rõ tài khoản") + "), nhóm " + current.Count + " người.");
-            return ban ? "Đã lưu tài khoản và đuổi người chơi. Nếu gặp lại, họ sẽ tự động bị đuổi." :
-                "Đã đuổi người chơi. Họ vẫn có thể tham gia lại.";
+            return ban ? Lang.T("Account saved and player kicked. If they come back, they'll be kicked automatically.",
+                    "Đã lưu tài khoản và đuổi người chơi. Nếu gặp lại, họ sẽ tự động bị đuổi.") :
+                Lang.T("Player kicked. They can still rejoin.", "Đã đuổi người chơi. Họ vẫn có thể tham gia lại.");
         }
 
         // The panel keeps a display row for everyone, but only a remote party can be acted on.
