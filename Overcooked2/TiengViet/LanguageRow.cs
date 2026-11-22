@@ -98,6 +98,26 @@ namespace TiengViet
             finally { UnityEngine.Object.Destroy(holder); }
         }
 
+        /// <summary>
+        /// After Mod Updater loaded this version into the running game: a language row the older
+        /// copy added still talks to that copy's setting, and the menu is not set up again, so
+        /// no new row is added. Each such row is pointed at this copy's setting instead.
+        /// </summary>
+        internal static int Adopt()
+        {
+            if (OptionValue == null) return 0;
+            int count = 0;
+            foreach (SelectorOption option in Resources.FindObjectsOfTypeAll<SelectorOption>())
+            {
+                if (option == null || option.gameObject.name != RowName || OptionValue.GetValue(option) == choice) continue;
+                OptionValue.SetValue(option, choice);
+                if (!rows.Contains(option)) rows.Add(option);
+                if (option.GetComponent<RowView>() == null) option.gameObject.AddComponent<RowView>().Option = option;
+                count++;
+            }
+            return count;
+        }
+
         private static string Children(Transform parent)
         {
             var names = new List<string>();

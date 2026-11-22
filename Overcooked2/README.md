@@ -40,7 +40,7 @@ To do one thing and exit instead (these never loop, so they're safe in scripts):
 | `Install.cmd -Only BepInEx -BepInExVersion 5.4.23.2` | pin a specific BepInEx |
 | `Uninstall.cmd -Only OC2Tweaks` | remove one mod |
 | `Uninstall.cmd -All` | remove all mods and the loader |
-| `Install.cmd -Update` | upgrade only the mods already installed, plus ModUpdater (what ModUpdater runs after the game closes) |
+| `Install.cmd -Update` | upgrade the mods already installed and add the release's mods you don't have yet, except ones you uninstalled and add-ons whose third-party mod is missing (what ModUpdater runs after the game closes) |
 
 **BepInEx** defaults to the newest stable **5.x** release for `win_x86`, not simply the newest release on GitHub: this game is a 32-bit Unity 2017 Mono build, so the x64 loader and the BepInEx 6 prereleases (which currently top that list) don't work on it. A `BepInEx_win_x86_*.zip` placed next to the installer is used instead of downloading. Upgrading only replaces the loader and `BepInEx\core`, so plugins and settings are untouched.
 
@@ -82,7 +82,7 @@ build and install instructions, attribution, and current playtest status.
 
 ## ModUpdater
 
-Install it once with the installer (it is in the list like the other mods) and later releases arrive by themselves: when the game starts, it asks GitHub for the newest `Overcooked2-v*` release, and if that is newer than the one you installed it downloads it in the background. You can load it straight away from the main menu with **Cập nhật** in MOD Settings, with no restart (or turn on **Cập nhật ngay khi tải xong** to have that happen by itself). When you close the game, that release's own installer runs with `-Update`, upgrading exactly the mods you have (it never adds one you didn't pick). Nobody needs to download a zip or run `Install.cmd` again. See [ModUpdater/README.md](ModUpdater/README.md) for the settings and the files it keeps.
+Install it once with the installer (it is in the list like the other mods) and later releases arrive by themselves: when the game starts, it asks GitHub for the newest `Overcooked2-v*` release, and if that is newer than the one you installed it downloads it in the background. You can load it straight away from the main menu with **Cập nhật** in MOD Settings, with no restart (or turn on **Cập nhật ngay khi tải xong** to have that happen by itself). When you close the game, that release's own installer runs with `-Update`, upgrading the mods you have and adding any of this collection's mods you don't have yet, such as one that is new in that release. A mod you uninstalled stays uninstalled, and RandomLevel and DIYChefFix are added only when OC2DIYLevel or DIYChef is there. Nobody needs to download a zip or run `Install.cmd` again. See [ModUpdater/README.md](ModUpdater/README.md) for the settings and the files it keeps.
 
 ## ChefSkills
 

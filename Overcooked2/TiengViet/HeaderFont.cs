@@ -117,6 +117,10 @@ namespace TiengViet
             bool needs = text.text != null && text.text.IndexOfAny(Hatless) >= 0;
             if (repaired)
             {
+                // Swapped by an older copy of the mod (see Adopt): find the game's font by name.
+                if (!needs && gameBody == null)
+                    foreach (Font each in Resources.FindObjectsOfTypeAll<Font>())
+                        if (each != null && each.name == "Body_Font" && each != repairedBody) { gameBody = each; break; }
                 if (!needs && gameBody != null) text.font = gameBody;
             }
             else if (needs)
@@ -155,8 +159,31 @@ namespace TiengViet
         /// <summary>The fonts built into the mod (fonts.bundle, made by tools/fonts.py).</summary>
         private static AssetBundle bundle;
 
+        /// <summary>Where the loaded bundle is kept for a newer copy of the mod.</summary>
+        private const string BundleSlot = "com.manhl.overcooked2.tiengviet.fonts";
+
+        /// <summary>
+        /// Mod Updater can load a new version of this mod into the running game, next to the old
+        /// assembly. Unity opens a bundle only once, so the new copy must use the one the old copy
+        /// opened: from the AppDomain slot, or (from versions before the slot) by looking through
+        /// the loaded bundles for one with these fonts.
+        /// </summary>
+        private static AssetBundle LoadedBefore()
+        {
+            var kept = AppDomain.CurrentDomain.GetData(BundleSlot) as AssetBundle;
+            if (kept != null) return kept;
+            try
+            {
+                foreach (AssetBundle loaded in Resources.FindObjectsOfTypeAll<AssetBundle>())
+                    if (loaded != null && loaded.Contains("assets/tiengviet/body.ttf")) return loaded;
+            }
+            catch (Exception) { }
+            return null;
+        }
+
         private static Font Bundled(string name)
         {
+            if (bundle == null) bundle = LoadedBefore();
             if (bundle == null)
             {
                 Stream stream = typeof(HeaderFont).Assembly.GetManifestResourceStream("TiengViet.fonts.bundle");
@@ -171,6 +198,7 @@ namespace TiengViet
                 }
                 bundle = AssetBundle.LoadFromMemory(bytes);
                 if (bundle == null) { Plugin.Log.LogWarning("Could not open the mod's font bundle."); return null; }
+                AppDomain.CurrentDomain.SetData(BundleSlot, bundle);
             }
             Font font = bundle.LoadAsset<Font>("assets/tiengviet/" + name + ".ttf");
             if (font == null) Plugin.Log.LogWarning("The font bundle has no " + name + ".");
@@ -242,6 +270,33 @@ namespace TiengViet
                 if (NeedsSubstitute(text.text)) swapped.Fit();
                 else swapped.Restore();
             }
+        }
+
+        /// <summary>
+        /// After Mod Updater loaded this version into the running game: titles an older copy
+        /// swapped carry that copy's Swapped component, which nothing moves any more. Each is put
+        /// back with the old copy's own Restore and removed, so <see cref="Sweep"/> swaps the
+        /// title again with this copy. Returns how many there were.
+        /// </summary>
+        internal static int Adopt()
+        {
+            int count = 0;
+            string name = typeof(Swapped).FullName;
+            foreach (MonoBehaviour each in Resources.FindObjectsOfTypeAll<MonoBehaviour>())
+            {
+                if (each == null || each is Swapped || each.GetType().FullName != name) continue;
+                count++;
+                try
+                {
+                    System.Reflection.MethodInfo restore = each.GetType().GetMethod("Restore",
+                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                    if (restore != null) restore.Invoke(each, null);
+                }
+                catch (Exception) { }
+                try { UnityEngine.Object.DestroyImmediate(each); }
+                catch (Exception) { }
+            }
+            return count;
         }
 
         /// <summary>Checks every text loaded in a scene.</summary>

@@ -69,6 +69,10 @@ and are fixed up like any other text.
 
 With **English** chosen the game uses Steam's language, as it would without the mod.
 
+When Mod Updater loads a new version into the running game, the new copy reuses the font bundle
+the old copy opened (Unity opens a bundle only once), puts back and swaps again the titles the
+old copy swapped, and points the existing LANGUAGE row at its own setting.
+
 ## How the mods follow it
 
 TiengViet writes `"vi"` or `"en"` into one AppDomain slot,

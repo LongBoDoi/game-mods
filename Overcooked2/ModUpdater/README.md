@@ -7,7 +7,7 @@ Keeps this repo's Overcooked! 2 mods on the newest GitHub release, so players do
 1. **When the game starts**, it starts `ModUpdater.ps1` hidden in the background. That script asks GitHub for the newest `Overcooked2-v<version>` release and compares it with the release you installed. The installer records that version in `BepInEx\config\com.manhl.overcooked2.package.txt`.
 2. **If the release is newer**, the script downloads its zip and unpacks it to `BepInEx\cache\ModUpdater\staged\` while you play.
 3. **Right away, if you want:** on the main menu, **Cập nhật** loads the new versions into the running game, with no restart. The **Cập nhật ngay khi tải xong** setting does this automatically. See [Updating without restarting](#updating-without-restarting).
-4. **When you close the game**, it runs that release's own `Install.ps1 -Update`. This upgrades only the mods that are already installed, plus ModUpdater itself, and never adds a mod you didn't choose. The next launch loads the new files.
+4. **When you close the game**, it runs that release's own `Install.ps1 -Update`. This upgrades the mods that are installed and adds the release's other mods, so a mod that is new in that release reaches you too. It does not bring back a mod you uninstalled (the installer lists those in `BepInEx\config\com.manhl.overcooked2.removed.txt`), and it adds RandomLevel or DIYChefFix only when the third-party mod they extend (OC2DIYLevel, DIYChef) is installed. The next launch loads the new files.
 
 All network and file work happens in Windows PowerShell. GitHub requires TLS 1.2, which this game's old Mono can't do. The work also has to happen after the game exits, because Windows won't let anything replace a DLL the game has loaded.
 
@@ -39,7 +39,7 @@ Only mods whose DLL actually changed are swapped. When the game closes, the file
 - **ModUpdater itself is not swapped.** Its new version takes effect from the next launch.
 - **A mod that fails to load** keeps running its old version. It is logged, and it gets its new file when the game closes like the rest.
 - **Each loaded version stays in memory until the game closes.** This is harmless: the old copy has no patches and nothing calls it.
-- **Mods must clean up after themselves for this to work.** Everything they patch has to come off in `OnDestroy`, and their per-frame work has to run from the plugin's own `Update`. ChefSkills and EmoteSync both do this. A future mod that registers Steam callbacks or creates objects that outlive the plugin must remove them in `OnDestroy` too.
+- **Mods must clean up after themselves for this to work.** Everything they patch has to come off in `OnDestroy`, and their per-frame work has to run from the plugin's own `Update`. Every mod in this collection does. A mod the update adds is not loaded in game; it starts at the next launch. A future mod that registers Steam callbacks or creates objects that outlive the plugin must remove them in `OnDestroy` too.
 
 ## Notes
 

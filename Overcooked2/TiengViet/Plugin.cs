@@ -89,6 +89,19 @@ namespace TiengViet
             catch (Exception error) { Log.LogError("Could not patch MOD Settings' font check: " + error); }
             try { ModTexts.Patch(harmony); }
             catch (Exception error) { Log.LogError("Could not patch other mods' text tables: " + error); }
+            // Loaded into a running game by Mod Updater: take over what the older copy left.
+            try
+            {
+                int titles = HeaderFont.Adopt();
+                int rows = LanguageRow.Adopt();
+                if (titles + rows > 0)
+                {
+                    Log.LogInfo("Took over " + titles + " titles and " + rows + " language rows from the previous version.");
+                    HeaderFont.Sweep();
+                    Refresh.All();
+                }
+            }
+            catch (Exception error) { Log.LogError("Could not take over from the previous version: " + error); }
         }
 
         private void Patch(Type patch, string what)
