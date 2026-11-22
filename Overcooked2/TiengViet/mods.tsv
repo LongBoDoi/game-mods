@@ -1,0 +1,711 @@
+# Vietnamese for other mods' own text tables. Source<TAB>Key<TAB>English<TAB>Vietnamese.
+# ModSettings: MOD Settings (OC2ModSettings) labels, by its UiText name.
+# HostTools: Arcade MOD (HostTools) texts, by its own key. The English column is only for reference.
+# Setting: setting names, sections and descriptions shown in MOD Settings, matched by the exact English.
+# Texts are in C# escape form: \n is a line break, \\ a backslash.
+ModSettings	Title	MOD Settings	Cài đặt MOD
+ModSettings	Search	Search current MOD…	Tìm trong MOD này…
+ModSettings	Advanced	Show advanced	Hiện mục nâng cao
+ModSettings	Defaults	Restore defaults	Về mặc định
+ModSettings	Empty	No matching settings	Không có cài đặt phù hợp
+ModSettings	Confirm	Confirm	Xác nhận
+ModSettings	Cancel	Cancel	Hủy
+ModSettings	Clear	Clear	Xóa
+ModSettings	Close	Close	Đóng
+ModSettings	Refresh	Refresh	Làm mới
+ModSettings	Loading	Loading MOD settings…	Đang tải cài đặt MOD…
+ModSettings	Rebind	Rebind	Đổi phím
+ModSettings	PressKey	Press key	Nhấn phím
+ModSettings	InvalidValue	Invalid value	Giá trị không hợp lệ
+ModSettings	ReadOnly	Read-only: no reliable text converter type.	Chỉ đọc: kiểu này không có bộ chuyển đổi văn bản đáng tin cậy.
+ModSettings	Locked	Read-only: declared by MOD.	Chỉ đọc: do MOD quy định.
+ModSettings	Capture	Press a key or shortcut; Esc cancels	Nhấn một phím hoặc tổ hợp phím; Esc để hủy
+ModSettings	PickColor	Pick color	Chọn màu
+ModSettings	Hue	Hue	Tông màu
+ModSettings	Opacity	Opacity A	Độ đục A
+ModSettings	ColorHint	Drag preview; release save\nPad: confirm, adjust, confirm save	Kéo để xem trước, thả ra để lưu\nTay cầm: xác nhận, chỉnh, rồi xác nhận lần nữa để lưu
+HostTools	MOD_Settings	MOD Settings	Cài đặt MOD
+HostTools	Receive_Beta_Updates	Receive Beta Updates	Nhận bản cập nhật beta
+HostTools	Update_Return_To_Stable	Beta updates are disabled. Return to the latest stable MOD release.	Đã tắt cập nhật beta. Sẽ quay về bản MOD ổn định mới nhất.
+HostTools	Enable_Score_Mode	Enable Score Mode	Bật chế độ cày điểm
+HostTools	Update_Button_Check_Now	Check for Updates	Kiểm tra cập nhật
+HostTools	Score_Mode_Disabled	Restart the game to disable Score Mode.	Khởi động lại game để tắt chế độ cày điểm.
+HostTools	Score_Mode_Enabled	Restart the game to enable Score Mode.\nIt keeps the usual score-running tools, Add Friend, Steam Chat, and chef switching.\nAll custom panels are disabled; use the main menu and arcade lobby buttons to change slots.	Khởi động lại game để bật chế độ cày điểm.\nChế độ này giữ các công cụ cày điểm thường dùng, Kết bạn, Chat Steam và đổi đầu bếp.\nMọi bảng tùy chỉnh sẽ bị tắt; dùng các nút ở menu chính và sảnh Arcade để đổi vị trí.
+HostTools	Score_Mode_Description	Score Mode disables all custom panels and keeps auto update, latency display, name and extra info, quick restart/quit/end, force host/client, lobby slot buttons, Add Friend, Steam Chat, chef switching, join links, input switching, default chef, voice packs, lighting, the washing station fix, and the hot pot ladle fix.	Chế độ cày điểm tắt mọi bảng tùy chỉnh và giữ lại: tự động cập nhật, hiển thị độ trễ, tên và thông tin thêm, chơi lại/thoát/kết thúc nhanh, ép làm chủ phòng/khách, nút đổi vị trí ở sảnh, Kết bạn, Chat Steam, đổi đầu bếp, link tham gia, chuyển thiết bị điều khiển, đầu bếp mặc định, gói giọng nói, ánh sáng, bản sửa bồn rửa bát và bản sửa muôi lẩu.
+HostTools	Configuration_Manager_Hotkey	Config Panel Hotkey	Phím tắt mở bảng cấu hình
+HostTools	Config_Range_Rename	Name and Message Sync	Đồng bộ tên và tin nhắn
+HostTools	01-Replace_Name_First_Time_Hover_Mouse_For_Instructions	Custom Display Name	Tên hiển thị tùy chỉnh
+HostTools	Display_Name_Website_Button	Name Editor	Trình sửa tên
+HostTools	Display_Name_Length_Limit	Up to 238 UTF-16 bytes (119 code units, including formatting tags), matching the vanilla buffer budget. Longer names are truncated without splitting emoji surrogate pairs.	Tối đa 238 byte UTF-16 (119 đơn vị mã, tính cả thẻ định dạng), khớp giới hạn bộ đệm của game gốc. Tên dài hơn sẽ bị cắt bớt mà không tách đôi cặp surrogate của emoji.
+HostTools	02-Extra_Message_Sync_Input	Extra Message (leave empty to disable)	Tin nhắn thêm (để trống để tắt)
+HostTools	Steam_Homepage_Link	Steam profile link	Link hồ sơ Steam
+HostTools	Steam_Add_Friend	Add Friend	Kết bạn
+HostTools	Steam_Chat	Steam Chat	Chat Steam
+HostTools	Display_Name_In_Game	In-game display name	Tên hiển thị trong game
+HostTools	Config_Range_Function_Switch	Gameplay Features	Tính năng khi chơi
+HostTools	Toggle_Default_Host_Client_Role	Default Host/Client Role	Vai trò mặc định (chủ phòng/khách)
+HostTools	Game_Default_Logic	Game Default	Mặc định của game
+HostTools	Force_Host	Force Host	Ép làm chủ phòng
+HostTools	Force_Client	Force Client	Ép làm khách
+HostTools	Choose_Your_Default_Chefs	Default Chef	Đầu bếp mặc định
+HostTools	Do_Not_Modify	Do Not Change	Không thay đổi
+HostTools	None	None	Không có
+HostTools	Select_Voice_Pack_05	Select Voice Pack	Chọn gói giọng nói
+HostTools	Kitchen_Light_Intensity	Kitchen Lighting	Ánh sáng trong bếp
+HostTools	Disable_Double_Serving	Disable Order Stacking	Tắt giao kép
+HostTools	Allow_Double_Serving_If_Next_Order_Matches	Allow Stacking When the Next Order Matches	Cho phép giao kép khi đơn kế tiếp trùng món
+HostTools	Serve_Leftmost_Order_First_06	Serve Leftmost Order First	Ưu tiên giao đơn ngoài cùng bên trái
+HostTools	Skip_Waiting_For_Other_Players_After_Results	Skip Waiting for Others After Results	Không chờ người khác sau bảng kết quả
+HostTools	Beach_Firepower_Bar_Offset	Beach/Campfire Fire Meter Offset	Độ lệch thanh lửa (Bãi biển/Lửa trại)
+HostTools	Enable_Fix_Broken_Washing_Station_10	Enable Washing Station Fix	Bật sửa lỗi bồn rửa bát
+HostTools	Use_Legacy_Washing_Station_Fix_Mode_10A	Use Legacy Washing Station Fix Mode (leave unchecked if unsure)	Dùng cách sửa bồn rửa bát cũ (không chắc thì đừng chọn)
+HostTools	Enable_Fix_Hot_Pot_Ladle_12	Fix Hot Pot Ladle Bug	Sửa lỗi muôi lẩu
+HostTools	Disable_Day33_Single_Plate_Hotdog_13	Disable Circus 3-3 Single-Plate Hot Dog Strategy	Chặn lối chơi hot dog một đĩa ở Rạp xiếc 3-3
+HostTools	Config_Range_Key_Binding	Gameplay Hotkeys	Phím tắt khi chơi
+HostTools	Force_Controller_Switch	Switch Keyboard/Controller	Chuyển bàn phím/tay cầm
+HostTools	Skip_Level	Skip Current Level	Bỏ qua màn hiện tại
+HostTools	Force_Exit_On_Loading_Screen	Force Quit	Buộc thoát
+HostTools	One_Click_Restart	Restart Current Level	Chơi lại màn hiện tại
+HostTools	Config_Range_Panel_Button_Binding	Panel Hotkeys	Phím tắt mở bảng
+HostTools	Kick_Panel	Member Management Panel	Bảng quản lý thành viên
+HostTools	Miscellaneous_Panel	Miscellaneous Panel	Bảng linh tinh
+HostTools	Voice_Panel	Voice Panel	Bảng giọng nói
+HostTools	Blacklist_Panel	Blacklist Panel	Bảng danh sách đen
+HostTools	Text_Chat_Panel	Chat Panel	Bảng trò chuyện
+HostTools	Back	Back	Quay lại
+HostTools	Reset	Reset	Đặt lại
+HostTools	Config_Range_User_Managment	Member Management Hotkeys	Phím tắt quản lý thành viên
+HostTools	Blacklist_Kick_Slot1	Ban Slot 1 (host also kicks)	Chặn vị trí 1 (chủ phòng sẽ đuổi luôn)
+HostTools	Blacklist_Kick_Slot2	Ban Slot 2 (host also kicks)	Chặn vị trí 2 (chủ phòng sẽ đuổi luôn)
+HostTools	Blacklist_Kick_Slot3	Ban Slot 3 (host also kicks)	Chặn vị trí 3 (chủ phòng sẽ đuổi luôn)
+HostTools	Blacklist_Kick_Slot4	Ban Slot 4 (host also kicks)	Chặn vị trí 4 (chủ phòng sẽ đuổi luôn)
+HostTools	Kick_Only_Slot1	Kick Only Slot 1	Chỉ đuổi vị trí 1
+HostTools	Kick_Only_Slot2	Kick Only Slot 2	Chỉ đuổi vị trí 2
+HostTools	Kick_Only_Slot3	Kick Only Slot 3	Chỉ đuổi vị trí 3
+HostTools	Kick_Only_Slot4	Kick Only Slot 4	Chỉ đuổi vị trí 4
+HostTools	Config_Range_Mod_Text	MOD Text	Chữ của MOD
+HostTools	MOD_UI_Font_Size	MOD Text Size	Cỡ chữ MOD
+HostTools	MOD_UI_Danmaku_Font_Size	Danmaku Text Size	Cỡ chữ chạy
+HostTools	MOD_UI_Panel_Opacity	MOD Panel Opacity	Độ trong suốt bảng MOD
+HostTools	MOD_UI_Font_Color	MOD Text Color	Màu chữ MOD
+HostTools	MOD_UI_Text_Background_Color	MOD Text Background	Nền chữ MOD
+HostTools	MOD_UI_Text_Background_Alpha_Range	Background alpha range: 0.01 - 1	Khoảng alpha của nền: 0.01 - 1
+HostTools	Config_Range_Latency	Latency Display	Hiển thị độ trễ
+HostTools	Show_Latency_Top_Right_01	Show Latency in the Top Right of the Screen	Hiện độ trễ ở góc trên bên phải màn hình
+HostTools	Show_NickName_02	Show In-Game Name	Hiện tên trong game
+HostTools	Truncate_Long_Name_02A	Truncate Long Names	Rút gọn tên dài
+HostTools	Show_Steam_Friend_Name_03	Show Steam Friend Info	Hiện thông tin bạn bè Steam
+HostTools	Show_MOD_Version_04	Show MOD Version	Hiện phiên bản MOD
+HostTools	Show_Extra_Message_05	Show Extra Message	Hiện tin nhắn thêm
+HostTools	Truncate_Extra_Message_05A	Truncate Extra Message	Rút gọn tin nhắn thêm
+HostTools	Show_Connection_Route_06	Show Connection Route (P2P/RLY)	Hiện kiểu kết nối (P2P/RLY)
+HostTools	Show_Slot_Number_07	Show Player Slot	Hiện vị trí người chơi
+HostTools	Show_Latency_Mode_08	Show Latency Source (R/U)	Hiện nguồn độ trễ (R/U)
+HostTools	Show_Latency_Value_09	Show Latency Value	Hiện giá trị độ trễ
+HostTools	Show_Latency_Instant_Value_09F	Show Instant Latency Value	Hiện độ trễ tức thời
+HostTools	Latency_Use_Mod_Text_Color_09C	Use MOD Text Color for Latency	Dùng màu chữ MOD cho độ trễ
+HostTools	Latency_Status_Good_Color_10	Good Latency Color	Màu độ trễ tốt
+HostTools	Latency_Status_Bad_Color_11	Bad Latency Color	Màu độ trễ kém
+HostTools	Latency_Status_Good_Threshold_09A	Good Latency Threshold (ms)	Ngưỡng độ trễ tốt (ms)
+HostTools	Latency_Status_Bad_Threshold_09B	Bad Latency Threshold (ms)	Ngưỡng độ trễ kém (ms)
+HostTools	Latency_Y_Offset_17	Latency Y Offset	Độ lệch Y của độ trễ
+HostTools	Show_Speaking_Status_09D	Show Speaking Status	Hiện trạng thái đang nói
+HostTools	Show_Text_Chat_Unread_09E	Show Chat Notification	Hiện thông báo trò chuyện
+HostTools	Local_Machine	Local	Máy này
+HostTools	Config_Range_Resolution	Resolution	Độ phân giải
+HostTools	Enable_Custom_Resolution	Enable Custom Resolution	Bật độ phân giải tùy chỉnh
+HostTools	Width_Pixels	Width (Pixels)	Rộng (pixel)
+HostTools	Height_Pixels	Height (Pixels)	Cao (pixel)
+HostTools	Config_Range_Arcade_Lobby	Arcade Lobby	Sảnh Arcade
+HostTools	MOD_Public_Arcade	MOD Public Arcade	Arcade công khai MOD
+HostTools	Mod_Public_Arcade_DIY_Active	Leave the DIY arcade room before starting MOD public matchmaking.	Hãy rời phòng Arcade DIY trước khi bắt đầu ghép trận công khai MOD.
+HostTools	Select_Lobby_Match_Range	Lobby Search Distance	Phạm vi tìm sảnh
+HostTools	Same_Region	Same Region	Cùng khu vực
+HostTools	Same_Or_Nearby_Region	Same or Nearby Region	Cùng khu vực hoặc lân cận
+HostTools	Half_Globe	Half the Globe	Nửa địa cầu
+HostTools	Global	Global	Toàn cầu
+HostTools	Host_Display_Lobby_ID	Show Lobby ID in the Bottom Right	Hiện ID sảnh ở góc dưới bên phải
+HostTools	Allow_Spectating	Allow Spectating	Cho phép xem trận
+HostTools	Max_Spectators	Maximum Spectators	Số người xem tối đa
+HostTools	Show_Auto_Kick_Blacklist	Show Auto-Kicked Players in the Top Left	Hiện người chơi bị tự động đuổi ở góc trên bên trái
+HostTools	Auto_Kick_High_Latency_Threshold_Label	Average ping threshold	Ngưỡng độ trễ trung bình
+HostTools	Auto_Remove	Auto-removed	Tự động loại
+HostTools	No_Auto_Removed_Accounts	No accounts have been auto-removed yet.	Chưa có tài khoản nào bị tự động loại.
+HostTools	Blacklist_Join_Refused	Blacklisted join refused: {0}	Đã từ chối người trong danh sách đen: {0}
+HostTools	Auto_Kick_High_Latency_Entry	Auto-kicked for high ping: {0}, {1:0}ms	Đã tự động đuổi do độ trễ cao: {0}, {1:0}ms
+HostTools	Not_In_Arcade_Lobby	You are not in an Arcade lobby.	Bạn không ở trong sảnh Arcade.
+HostTools	DIYLevel_CustomArcade_LevelSelection_Paused	DIYLevel custom arcade is controlling level selection. Level Pool Editing is paused.	Arcade tùy chỉnh của DIYLevel đang điều khiển việc chọn màn. Đã tạm dừng chỉnh danh sách màn.
+HostTools	Prefer_Mod_Public_Arcade_When_Joining_Normal_Public_Arcade	Prefer MOD Lobbies in Normal Public Arcade (Force Client/Default)	Ưu tiên sảnh MOD khi vào Arcade công khai thường (Ép làm khách/Mặc định)
+HostTools	Panel_Entertainment	Fun Tools	Công cụ giải trí
+HostTools	Mouse_Object_Hider_Hide	Hide Object Hotkey	Phím tắt ẩn vật thể
+HostTools	Mouse_Object_Hider_Restore	Restore Object Hotkey	Phím tắt khôi phục vật thể
+HostTools	Held_Object_Enlarge	Enlarge Held Object	Phóng to vật đang cầm
+HostTools	Held_Object_Shrink	Shrink Held Object	Thu nhỏ vật đang cầm
+HostTools	Collision_Ping_Key	Mouse Collision Ping	Báo va chạm bằng chuột
+HostTools	Collision_Ping_Extra_Audio	Collision Ping Extra Audio	Âm thanh thêm khi báo va chạm
+HostTools	Config_Range_Emote_Wheel	Emote Wheel	Vòng biểu cảm
+HostTools	Emote_Font_Size	Emote Font Size	Cỡ chữ biểu cảm
+HostTools	Emote_Font_Color	Emote Font Color	Màu chữ biểu cảm
+HostTools	Emote_Cooking	Cooking	Đang nấu
+HostTools	Emote_Serving	Serving	Đang giao món
+HostTools	Emote_Cleaning	Cleaning	Đang dọn dẹp
+HostTools	Emote_Preparing	Preparing	Đang sơ chế
+HostTools	Emote_Good	Good	Tốt
+HostTools	Emote_OK	OK	OK
+HostTools	Emote_We_Did_It	We Did It	Chúng ta làm được rồi
+HostTools	Emote_Cursing	Cursing	Chửi thề
+HostTools	Emote_Better_Luck_Next_Time	Better Luck Next Time	Chúc may mắn lần sau
+HostTools	Emote_Hello	Hello	Xin chào
+HostTools	Emote_Well_Played	Well Played	Chơi hay lắm
+HostTools	Do_Not_Replace	Do Not Replace	Không thay thế
+HostTools	Cursing	Cursing	Chửi thề
+HostTools	Good	Good	Tốt
+HostTools	Preparing	Preparing	Đang sơ chế
+HostTools	Serving	Serving	Đang giao món
+HostTools	Cleaning	Cleaning	Đang dọn dẹp
+HostTools	Cooking	Cooking	Đang nấu
+HostTools	Use_Custom_Text	Use Custom Text	Dùng chữ tùy chỉnh
+HostTools	Use_Voice_Pack_File_Name	Use Voice Pack File Name	Dùng tên tệp gói giọng nói
+HostTools	Config_Range_Emote_Custom_Text	Custom Emote Text	Chữ biểu cảm tùy chỉnh
+HostTools	Config_Range_Advanced_Debug	Advanced Debug	Gỡ lỗi nâng cao
+HostTools	Log_Detailed_Level_Config	Log Detailed Level Configuration	Ghi log chi tiết cấu hình màn
+HostTools	Beach_Firepower_Bar_Offset_X	Fire Meter X Offset	Độ lệch X thanh lửa
+HostTools	Beach_Firepower_Bar_Offset_Y	Fire Meter Y Offset	Độ lệch Y thanh lửa
+HostTools	Beach_Firepower_Bar_Offset_Z	Fire Meter Z Offset	Độ lệch Z thanh lửa
+HostTools	Move_Lobby_Slot_Left	Move Slot Left	Dời vị trí sang trái
+HostTools	Move_Lobby_Slot_Right	Move Slot Right	Dời vị trí sang phải
+HostTools	Reset_Lobby_Slot	Reset Slot	Đặt lại vị trí
+HostTools	Previous_Chef	Previous Chef	Đầu bếp trước
+HostTools	Next_Chef	Next Chef	Đầu bếp tiếp theo
+HostTools	Change_Chef	Change Chef	Đổi đầu bếp
+HostTools	Create_Room_And_Copy_Join_Link	Create Room and Copy Link	Tạo phòng và sao chép link
+HostTools	Copy_Join_Link	Copy Join Link	Sao chép link tham gia
+HostTools	Refresh_Room_State	Refresh Room	Làm mới phòng
+HostTools	Room_State_Refreshed	Room state resubmitted. Players who could not join can try again.	Đã gửi lại trạng thái phòng. Người chơi chưa vào được có thể thử lại.
+HostTools	Room_State_Refresh_Failed	Room refresh failed. The room and existing connections were kept. Please try again later.	Làm mới phòng thất bại. Phòng và các kết nối hiện có vẫn được giữ. Vui lòng thử lại sau.
+HostTools	Room_State_Refresh_Cooldown	The room was just refreshed. Please try again shortly.	Phòng vừa được làm mới. Vui lòng thử lại sau giây lát.
+HostTools	Room_State_Refresh_Unavailable	The host can refresh from the main menu once the room is open and Steam is ready.	Chủ phòng có thể làm mới từ menu chính khi phòng đã mở và Steam đã sẵn sàng.
+HostTools	Copy_Normal_Join_Link	Player Join Link	Link cho người chơi
+HostTools	Copy_Spectator_Join_Link	Spectator Join Link	Link cho người xem
+HostTools	Join_Link_Cancel	Cancel	Hủy
+HostTools	Join_Link_Select_Type	Choose how to join.\nPlayer links can be opened in the File Explorer address bar or the Run dialog (Win+R), without installing a MOD.\nSpectator links can be reused for ten minutes after creation; use does not extend expiry. With the current MOD, copy the link and switch back to the game to confirm, or paste it into Miscellaneous and select Join as Spectator.	Chọn cách tham gia.\nLink người chơi có thể mở trong thanh địa chỉ của File Explorer hoặc hộp thoại Run (Win+R), không cần cài MOD.\nLink người xem dùng lại được trong mười phút kể từ khi tạo; việc sử dụng không kéo dài thời hạn. Với MOD hiện tại, hãy sao chép link rồi quay lại game để xác nhận, hoặc dán vào bảng Linh tinh và chọn Vào xem.
+HostTools	Join_Link_Copied	Join link copied	Đã sao chép link tham gia
+HostTools	Spectator_Join_Link_Copied	Spectator link copied. It can be reused for ten minutes after creation; use does not extend expiry. With the current MOD, copy the link and switch back to the game to confirm, or paste it into Miscellaneous and select Join as Spectator.	Đã sao chép link người xem. Link dùng lại được trong mười phút kể từ khi tạo; việc sử dụng không kéo dài thời hạn. Với MOD hiện tại, hãy sao chép link rồi quay lại game để xác nhận, hoặc dán vào bảng Linh tinh và chọn Vào xem.
+HostTools	Join_Link_Copy_Failed	Failed to copy join link	Sao chép link tham gia thất bại
+HostTools	Latency_Player_Joining	[{0}] is joining	[{0}] đang tham gia
+HostTools	Join_Failed_Lost_Network_Try_Again	Join failed because the network connection was lost. Please try again.	Tham gia thất bại do mất kết nối mạng. Vui lòng thử lại.
+HostTools	Join_Failed_Application_Suspended_Try_Again	Join failed because the application was suspended. Please try again.	Tham gia thất bại do ứng dụng bị tạm dừng. Vui lòng thử lại.
+HostTools	Join_Failed_Gone_Offline_Try_Again	Join failed because you went offline. Please try again.	Tham gia thất bại do bạn đã ngoại tuyến. Vui lòng thử lại.
+HostTools	Join_Failed_Logged_Out_Try_Again	Join failed because you were logged out. Please try again.	Tham gia thất bại do bạn đã bị đăng xuất. Vui lòng thử lại.
+HostTools	Join_Failed_Code_Version_Mismatch_Try_Again	Join failed because the game versions do not match. Please try again.	Tham gia thất bại do phiên bản game không khớp. Vui lòng thử lại.
+HostTools	Join_Failed_Unknown_Error_Try_Again	Join failed with an unknown error. Please try again.	Tham gia thất bại do lỗi không xác định. Vui lòng thử lại.
+HostTools	Auto_Reset_Lobby_Timer_When_Players_Below	Hold Lobby Timer When Too Few Players	Giữ đồng hồ sảnh khi thiếu người
+HostTools	Auto_Reset_Lobby_Timer_Min_Player_Count_04	Min Players Before Timer Runs	Số người tối thiểu để chạy đồng hồ
+HostTools	Lobby_Countdown_To_Zero	Start Countdown	Bắt đầu đếm ngược
+HostTools	Lobby_Countdown_Reset	Reset Countdown	Đặt lại đếm ngược
+HostTools	Lobby_Auto_Reset_Last_5_Seconds	Hold at 5 Seconds When Below Player Limit	Giữ ở 5 giây khi chưa đủ người
+HostTools	Lobby_Player_Threshold	Player Threshold	Ngưỡng người chơi
+HostTools	Lobby_Status_On	ON	BẬT
+HostTools	Lobby_Status_Off	OFF	TẮT
+HostTools	Expand	Expand	Mở rộng
+HostTools	Close	Close	Đóng
+HostTools	Kick_Panel_Name	Member Management Panel	Bảng quản lý thành viên
+HostTools	Auto_Kick_High_Latency_Users	Auto-Kick High-Ping Players	Tự động đuổi người chơi có độ trễ cao
+HostTools	Auto_Kick_High_Latency_Threshold	Auto-Kick Ping Threshold (ms)	Ngưỡng độ trễ để tự động đuổi (ms)
+HostTools	Auto_Kick_High_Latency_Observe_Seconds	Auto-Kick Observation Time (s)	Thời gian theo dõi trước khi tự động đuổi (giây)
+HostTools	Auto_Kick_High_Latency_Observe_Label	Observation time	Thời gian theo dõi
+HostTools	Auto_Kick_High_Latency_Toggle_On	Auto-Kick High Ping: On	Tự động đuổi độ trễ cao: Bật
+HostTools	Auto_Kick_High_Latency_Toggle_Off	Auto-Kick High Ping: Off	Tự động đuổi độ trễ cao: Tắt
+HostTools	Member_Kick_Section_Title	Member Management	Quản lý thành viên
+HostTools	No_Players_In_Session	No players are in the session yet.	Chưa có người chơi nào trong phiên.
+HostTools	Member_Local_Host	Host	Chủ phòng
+HostTools	Member_Detail_Client_Capabilities_Label	Capabilities: 	Tính năng:  
+HostTools	ModSyncFramework	MOD Sync Framework	Khung đồng bộ MOD
+HostTools	Member_Capability_Text_Chat	Text Chat	Trò chuyện bằng chữ
+HostTools	Member_Capability_Collision_Ping	Collision Ping	Báo va chạm
+HostTools	Member_Capability_Self_Respawn	Self Respawn	Tự hồi sinh
+HostTools	Member_Capability_Object_Respawn	Object Respawn	Hồi sinh vật thể
+HostTools	Member_Capability_Mouse_Object_Hide	Hide Objects	Ẩn vật thể
+HostTools	Member_Capability_Unknown_Name	Unknown	Không rõ
+HostTools	Kick	Kick Player	Đuổi người chơi
+HostTools	Ban_And_Kick	Ban Player	Chặn người chơi
+HostTools	Ban_Player	Ban Player	Chặn người chơi
+HostTools	Party_Persist_Kick	Do Not Bring to Main Page	Không đưa về màn hình chính
+HostTools	Party_Persist_Remain	Bring to Main Page	Đưa về màn hình chính
+HostTools	Force_Respawn	Respawn	Hồi sinh
+HostTools	Force_Respawn_Numbered	Respawn {0}	Hồi sinh {0}
+HostTools	Freeze_Member	Freeze	Đóng băng
+HostTools	Freeze_Member_Numbered	Freeze {0}	Đóng băng {0}
+HostTools	Unfreeze_Member	Unfreeze	Bỏ đóng băng
+HostTools	Unfreeze_Member_Numbered	Unfreeze {0}	Bỏ đóng băng {0}
+HostTools	Better_Luck_Next_Time	Better_Luck_Next_Time	Chúc may mắn lần sau
+HostTools	Well_Done	Well_Done	Làm tốt lắm
+HostTools	Hello	Hello	Xin chào
+HostTools	We_Did_It	We_Did_It	Chúng ta làm được rồi
+HostTools	Chop	Chop	Thái
+HostTools	Throw	Throw	Ném
+HostTools	Grab	Grab	Lấy
+HostTools	Place	Place	Đặt
+HostTools	Catch	Catch	Bắt
+HostTools	Dash	Dash	Lướt
+HostTools	Time_Up	Time_Up	Hết giờ
+HostTools	Trash_Can	Trash_Can	Thùng rác
+HostTools	Menu_Expired	Menu_Expired	Đơn hết hạn
+HostTools	Select_Chef	Select_Chef	Chọn đầu bếp
+HostTools	Dish_Out	Dish_Out	Ra đĩa
+HostTools	Wash_Dishes	Wash_Dishes	Rửa đĩa
+HostTools	Serving_Success	Serving_Success	Giao món thành công
+HostTools	Pot_Done	Pot_Done	Nồi chín
+HostTools	Pot_Danger	Pot_Danger	Nồi sắp cháy
+HostTools	FireIgnition	FireIgnition	Bắt lửa
+HostTools	Collision	Collision	Va chạm
+HostTools	Kitchen_Destroyed	Kitchen_Destroyed	Bếp bị phá hủy
+HostTools	Repair_Door	Repair_Door	Sửa cửa
+HostTools	Cannon_Fire	Cannon_Fire	Bắn đại bác
+HostTools	One_Star	One_Star	Một sao
+HostTools	Two_Stars	Two_Stars	Hai sao
+HostTools	Three_Stars	Three_Stars	Ba sao
+HostTools	TimerShake	TimerShake	Đồng hồ rung
+HostTools	DLC_02_Bellow	DLC_02_Bellow	Ống bễ thổi lửa
+HostTools	DLC_08_Sauce_Machine_Change	DLC_08_Sauce_Machine_Change	Nút đổi nước sốt
+HostTools	SwitchOn	SwitchOn	Bật công tắc
+HostTools	SwitchOff	SwitchOff	Tắt công tắc
+HostTools	TeleportIn	TeleportIn	Vào cổng dịch chuyển
+HostTools	TeleportOut	TeleportOut	Ra cổng dịch chuyển
+HostTools	LevelTimerBeep	LevelTimerBeep	Đồng hồ đếm ngược
+HostTools	PlayerDive	PlayerDive	Đầu bếp rơi xuống nước
+HostTools	PlayerFall	PlayerFall	Đầu bếp rơi xuống
+HostTools	PlayerSpawn	PlayerSpawn	Đầu bếp hồi sinh
+HostTools	MineCameraShake	MineCameraShake	Rung màn hình ở hầm mỏ
+HostTools	MinecartLeftToRight	MinecartLeftToRight	Xe goòng chạy từ trái sang phải
+HostTools	MineWorkstationStartAlt	MineWorkstationStartAlt	Bàn bếp hầm mỏ chuẩn bị di chuyển
+HostTools	MineWorkstationMoveAlt	MineWorkstationMoveAlt	Bàn bếp hầm mỏ di chuyển
+HostTools	WorldMapBoing	WorldMapBoing	Va vào bánh mì (bản đồ thế giới)
+HostTools	DLC_07_Lever	DLC_07_Lever	Cần gạt ở sân trong
+HostTools	DLC_07_Keep_Bridge	DLC_07_Keep_Bridge	Cầu ở tháp chính
+HostTools	DLC_07_Courtyard_Bridge	DLC_07_Courtyard_Bridge	Cầu ở sân trong
+HostTools	DLC_Raven	DLC_Raven	Quạ kêu
+HostTools	AddToPot	AddToPot	Cho vào bát trộn
+HostTools	DLC_07_Keep_Amb_Turn	DLC_07_Keep_Amb_Turn	Đường ống ở tháp chính
+HostTools	DLC_07_Furnace_Close	DLC_07_Furnace_Close	Đóng cửa lò nướng
+HostTools	DLC_07_Furnace_Open	DLC_07_Furnace_Open	Mở cửa lò nướng
+HostTools	ServiceBell	ServiceBell	Chuông phục vụ
+HostTools	MovingPlatformStart	MovingPlatformStart	Cần gạt bệ di chuyển: bắt đầu
+HostTools	MovingPlatformStop	MovingPlatformStop	Cần gạt bệ di chuyển: dừng
+HostTools	DLC_05_Bag_Pickup	DLC_05_Bag_Pickup	Đeo ba lô
+HostTools	DLC_05_Item_Collect	DLC_05_Item_Collect	Lấy đồ từ ba lô
+HostTools	DLC_08_Fuse_Ignite	DLC_08_Fuse_Ignite	Rạp xiếc: lên đại bác
+HostTools	DLC_08_Cannon_Enter	DLC_08_Cannon_Enter	Rạp xiếc: xuống đại bác
+HostTools	DLC_08_Cannon_Crowd	DLC_08_Cannon_Crowd	Rạp xiếc: khán giả reo hò
+HostTools	DLC_08_Fuse_Death	DLC_08_Fuse_Death	Rạp xiếc: pháo hoa tắt
+HostTools	ReadyIntro	ReadyIntro	Chuẩn bị màn
+HostTools	LevelGo	LevelGo	Bắt đầu màn
+HostTools	LevelEnd	LevelEnd	Kết thúc màn
+HostTools	DLC_07_Wood_Break	DLC_07_Wood_Break	Gỗ nứt vỡ
+HostTools	DLC_07_Wood_Smash	DLC_07_Wood_Smash	Gỗ rơi
+HostTools	CutsceneZombie	CutsceneZombie	Zombie kêu
+HostTools	DLC_07_Wood_Hit	DLC_07_Wood_Hit	Zombie đập cửa
+HostTools	DLC_07_Nombie_Spawn	DLC_07_Nombie_Spawn	Zombie xuất hiện
+HostTools	DLC_07_Nombie_Despawn	DLC_07_Nombie_Despawn	Zombie chết
+HostTools	DLC_07_Kitchen_Damage_UI	DLC_07_Kitchen_Damage_UI	Bếp hư hại khi bị phá cửa
+HostTools	DLC_07_Kitchen_Debris	DLC_07_Kitchen_Debris	Mảnh vỡ rơi trong bếp khi bị phá cửa
+HostTools	DLC_07_Battlement_Counter	DLC_07_Battlement_Counter	Bàn bếp trên tường thành di chuyển
+HostTools	DLC_07_Wave_Incoming	DLC_07_Wave_Incoming	Đợt quái tiếp theo
+HostTools	WaterJet	WaterJet	Vòi phun nước
+HostTools	ExtinguisherSpray	ExtinguisherSpray	Bình chữa cháy phun
+HostTools	FryingPanSizzle	FryingPanSizzle	Chảo rán xèo xèo
+HostTools	PanSizzle	PanSizzle	Nồi nấu cơm
+HostTools	MixerLoop	MixerLoop	Bát trộn đang trộn
+HostTools	OvenLoop	OvenLoop	Lò nướng đang nướng
+HostTools	MovingPlatform	MovingPlatform	Bục di chuyển
+HostTools	DLC_08_Cannon_Fuse	DLC_08_Cannon_Fuse	Ở trong nòng pháo
+HostTools	DLC_07_Gate_Unlock	DLC_07_Gate_Unlock	Mở cổng bầy quái
+HostTools	DLC_08_Cannon_Rotate_Sweetner	DLC_08_Cannon_Rotate_Sweetner	Nắm cần xoay pháo rạp xiếc
+HostTools	DLC_08_Cannon_Rotate_Sweetner_Alt	DLC_08_Cannon_Rotate_Sweetner_Alt	Thả cần xoay pháo rạp xiếc
+HostTools	DLC_07_Chopper	DLC_07_Chopper	Máy chém thái rau
+HostTools	DLC_07_Chopper_Chain	DLC_07_Chopper_Chain	Xích máy chém kéo lên
+HostTools	DLC_07_Chopper_Chain_End	DLC_07_Chopper_Chain_End	Xích máy chém kéo lên xong
+HostTools	Looping_Audio_Label_Start	Start	Bắt đầu
+HostTools	Looping_Audio_Label_Loop	Loop	Lặp
+HostTools	Looping_Audio_Label_Stop	Stop	Dừng
+HostTools	Arcade_MOD	ArcadeMOD	Arcade MOD
+HostTools	Score_Mode_Label	Score Mode	Chế độ cày điểm
+HostTools	Update_Channel_Stable	Stable	Ổn định
+HostTools	Update_Channel_Beta	Beta	Beta
+HostTools	Update_Status_Outdated	Outdated	Có bản mới
+HostTools	Update_Status_Unreachable	Unreachable	Không kiểm tra được
+HostTools	Update_Status_UpToDate	Up to Date	Đã mới nhất
+HostTools	Update_Status_Restart_Required	Restart to apply	Khởi động lại để áp dụng
+HostTools	Update_Restart_Required_Title	Update Installed	Đã cài bản cập nhật
+HostTools	Update_Restart_Required_Message	The new files are in place. Close the game and start it again for them to take effect.\n\nThe game will not restart automatically; open it again yourself.	Các tệp mới đã được thay thế. Hãy đóng game rồi mở lại để áp dụng.\n\nGame sẽ không tự khởi động lại; bạn cần tự mở lại.
+HostTools	Update_Button_Close_Game	Close Game	Đóng game
+HostTools	Update_Status_Authorized_Skip	Automatic Updates Skipped by Authorization	Đã bỏ qua cập nhật tự động theo cấp phép
+HostTools	Update_SteamID_Failed_Title	Update Check Failed	Kiểm tra cập nhật thất bại
+HostTools	Update_SteamID_Failed_Message	The update check failed. Updates will be skipped this time. This does not affect the arcade MOD, so you can safely skip it.	Kiểm tra cập nhật thất bại. Lần này sẽ bỏ qua cập nhật. Việc này không ảnh hưởng đến Arcade MOD, bạn có thể yên tâm bỏ qua.
+HostTools	Update_Failure_Check_Service	A service required for the update check is not ready or did not respond in time. Please try again later.	Dịch vụ cần cho việc kiểm tra cập nhật chưa sẵn sàng hoặc không phản hồi kịp. Vui lòng thử lại sau.
+HostTools	Update_Failure_Check_Read	An error occurred while reading information required for the update check. Please try again later; see the logs for details.	Đã xảy ra lỗi khi đọc thông tin cần cho việc kiểm tra cập nhật. Vui lòng thử lại sau; xem log để biết chi tiết.
+HostTools	Update_Failure_Check_Skipped	This update check was skipped manually.	Đã bỏ qua thủ công lần kiểm tra cập nhật này.
+HostTools	Update_Log_Current_Version	Current version: {0}	Phiên bản hiện tại: {0}
+HostTools	Update_Log_Target_Version	Target version: {0}	Phiên bản đích: {0}
+HostTools	Update_Log_Force_Update_Notice	This is a required update. Please update before use.	Đây là bản cập nhật bắt buộc. Vui lòng cập nhật trước khi dùng.
+HostTools	Update_Log_Published_At	  {0}	  {0}
+HostTools	Update_Button_Update_Now	Update Now	Cập nhật ngay
+HostTools	Update_Button_Details	View Details	Xem chi tiết
+HostTools	Update_Button_Later	Later	Để sau
+HostTools	Update_New_Mod_Title	MOD Update	Cập nhật MOD
+HostTools	Update_Raw_Channel_Stable	Stable	Ổn định
+HostTools	Update_Raw_Channel_Failed	The {1} update index on {0} could not be downloaded.\nThis failed check does not affect the current arcade MOD and can be safely ignored.\n\nReason: {2}	Không tải được chỉ mục cập nhật {1} trên {0}.\nLần kiểm tra thất bại này không ảnh hưởng đến Arcade MOD hiện tại và có thể bỏ qua.\n\nLý do: {2}
+HostTools	Update_Raw_Skipped	The update index or Steam region is unavailable. This check was skipped; you can continue playing. Check your connection and try checking for updates again later.	Không lấy được chỉ mục cập nhật hoặc khu vực Steam. Đã bỏ qua lần kiểm tra này; bạn có thể tiếp tục chơi. Hãy kiểm tra kết nối mạng và thử kiểm tra cập nhật lại sau.
+HostTools	Update_Auto_Download_Status	{0}\nSource: {1} ({4:F2} MB/s)\nDownloaded {2:F1} / {3:F1} MB ({5}%)	{0}\nNguồn: {1} ({4:F2} MB/s)\nĐã tải {2:F1} / {3:F1} MB ({5}%)
+HostTools	Update_Preparation_Title	Preparing Update	Đang chuẩn bị cập nhật
+HostTools	Update_Preparing_Scan	Scanning and verifying update files. Please wait.	Đang quét và kiểm tra tệp cập nhật. Vui lòng đợi.
+HostTools	Update_Preparing_Unpack	Unpacking update files, please do not exit the game.	Đang giải nén tệp cập nhật, đừng thoát game.
+HostTools	Update_Preparing_Mod_Backup	Backing up MOD files. Please keep the game open.	Đang sao lưu tệp MOD. Đừng thoát game.
+HostTools	Update_Preparing_Resource_Backup	Scanning and backing up resource files. Please keep the game open.	Đang quét và sao lưu tệp tài nguyên. Đừng thoát game.
+HostTools	Update_Preparing_Resource_Install	Installing resource files. Please keep the game open.	Đang cài đặt tệp tài nguyên. Đừng thoát game.
+HostTools	Update_Preparing_Components	Checking required components. Please wait.	Đang kiểm tra các thành phần cần thiết. Vui lòng đợi.
+HostTools	Update_Preparing_Installer	Finishing installation preparation. Please wait.	Đang hoàn tất chuẩn bị cài đặt. Vui lòng đợi.
+HostTools	Update_Preparing_File_Count	Processed {0} files.	Đã xử lý {0} tệp.
+HostTools	Update_Preparing_File_Progress	Processed {0} / {1} files ({2}%).	Đã xử lý {0} / {1} tệp ({2}%).
+HostTools	Update_Preparing_Installation	Verifying and preparing installation. Your current installation is preserved.	Đang kiểm tra và chuẩn bị cài đặt. Bản cài hiện tại vẫn được giữ nguyên.
+HostTools	Update_Check_Complete_Title	Update Check Complete	Đã kiểm tra cập nhật xong
+HostTools	Update_Check_Complete_Message	Your MOD and compatible resources are up to date.	MOD và tài nguyên tương thích đều đã là bản mới nhất.
+HostTools	Update_Startup_Check_Title	Checking MOD and Resources	Đang kiểm tra MOD và tài nguyên
+HostTools	Update_Startup_Check_Message	Checking for updates. Please wait.	Đang kiểm tra cập nhật. Vui lòng đợi.
+HostTools	Update_Resource_Not_Ready	The resource release on this platform is incomplete or temporarily unavailable. Mirror synchronization can take time. Please retry later.	Bản phát hành tài nguyên trên nền tảng này chưa đầy đủ hoặc tạm thời không khả dụng. Việc đồng bộ máy chủ phản chiếu có thể mất thời gian. Vui lòng thử lại sau.
+HostTools	Update_Resource_Refresh_Failed	Resources are installed, but some sound caches could not be refreshed. Restart the game to load all new resources.	Đã cài tài nguyên, nhưng không làm mới được một số bộ nhớ đệm âm thanh. Hãy khởi động lại game để tải đầy đủ tài nguyên mới.
+HostTools	Update_Rolled_Back_Message	The update did not complete, but every file was restored to its previous state. The current MOD is still usable; you can retry later.	Cập nhật chưa hoàn tất, nhưng mọi tệp đã được khôi phục về trạng thái trước đó. MOD hiện tại vẫn dùng được; bạn có thể thử lại sau.
+HostTools	Update_Manual_Recovery_Title	Update Failed – Manual Fix Required	Cập nhật thất bại – cần sửa thủ công
+HostTools	Update_Manual_Recovery_Message	The MOD or resource update failed and the rollback did not fully succeed.\n\nDelete this folder manually:\n\n{0}\n\n\n\nThen reinstall the MOD.\n\n\n\nRecovery copies from this update are kept at:\n\n{1}	Cập nhật MOD hoặc tài nguyên thất bại và việc khôi phục không thành công hoàn toàn.\n\nHãy tự xóa thư mục này:\n\n{0}\n\n\n\nSau đó cài lại MOD.\n\n\n\nBản sao khôi phục của lần cập nhật này được lưu tại:\n\n{1}
+HostTools	Update_Resource_Replace_Title	Replace Existing Resources	Thay thế tài nguyên hiện có
+HostTools	Update_Resource_Replace_Message	The existing resource folder has no manifest file, so it cannot be updated file by file. Continuing deletes everything in that folder (including sounds you added yourself) and then installs the new resource package:\n\n{0}\n\n\n\nBack it up first if needed; cancelling leaves every file untouched.	Thư mục tài nguyên hiện có không có tệp manifest nên không thể cập nhật từng tệp. Nếu tiếp tục, toàn bộ nội dung trong thư mục đó (kể cả âm thanh bạn tự thêm) sẽ bị xóa, sau đó gói tài nguyên mới sẽ được cài:\n\n{0}\n\n\n\nHãy sao lưu trước nếu cần; nếu hủy, mọi tệp sẽ được giữ nguyên.
+HostTools	Update_Button_Replace_Resources	Delete and Replace	Xóa và thay thế
+HostTools	Update_Button_Cancel	Cancel	Hủy
+HostTools	Update_Resource_Installed_Title	Resources Updated	Đã cập nhật tài nguyên
+HostTools	ConfigurationManager_Downloading	Downloading and installing Mod Settings…	Đang tải và cài đặt Mod Settings…
+HostTools	ConfigurationManager_Installed_Restart	The settings panel is installed. Close the game and start it again for it to take effect.\n\nThe game will not restart automatically; open it again yourself.	Đã cài bảng cài đặt. Hãy đóng game rồi mở lại để áp dụng.\n\nGame sẽ không tự khởi động lại; bạn cần tự mở lại.
+HostTools	ConfigurationManager_Installed	Mod Settings is installed. Restart the game to use the settings panel.	Đã cài Mod Settings. Khởi động lại game để dùng bảng cài đặt.
+HostTools	ConfigurationManager_Install_Failed	Mod Settings installation failed. The previous plugin was preserved or rolled back. See the log and check for updates again later.	Cài Mod Settings thất bại. Plugin cũ đã được giữ nguyên hoặc khôi phục. Hãy xem log và kiểm tra cập nhật lại sau.
+HostTools	ConfigurationManager_Update_Title	Settings Panel Installation	Cài bảng cài đặt
+HostTools	ConfigurationManager_Missing_Message	Neither Configuration Manager nor Mod Settings is installed. Download and install Mod Settings {0}, then restart the game to use the settings panel.\n\n{1}	Chưa cài Configuration Manager hoặc Mod Settings. Hãy tải và cài Mod Settings {0}, rồi khởi động lại game để dùng bảng cài đặt.\n\n{1}
+HostTools	Update_Resource_Installed_Message	Resources are installed. The voice pack list and chat sound cache have been refreshed. No restart is required.	Đã cài tài nguyên. Danh sách gói giọng nói và bộ nhớ đệm âm báo trò chuyện đã được làm mới. Không cần khởi động lại.
+HostTools	Update_Button_Cancel_Download	Cancel Download	Hủy tải
+HostTools	Update_Button_OK	OK	OK
+HostTools	Update_Button_Skip_Once	Skip This Time	Bỏ qua lần này
+HostTools	Update_Button_Download_Repair	Download and Install	Tải và cài đặt
+HostTools	Update_Path_Repaired_Title	Install Location Fixed	Đã sửa vị trí cài đặt
+HostTools	Update_Path_Repaired_Message	The MOD now sits in the correct OC2HostUtilities install folder and its resource path is restored.\n\nNo restart is needed for this session; the next launch loads from the new location. You can keep playing, and resource updates will be checked next.	MOD giờ đã nằm đúng trong thư mục cài đặt OC2HostUtilities và đường dẫn tài nguyên đã được khôi phục.\n\nPhiên này không cần khởi động lại; lần mở sau sẽ tải từ vị trí mới. Bạn có thể tiếp tục chơi, tiếp theo sẽ kiểm tra cập nhật tài nguyên.
+HostTools	Update_Download_Title_Mod	Downloading MOD	Đang tải MOD
+HostTools	Update_Download_Title_Repair	Repairing Install Path	Đang sửa đường dẫn cài đặt
+HostTools	Update_Download_Title_Resources	Downloading Resources	Đang tải tài nguyên
+HostTools	Update_Cancelled_Title_Mod	Update Cancelled	Đã hủy cập nhật
+HostTools	Update_Cancelled_Message_Mod	Download cancelled. The update will not be installed this time.	Đã hủy tải. Lần này sẽ không cài bản cập nhật.
+HostTools	Update_Failed_Title_Mod	Update Failed	Cập nhật thất bại
+HostTools	Update_Resource_Missing_Title	Resource Package Update	Cập nhật gói tài nguyên
+HostTools	Update_Check_Failed_Title	Update Check Failed	Kiểm tra cập nhật thất bại
+HostTools	Update_Download_Fetching_Routes	Fetching available download routes...	Đang lấy các tuyến tải khả dụng...
+HostTools	Update_Failure_Details	Reason: {0}\nRetry manually in settings later. More details are in BepInEx console / LogOutput.log.	Lý do: {0}\nBạn có thể thử lại thủ công trong cài đặt sau. Xem thêm chi tiết trong BepInEx console / LogOutput.log.
+HostTools	Update_Failure_Http	Server returned HTTP {0}.	Máy chủ trả về HTTP {0}.
+HostTools	Update_Preparation_Failed_Message	Update preparation or installation failed. An unfinished update is not marked as applied; see the specific reason.	Chuẩn bị hoặc cài đặt cập nhật thất bại. Bản cập nhật chưa hoàn tất sẽ không được đánh dấu là đã áp dụng; hãy xem lý do cụ thể.
+HostTools	Update_Failure_Timeout	Request timed out before the server completed its response.	Yêu cầu đã hết thời gian trước khi máy chủ phản hồi xong.
+HostTools	Update_Failure_Network	Network, DNS or TLS failure: {0}	Lỗi mạng, DNS hoặc TLS: {0}
+HostTools	Update_Failure_Empty	Server returned an empty response.	Máy chủ trả về phản hồi trống.
+HostTools	Update_Failure_Validation	Data or package validation failed: {0}	Kiểm tra dữ liệu hoặc gói cài đặt thất bại: {0}
+HostTools	Update_Failure_Unknown	No valid result was received. Check logs and retry.	Không nhận được kết quả hợp lệ. Hãy xem log và thử lại.
+HostTools	Update_Failure_Index	Index format, channel or dependency validation failed: {0}	Kiểm tra định dạng chỉ mục, kênh hoặc phần phụ thuộc thất bại: {0}
+HostTools	Update_Failure_Resource	No usable resources match MOD v{0}, minimum resources v{1}, format {2}; local resources are incomplete or incompatible.	Không có tài nguyên dùng được khớp với MOD v{0}, tài nguyên tối thiểu v{1}, định dạng {2}; tài nguyên trên máy chưa đầy đủ hoặc không tương thích.
+HostTools	Update_Failure_Region	Steam IP country is unavailable, so an update platform cannot be selected. Check Steam login and network.	Không lấy được quốc gia theo IP Steam nên không thể chọn nền tảng cập nhật. Hãy kiểm tra đăng nhập Steam và mạng.
+HostTools	Update_Failure_Access	File/directory access denied. Check write permissions, locked files and security software.	Bị từ chối truy cập tệp/thư mục. Hãy kiểm tra quyền ghi, tệp đang bị khóa và phần mềm bảo mật.
+HostTools	Update_Failure_Path	Installation path is too long or unavailable. Shorten the game path or install manually.	Đường dẫn cài đặt quá dài hoặc không khả dụng. Hãy rút ngắn đường dẫn game hoặc cài thủ công.
+HostTools	Update_Failure_IO	Installation file I/O failed (path, locked file or disk space): {0}	Đọc/ghi tệp cài đặt thất bại (đường dẫn, tệp bị khóa hoặc dung lượng đĩa): {0}
+HostTools	Update_Failure_Exception	{0}: {1}	{0}: {1}
+HostTools	Update_Failure_Size	Downloaded size differs from index (received {0}, expected {1}).	Kích thước tải về khác với chỉ mục (nhận {0}, mong đợi {1}).
+HostTools	Update_Failure_Hash	Downloaded SHA256 differs from index; installation rejected.	SHA256 của tệp tải về khác với chỉ mục; đã từ chối cài đặt.
+HostTools	Update_Failure_Source	{0} / {1}: {2}	{0} / {1}: {2}
+HostTools	Update_Failure_Stalled	Download made no progress for 30 seconds.	Tải xuống không có tiến triển trong 30 giây.
+HostTools	Update_Download_All_Routes_Failed	All download routes failed. Please try again later or check your network.	Tất cả tuyến tải đều thất bại. Vui lòng thử lại sau hoặc kiểm tra mạng.
+HostTools	Dialog_Title_Warning	Warning	Cảnh báo
+HostTools	Dialog_Button_Continue	Continue	Tiếp tục
+HostTools	Dialog_Scroll_Hint	Scroll or use Page Up / Page Down to read the full message	Cuộn chuột hoặc dùng Page Up / Page Down để đọc toàn bộ nội dung
+HostTools	Dialog_Button_Confirm	Confirm	Xác nhận
+HostTools	Dialog_Not_Enough_Players_Title	Not Enough Players	Không đủ người chơi
+HostTools	Dialog_Not_Enough_Players_Message	There are not enough players to start this level.	Không đủ người chơi để bắt đầu màn này.
+HostTools	Controller_Switch_No_Available_Device	No keyboard or controller is available to switch to.	Không có bàn phím hoặc tay cầm nào để chuyển sang.
+HostTools	Controller_Switch_Failed	Failed to switch keyboard/controller.	Chuyển bàn phím/tay cầm thất bại.
+HostTools	Controller_Switch_Succeeded	Switched to: {0}	Đã chuyển sang: {0}
+HostTools	Not_Host_Do_Not_Click	Only the host can use this.	Chỉ chủ phòng mới dùng được.
+HostTools	Miscellaneous_Panel_Title	Miscellaneous Panel	Bảng tùy chọn khác
+HostTools	Miscellaneous	Miscellaneous	Khác
+HostTools	Game_Settings	Game Settings	Cài đặt game
+HostTools	Game_Settings_Unavailable	Game settings are temporarily unavailable. Wait for the main menu to finish loading and try again.	Tạm thời không mở được cài đặt game. Hãy đợi menu chính tải xong rồi thử lại.
+HostTools	Max_Item_Offset	Max Objects (Offset from Level Default)	Số vật thể tối đa (tăng/giảm so với mặc định của màn)
+HostTools	Physics_Update_Rate_Display	Physics Update Rate	Tốc độ cập nhật vật lý
+HostTools	Select_Level	Select Level	Chọn màn
+HostTools	Manual_Level_Selection_Unavailable	Manual level selection requires the host, an arcade lobby, and no picked theme.	Chỉ chủ phòng ở sảnh Arcade và chưa chọn chủ đề mới chọn màn thủ công được.
+HostTools	Open_Level_Blacklist_Panel	Level Pool Editor	Chỉnh danh sách màn
+HostTools	Blacklist_Current_Level	Block Current Level	Chặn màn hiện tại
+HostTools	Current_Level_Blacklisted	Blocked current level: {0}	Đã chặn màn hiện tại: {0}
+HostTools	Current_Level_Not_Found	Current level could not be detected.	Không nhận diện được màn hiện tại.
+HostTools	Level_List_Empty	Level list is empty	Danh sách màn trống
+HostTools	Enter_Arcade_Lobby_As_Host	Enter an Arcade lobby as host.	Hãy vào sảnh Arcade với tư cách chủ phòng.
+HostTools	Lobby_Related	Lobby	Sảnh
+HostTools	Lobby_List_Title	Lobby List	Danh sách sảnh
+HostTools	Lobby_Join_Title	Join Lobby / Spectate	Vào sảnh / Xem
+HostTools	Join_Normal_Lobby_Link	Join Lobby	Vào sảnh
+HostTools	Clipboard_Join_Title	Join Lobby	Vào sảnh
+HostTools	Clipboard_Join_Message	A lobby join link was found in the clipboard. Join this lobby?	Phát hiện link vào sảnh trong khay nhớ tạm. Vào sảnh này?
+HostTools	Clipboard_Spectator_Join_Message	A spectator link was found in the clipboard. Join as a spectator?	Phát hiện link xem trong khay nhớ tạm. Vào với tư cách người xem?
+HostTools	Clipboard_Join_Cancel	Cancel	Hủy
+HostTools	Join_Normal_Lobby_Link_Invalid	Enter a valid private lobby link or ID.	Hãy nhập link hoặc ID sảnh thường hợp lệ.
+HostTools	Join_Normal_Lobby_Link_Already_In_Lobby	You are already in a lobby, so this panel cannot switch private lobbies.	Bạn đang ở trong sảnh nên không thể chuyển sảnh thường từ bảng này.
+HostTools	Join_Normal_Lobby_Link_Start_Failed	Failed to start joining the private lobby.	Không thể bắt đầu vào sảnh thường.
+HostTools	Spectator_Settings	Spectator Settings	Cài đặt người xem
+HostTools	Join_Spectator	Join as Spectator	Vào xem
+HostTools	Leave_Spectator	Leave Spectator Mode	Thoát chế độ xem
+HostTools	Join_Spectator_Only_Main_Menu	Spectators can only join from the main menu.	Chỉ có thể vào xem từ menu chính.
+HostTools	Join_Spectator_Link_Invalid	Enter a valid spectator link generated by the host.	Hãy nhập link xem hợp lệ do chủ phòng tạo.
+HostTools	Join_Spectator_Authorization_Required	Ask the host to generate a spectator link from Copy Join Link. Player links and lobby IDs do not authorize spectating.	Hãy nhờ chủ phòng tạo link xem từ mục Sao chép link vào. Link người chơi và ID sảnh không cho phép xem.
+HostTools	Join_Spectator_Authorization_Invalid	Spectator authorization is invalid or the room or host has changed. Ask the host for a new spectator link.	Quyền xem không hợp lệ hoặc phòng/chủ phòng đã thay đổi. Hãy xin chủ phòng link xem mới.
+HostTools	Join_Spectator_Configuration_Failed	Spectator connection setup failed and this join has ended. Try again; if it persists, check the Arcade MOD log.	Thiết lập kết nối xem thất bại và lần vào này đã kết thúc. Hãy thử lại; nếu vẫn lỗi, hãy xem log của Arcade MOD.
+HostTools	Latency_Spectator_Label	Spectator	Người xem
+HostTools	Join_Spectator_Timed_Out	Spectator joining timed out and was cancelled. Retry or ask the host for a new spectator link.	Vào xem quá thời gian và đã bị hủy. Hãy thử lại hoặc xin chủ phòng link xem mới.
+HostTools	Join_Spectator_Already_Pending	A spectator join is already pending. Wait for it to finish or cancel it first.	Đang có một yêu cầu vào xem. Hãy đợi xong hoặc hủy nó trước.
+HostTools	Join_Spectator_Start_Failed	Failed to start joining as a spectator.	Không thể bắt đầu vào xem.
+HostTools	Join_Spectator_Host_Not_Supported	The host has not enabled spectating or does not support it.	Chủ phòng chưa bật chế độ xem hoặc không hỗ trợ.
+HostTools	Join_Spectator_DIY_Not_Supported	DIY arcade rooms do not support spectating.	Phòng Arcade DIY (màn tự chế) không hỗ trợ xem.
+HostTools	Spectator_List_Title	Spectators ({0})	Người xem ({0})
+HostTools	Spectator_List_Empty	No spectators are connected.	Chưa có người xem nào kết nối.
+HostTools	Remove_Spectator	Remove	Xóa
+HostTools	Refresh_Lobby	Refresh Lobby	Làm mới sảnh
+HostTools	Refresh_Normal_Lobbies	Refreshing standard lobbies	Đang làm mới sảnh thường
+HostTools	Refresh_Mod_Lobbies	Refreshing MOD lobbies	Đang làm mới sảnh MOD
+HostTools	Arcade_Lobby_List_Empty	No Arcade lobbies found.	Không tìm thấy sảnh Arcade nào.
+HostTools	Click_Refresh_Lobby_Button	Click Refresh Lobby.	Hãy nhấn Làm mới sảnh.
+HostTools	Click_Lobby_Join_On_Homepage	Then choose a lobby from the list.	Rồi chọn một sảnh trong danh sách.
+HostTools	Level_Blacklist	Level Pool Editor	Chỉnh danh sách màn
+HostTools	Enable_Custom_Levels	Level Pool Editing	Tùy chỉnh danh sách màn
+HostTools	Arcade_Levels_Not_Repeating	No Repeated Arcade Levels	Không lặp lại màn Arcade
+HostTools	Theme_Normal_Levels	Normal	Thường
+HostTools	Theme_Kevin_Levels	Kevin	Kevin
+HostTools	Theme_Subsection_Levels	6th Level	Màn thứ 6
+HostTools	All_Subsection_Levels	All 6th Levels	Tất cả màn thứ 6
+HostTools	All_Normal_Levels	All Normal Levels	Tất cả màn thường
+HostTools	All_Kevin_Levels	All Kevin Levels	Tất cả màn Kevin
+HostTools	No_Matching_Levels_Reset_Switches	No matching levels were found. Level pool switches have been reset; please configure them again.	Không tìm thấy màn phù hợp. Đã đặt lại các công tắc danh sách màn; hãy thiết lập lại.
+HostTools	Slot_Colour_Title	Slot {0}	Vị trí {0}
+HostTools	Slot_Colour_Hex	Hex	Mã Hex
+HostTools	Walk_Smoke_Colour_Panel	Walking Smoke Color	Màu khói đi bộ
+HostTools	Dash_Smoke_Colour_Panel	Dash Smoke Color	Màu khói lướt
+HostTools	Chef_Clothing_Colour_Panel	Chef Color	Màu đầu bếp
+HostTools	Walk_Smoke_Colour_Label	Walking Smoke	Khói đi bộ
+HostTools	Dash_Smoke_Colour_Label	Dash Smoke	Khói lướt
+HostTools	Chef_Clothing_Colour_Label	Chef Clothing	Trang phục đầu bếp
+HostTools	Dash_Smoke_Colour_14	Dash Smoke Color	Màu khói lướt
+HostTools	Walk_Smoke_Colour_14	Walking Smoke Color	Màu khói đi bộ
+HostTools	Dash_Smoke_Slot_Colour_Config	Slot {0} Dash Smoke Color	Màu khói lướt vị trí {0}
+HostTools	Walk_Smoke_Slot_Colour_Config	Slot {0} Walking Smoke Color	Màu khói đi bộ vị trí {0}
+HostTools	Chef_Clothing_Colour_14	Chef Clothing Color	Màu trang phục đầu bếp
+HostTools	Chef_Clothing_Slot_Colour_Config	Slot {0} Chef Clothing Color	Màu trang phục đầu bếp vị trí {0}
+HostTools	Object_Respawn_Panel_Name	Respawn Items	Hồi sinh vật dụng
+HostTools	Respawn_Item_Fire_Extinguisher	Fire Extinguisher	Bình chữa cháy
+HostTools	Respawn_Item_Water_Gun	Water Gun	Súng nước
+HostTools	Respawn_Item_Plate	Plate	Đĩa
+HostTools	Respawn_Item_Pot	Pot	Nồi
+HostTools	Respawn_Item_Frying_Pan	Frying Pan	Chảo rán
+HostTools	Respawn_Item_Mixer_Bowl	Mixing Bowl	Bát trộn
+HostTools	Respawn_Item_Blender	Blender	Máy xay
+HostTools	Respawn_Item_Steamer	Steamer	Xửng hấp
+HostTools	Respawn_Item_Coal_Bucket	Coal Bucket	Xô than
+HostTools	Respawn_Item_Roasting_Tray	Roasting Tray	Khay nướng
+HostTools	Respawn_Item_Griddle_Pan	Griddle Pan	Chảo nướng
+HostTools	Custom_Object_Respawn	Custom Item	Vật dụng tùy chỉnh
+HostTools	Score_Record_Panel	Score Records	Lịch sử điểm
+HostTools	Score_Record_Count	Records: {0}/{1}	Bản ghi: {0}/{1}
+HostTools	Score_Record_List	Records	Bản ghi
+HostTools	Score_Record_Detail	Details	Chi tiết
+HostTools	Score_Record_Empty	No score records yet	Chưa có bản ghi điểm
+HostTools	Score_Record_Select_Empty	Select a record	Hãy chọn một bản ghi
+HostTools	Score_Record_Time_Ascending	Time ↑	Thời gian ↑
+HostTools	Score_Record_Time_Descending	Time ↓	Thời gian ↓
+HostTools	Score_Record_Refresh	Refresh	Làm mới
+HostTools	Score_Record_Delete	Delete	Xóa
+HostTools	Score_Record_Level	Level	Màn
+HostTools	Score_Record_Scene	Scene	Cảnh
+HostTools	Score_Record_Mode	Mode	Chế độ
+HostTools	Score_Record_Score	Score	Điểm
+HostTools	Score_Record_Stars	Stars	Sao
+HostTools	Score_Record_Success_Points	Base Points	Điểm cơ bản
+HostTools	Score_Record_Tips	Tips	Tiền boa
+HostTools	Score_Record_Fail_Deductions	Deductions	Điểm trừ
+HostTools	Score_Record_Deliveries	Deliveries	Món đã giao
+HostTools	Score_Record_Players	Players	Người chơi
+HostTools	Score_Record_Host	Host	Chủ phòng
+HostTools	Score_Record_Local	Local	Máy này
+HostTools	Voice_Panel_Title	Voice Panel	Bảng giọng nói
+HostTools	Voice_Feature_00	Enable Voice Chat	Bật trò chuyện giọng nói
+HostTools	Enable_Voice_Send_00	Enable Microphone Sending	Bật gửi micro
+HostTools	Speaker_Enabled_19	Enable Voice Playback	Bật phát giọng nói
+HostTools	Default_Mute_02	Mute New Players by Default	Mặc định tắt tiếng người chơi mới
+HostTools	Voice_Send_Mode_03	Voice Send Mode	Chế độ gửi giọng nói
+HostTools	Push_To_Talk_Key	Push-to-Talk Hotkey	Phím tắt nhấn để nói
+HostTools	Microphone_Gain_20	Microphone Gain	Độ khuếch đại micro
+HostTools	Microphone_Button	Microphone	Micro
+HostTools	Speaker_Button	Speaker	Loa
+HostTools	Voice_Send_Mode_Label	Current Send Mode: 	Chế độ gửi hiện tại: 
+HostTools	Voice_Send_Mode_Always	Open Mic	Luôn mở micro
+HostTools	Voice_Send_Mode_PTT	Push-to-Talk	Nhấn để nói
+HostTools	Voice_Send_Mode_Toggle	Toggle Mic	Bật/tắt micro
+HostTools	Voice_Send_Mode_VAD	Voice Activity	Tự nhận giọng
+HostTools	Push_To_Talk_Key_Button	Push-to-Talk Key	Phím nhấn để nói
+HostTools	Push_To_Talk_Key_Waiting	Press a new push-to-talk key.	Hãy nhấn phím mới cho nhấn để nói.
+HostTools	Default_Mute_Button	Default Mute	Tắt tiếng mặc định
+HostTools	Voice_Room_Members_Title	Room Members	Thành viên phòng
+HostTools	Voice_No_Room_Members	No room member information is currently available	Hiện chưa có thông tin thành viên phòng
+HostTools	Voice_Empty_Slot	Empty	Trống
+HostTools	Voice_Feature_Button	Voice Chat	Trò chuyện giọng nói
+HostTools	State_On	On	Bật
+HostTools	State_Off	Off	Tắt
+HostTools	Voice_Unsupported	Unsupported	Không hỗ trợ
+HostTools	Input_Level_Label	Current Input Level: 	Mức âm vào hiện tại: 
+HostTools	Input_Peak_Label	Current Input Peak: 	Đỉnh âm vào hiện tại: 
+HostTools	Local_Speaking_Yes	Speaking	Đang nói
+HostTools	Remote_Speaking_No	Not Speaking	Không nói
+HostTools	Voice_Local_Muted	Muted Locally	Đã tắt tiếng trên máy này
+HostTools	Voice_Local_Audible	Audible Locally	Nghe được trên máy này
+HostTools	Voice_Mute_Player	Mute Player	Tắt tiếng người chơi
+HostTools	Voice_Unmute_Player	Unmute Player	Bỏ tắt tiếng
+HostTools	Voice_Playback_Volume_Label	Voice Playback Volume: 	Âm lượng phát giọng nói: 
+HostTools	Microphone_Gain_Label	Microphone Gain: 	Độ khuếch đại micro: 
+HostTools	Auto_Kick_Blacklist_Users	Auto-filter blacklisted players	Tự động lọc người chơi trong danh sách đen
+HostTools	Blacklist_Panel_Name	Blacklist Panel	Bảng danh sách đen
+HostTools	Blacklist_Temporary_Prefix	[Temp] 	[Tạm] 
+HostTools	Remove_From_Blacklist	Unban	Bỏ chặn
+HostTools	Unban_Player	Unban	Bỏ chặn
+HostTools	Blacklist_Header_Time	Time	Thời gian
+HostTools	Blacklist_Header_Display_Name	In-game Name	Tên trong game
+HostTools	Blacklist_Header_Steam_Name	Steam Name	Tên Steam
+HostTools	Blacklist_Header_Action	Action	Thao tác
+HostTools	Blacklist_Count_Summary	{0} account(s) currently banned	Đang chặn {0} tài khoản
+HostTools	Blacklist_Empty_State	The ban list is empty.\nPlayers banned from the member panel or hotkeys will appear here.	Danh sách chặn trống.\nNgười chơi bị chặn từ bảng thành viên hoặc bằng phím tắt sẽ hiện ở đây.
+HostTools	Historical_Players_Panel_Name	Player History	Lịch sử người chơi
+HostTools	Historical_Players_Count_Summary	{0} historical player(s) recorded	Đã ghi nhận {0} người chơi
+HostTools	Historical_Players_Empty_State	Player history is empty.\nNon-friend players you meet will be recorded here.	Lịch sử người chơi trống.\nNhững người chơi không phải bạn bè mà bạn gặp sẽ được ghi lại ở đây.
+HostTools	Text_Chat_Panel_Title	Online Chat	Trò chuyện trực tuyến
+HostTools	Text_Chat_Notify_Sound_21	Text Chat Notify Sound	Âm báo trò chuyện chữ
+HostTools	Text_Chat_Danmaku_22	Text Chat Danmaku	Chữ chạy trò chuyện
+HostTools	Text_Chat_Notify_Volume	Notification Volume	Âm lượng thông báo
+HostTools	Text_Chat_Danmaku_Speed	Danmaku Speed	Tốc độ chữ chạy
+HostTools	Notify_Sound_Button	Notify Sound	Âm báo
+HostTools	Danmaku_Button	Danmaku	Chữ chạy
+HostTools	Text_Chat_Send	Send	Gửi
+HostTools	Text_Chat_Empty	No chat messages yet	Chưa có tin nhắn
+HostTools	Text_Chat_Unread_Count	You have {0} new message(s) ({1})	Bạn có {0} tin nhắn mới ({1})
+HostTools	Text_Chat_Status_Label	Text chat support: 	Hỗ trợ trò chuyện chữ: 
+HostTools	Text_Chat_Status_Empty	No other players	Không có người chơi khác
+HostTools	Text_Chat_Status_Supported	Supported	Hỗ trợ
+HostTools	Text_Chat_Status_Unsupported	Unsupported	Không hỗ trợ
+Setting		Filtering	Bộ lọc
+Setting		General	Chung
+Setting		Show advanced	Hiện mục nâng cao
+Setting		Show keybinds	Hiện phím tắt
+Setting		Show settings	Hiện cài đặt
+Setting		Show config manager	Mở trình quản lý cài đặt
+Setting		Hide single sections	Ẩn tiêu đề khi chỉ có một mục
+Setting		Plugin collapsed default	Thu gọn plugin khi mở
+Setting		Navigation	Điều hướng
+Setting		PinnedMods	MOD đã ghim
+Setting		Controls	Điều khiển
+Setting		Skill.Chopping	Kỹ năng: Thái
+Setting		Skill.Cooking	Kỹ năng: Nấu
+Setting		Skill.Dashing	Kỹ năng: Lướt
+Setting		Skill.Firefighting	Kỹ năng: Chữa cháy
+Setting		Skill.Running	Kỹ năng: Chạy
+Setting		Skill.Serving	Kỹ năng: Giao món
+Setting		Skill.SlowBurn	Kỹ năng: Chậm cháy
+Setting		Skill.Throwing	Kỹ năng: Ném
+Setting		Skill.Washing	Kỹ năng: Rửa đĩa
+Setting		Specials	Kỹ năng đặc biệt
+Setting		Skill key	Phím kỹ năng
+Setting		Skill details key	Phím xem chi tiết kỹ năng
+Setting		SkillKey	Phím kỹ năng
+Setting		DetailsKey	Phím xem chi tiết kỹ năng
+Setting		Enabled	Bật
+Setting		MaxLevel	Mức tối đa
+Setting		PercentPerLevel	Phần trăm mỗi mức
+Setting		VersusSpecials	Kỹ năng đặc biệt phá đối thủ
+Setting		Language	Ngôn ngữ
+Setting		TitleFont	Phông tiêu đề
+Setting		ChefSelection	Chọn đầu bếp
+Setting		Loading	Tải
+Setting		PlayerHats	Mũ người chơi
+Setting		GridEnabled	Dùng lưới chọn đầu bếp
+Setting		CacheBudgetMiB	Bộ nhớ đệm tối đa (MiB)
+Setting		MaxCachedChefs	Số đầu bếp giữ sẵn
+Setting		Diagnostics	Chẩn đoán
+Setting		DiskCacheEnabled	Lưu bộ nhớ đệm trên đĩa
+Setting		Chefs	Đầu bếp
+Setting		ShowAllChefs	Hiện mọi đầu bếp
+Setting		LoadAllCustomChefs	Nạp mọi đầu bếp tự làm
+Setting		UnlockBaseGameChefs	Mở khóa đầu bếp của game gốc
+Setting		Cooking	Đang nấu
+Setting		Serving	Đang giao món
+Setting		Cleaning	Đang rửa đĩa
+Setting		Preparing	Đang sơ chế
+Setting		Good	Tốt lắm
+Setting		We Did It	Làm được rồi
+Setting		Cursing	Chửi thề
+Setting		Better Luck Next Time	Chúc may mắn lần sau
+Setting		Hello	Xin chào
+Setting		Well Played	Chơi hay lắm
+Setting		Input	Thao tác
+Setting		ScrollFix	Sửa cuộn danh sách
+Setting		Image export	Xuất ảnh
+Setting		Interface	Giao diện
+Setting		Keyboard shortcuts	Phím tắt
+Setting		Background	Nền
+Setting		Color	Màu
+Setting		Scale	Tỉ lệ
+Setting		Margin	Lề
+Setting		Layout	Bố cục
+Setting		Theme	Bảng màu
+Setting		Toggle all recipe images	Bật/tắt ảnh mọi công thức
+Setting		EnableIndividualLevelAssets	Nạp riêng từng màn
+Setting		EnableDirectCatalogReader	Đọc danh mục trực tiếp
+Setting		OptimizeInfoBundlesOnStartup	Tối ưu gói màn khi khởi động
+Setting		RestoreOriginalInfoBundlesOnStartup	Khôi phục gói màn gốc khi khởi động
+Setting		ConversionMemoryBudgetMiB	Bộ nhớ cho chuyển đổi (MiB)
+Setting		Logging	Ghi nhật ký
+Setting		TraceAssetLoads	Theo dõi tải tài nguyên
+Setting		ScreenPointProbe	Dò điểm màn hình
+Setting		Verbose	Nhật ký chi tiết
+Setting		StallWatchdog	Theo dõi khựng hình
+Setting		The shortcut used to toggle the config manager window on and off.\nThe key can be overridden by a game-specific plugin if necessary, in that case this setting is ignored.	Phím tắt bật/tắt cửa sổ quản lý cài đặt.\nMột plugin riêng cho game có thể thay phím này; khi đó cài đặt này bị bỏ qua.
+Setting		Show section title for plugins with only one section	Hiện tiêu đề mục cho các plugin chỉ có một mục
+Setting		If set to true plugins will be collapsed when opening the configuration manager window	Nếu bật, các plugin được thu gọn khi mở cửa sổ quản lý cài đặt
+Setting		Pinned MOD GUIDs, one per line. Display names may change without losing pins.	GUID của các MOD đã ghim, mỗi dòng một GUID. Tên hiển thị có đổi cũng không mất ghim.
+Setting		The key or controller button that uses your active special. None = the game's EMOTE button. Press Rebind, then the key (keyboard) or the button (controller: Y, LB, RB, Back or a stick click). Backspace clears it back to EMOTE. Also set on the skill screen's SKILL KEY row.	Phím hoặc nút tay cầm để dùng kỹ năng chủ động. None = nút BIỂU CẢM của game. Bấm Đổi phím, rồi nhấn phím (bàn phím) hoặc nút (tay cầm: Y, LB, RB, Back hoặc bấm cần analog). Backspace đưa về BIỂU CẢM. Cũng đặt được ở dòng PHÍM KỸ NĂNG của màn chọn kỹ năng.
+Setting		The key or controller button that shows or hides the panel with your skills' details during a level. Press Rebind, then the key or the button (Back or a stick click work well on a controller). Backspace clears it (no panel key).	Phím hoặc nút tay cầm để hiện/ẩn bảng chi tiết kỹ năng trong màn chơi. Bấm Đổi phím, rồi nhấn phím hoặc nút (trên tay cầm nên dùng Back hoặc bấm cần analog). Backspace xóa phím (không có phím mở bảng).
+Setting		Show independent horizontal player panels with scrolling chef grids. Disable to use the original carousel.	Hiện bảng riêng theo hàng ngang cho từng người chơi, với lưới đầu bếp cuộn được. Tắt để dùng vòng chọn gốc.
+Setting		Estimated plugin resource budget in MiB; active instances may exceed it.	Ngân sách tài nguyên ước tính của plugin, tính bằng MiB; các bản đang dùng có thể vượt mức này.
+Setting		Target number of resident chefs. Active and pending chefs remain pinned.	Số đầu bếp muốn giữ sẵn trong bộ nhớ. Đầu bếp đang dùng và đang chờ luôn được giữ.
+Setting		Log frame P95/max, process memory and first camera-render latency.	Ghi P95/tối đa của khung hình, bộ nhớ tiến trình và độ trễ dựng hình camera đầu tiên.
+Setting		Cache parsed OBJ geometry, decoded textures and chef portraits on disk; changed source files rebuild automatically.	Lưu hình khối OBJ đã đọc, ảnh đã giải mã và chân dung đầu bếp lên đĩa; tệp nguồn thay đổi thì tự dựng lại.
+Setting		Hat for this local input slot: @default uses prefer.txt; None removes the hat.	Mũ cho vị trí điều khiển này trên máy: @default dùng prefer.txt; None bỏ mũ.
+Setting		Fix the level menus' scroll handling: reliable clicks while the list is moving, and the list keeps its position when returning from the level list. Default false keeps the game's own behaviour.	Sửa cách cuộn trong menu chọn màn: bấm chính xác cả khi danh sách đang cuộn, và danh sách giữ nguyên vị trí khi quay lại từ danh sách màn. Mặc định false giữ cách của game.
+Setting		Export background only / 仅影响导出背景: Default, Transparent, White, Dark, Custom.	Chỉ ảnh hưởng nền ảnh xuất: Default, Transparent, White, Dark, Custom.
+Setting		Custom RGB color / 自定义颜色: #RRGGBB.	Màu RGB tùy chỉnh: #RRGGBB.
+Setting		Legacy compatibility key; output is fixed at native 1x / 兼容旧配置，导出固定为原版 1x。	Khóa giữ cho cấu hình cũ; ảnh xuất luôn ở cỡ gốc 1x.
+Setting		Export margin only / 仅影响导出边距: None, Compact, Standard, Wide.	Chỉ ảnh hưởng lề ảnh xuất: None, Compact, Standard, Wide.
+Setting		Export layout only / 仅影响导出排版: Compact, Standard, Wide. Legacy Current becomes Standard.	Chỉ ảnh hưởng bố cục ảnh xuất: Compact, Standard, Wide. Giá trị cũ Current thành Standard.
+Setting		Interface scale only / 仅影响界面缩放: 0.5 to 2.0.	Chỉ ảnh hưởng tỉ lệ giao diện: 0.5 đến 2.0.
+Setting		Interface palette only / 仅影响界面配色: Kitchen, Cream, Ocean, Charcoal.	Chỉ ảnh hưởng bảng màu giao diện: Kitchen, Cream, Ocean, Charcoal.
+Setting		Show or hide every possible recipe in the current level using the game's original recipe cards.	Hiện hoặc ẩn mọi công thức có thể có trong màn hiện tại bằng thẻ công thức gốc của game.
+Setting		Load the selected LevelInfo asset when its address is unambiguous; fall back to LevelSetInfo when needed. Restart after changing this option.	Nạp tệp LevelInfo của màn được chọn khi địa chỉ của nó rõ ràng; khi cần thì quay về LevelSetInfo. Khởi động lại game sau khi đổi.
+Setting		Build missing catalog files by reading scalar metadata without native info assets. Unsupported bundles fall back to the native scanner. Restart after changing this option.	Tạo các tệp danh mục còn thiếu bằng cách đọc siêu dữ liệu, không cần tệp info gốc. Gói không hỗ trợ sẽ dùng trình quét gốc. Khởi động lại game sau khi đổi.
+Setting		Check all top-level UnityFS bundles in custom level sets, including info*, s_* and custom_recipes, and replace supported LZMA/LZ4/raw files with equivalent LZ4HC files before discovering levels. Verified replacements do not retain original files. Restart after changing this option.	Kiểm tra mọi gói UnityFS cấp trên cùng trong các bộ màn tùy chỉnh, gồm info*, s_* và custom_recipes, và thay các tệp LZMA/LZ4/thô được hỗ trợ bằng tệp LZ4HC tương đương trước khi tìm màn. Bản thay đã kiểm tra sẽ không giữ tệp gốc. Khởi động lại game sau khi đổi.
+Setting		Restore legacy backed-up original bundles on startup. New successful conversions retain no originals. Restoration takes precedence over optimization. Restart after changing this option.	Khôi phục các gói gốc đã sao lưu theo cách cũ khi khởi động. Các lần chuyển đổi mới thành công không giữ bản gốc. Khôi phục được ưu tiên hơn tối ưu. Khởi động lại game sau khi đổi.
+Setting		Estimated conversion memory budget (16-2048 MiB). File size, decoder dictionaries and bounded HC buffers determine reservations. Queueing waits for released reservations; CPU workers remain capped at the logical processor count. This is not a process memory limit. Restart after changing this option.	Ngân sách bộ nhớ ước tính cho việc chuyển đổi (16-2048 MiB). Kích thước tệp, từ điển giải nén và bộ đệm HC có giới hạn quyết định phần giữ chỗ. Hàng đợi chờ đến khi phần giữ chỗ được trả lại; số luồng CPU không vượt quá số bộ xử lý logic. Đây không phải giới hạn bộ nhớ của tiến trình. Khởi động lại game sau khi đổi.
+Setting		资源加载跟踪（默认关闭；v3.5.8 起仅排障时开启）：给 AssetBundle.LoadFromFile / LoadAsset / LoadAllAssets 挂计时，仅耗时 ≥100ms 的慢调用输出一行 [资产跟踪] 明细（快调用零日志零字符串，开销≈0，不影响游戏）。已立功：定位过 OC2DIYLevel 同步加载 info_* bundle 合计 ~15s 的进关卡选择冻结。仅在使用 web 导出关卡的环境激活。	Theo dõi tải tài nguyên (mặc định tắt; từ v3.5.8 chỉ bật khi dò lỗi): đo thời gian AssetBundle.LoadFromFile / LoadAsset / LoadAllAssets, chỉ lệnh chậm từ 100ms trở lên mới ghi một dòng [资产跟踪] chi tiết (lệnh nhanh không ghi gì, gần như không tốn, không ảnh hưởng game). Từng giúp tìm ra chỗ OC2DIYLevel nạp đồng bộ các gói info_* mất tổng cộng ~15 giây làm đứng màn chọn màn. Chỉ hoạt động khi dùng màn xuất từ web.
+Setting		屏幕点探针（2026-11-08 诊断，默认开启）：进入 web 关卡后给 Camera 的 ScreenPointToRay/ScreenToWorldPoint/ViewportPointToRay/ViewportToWorldPoint 挂只观察前缀；同一调用点累计 ≥50 次时打印调用方托管堆栈（最多 3 个调用点，90 秒后自动停止采样）。用于定位原生错误 Screen position out of view frustum 的真正调用方；不拦截、不改变任何游戏行为，设为 false 可关闭。	Dò điểm màn hình (chẩn đoán 2026-11-08, mặc định bật): sau khi vào màn web, theo dõi (không can thiệp) ScreenPointToRay/ScreenToWorldPoint/ViewportPointToRay/ViewportToWorldPoint của Camera; khi cùng một chỗ gọi đạt 50 lần thì in ngăn xếp của bên gọi (tối đa 3 chỗ gọi, tự dừng sau 90 giây). Dùng để tìm bên gây lỗi Screen position out of view frustum; không chặn, không đổi cách chơi, đặt false để tắt.
+Setting		输出 CustomStub 运行时与本加载器的诊断级日志（掷骰/取出、逐物体自愈、反射自检、目录清单等）。默认关闭——这些日志在稳态游玩期是每秒数条的纯开销。排障时开启。	Ghi nhật ký chẩn đoán của CustomStub và trình nạp này (gieo/lấy, tự sửa từng vật, tự kiểm tra, danh sách thư mục...). Mặc định tắt: khi chơi bình thường các dòng này chỉ tốn thêm vài dòng mỗi giây. Bật khi dò lỗi.
+Setting		帧卡顿看门狗（默认开启；v3.5.5 起-key-名从 FrameStallWatch 改为本键，旧键已废弃请删除）：相邻两帧间隔超过 100ms 时记录一行 [帧卡顿] 日志（时间戳/帧号/场景名/间隔毫秒）。用于定位卡顿发生的确切时间点：本行时间=卡顿结束，上一条日志时间≈卡顿开始，对照两行之间的日志即可判断责任方（loader / 游戏本体 / 其它模组）。正常游玩几乎不产生日志；如嫌噪音可改为 false。	Theo dõi khựng hình (mặc định bật; từ v3.5.5 tên khóa đổi từ FrameStallWatch sang khóa này, khóa cũ đã bỏ, hãy xóa): khi hai khung hình liền nhau cách hơn 100ms thì ghi một dòng [帧卡顿] (thời điểm/số khung/tên cảnh/khoảng cách ms). Thời điểm dòng này là lúc hết khựng, dòng nhật ký trước đó gần đúng là lúc bắt đầu; xem các dòng ở giữa để biết bên gây ra (trình nạp / game / mod khác). Chơi bình thường gần như không ghi gì; nếu thấy ồn có thể đặt false.

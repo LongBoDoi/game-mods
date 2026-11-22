@@ -37,12 +37,15 @@ echo Building TiengViet.dll...
   /r:"%MANAGED%\UnityEngine.TextRenderingModule.dll" ^
   /r:"%MANAGED%\UnityEngine.InputModule.dll" ^
   /r:"%MANAGED%\UnityEngine.IMGUIModule.dll" ^
+  /r:"%MANAGED%\UnityEngine.AssetBundleModule.dll" ^
   /r:"%MANAGED%\UnityEngine.AnimationModule.dll" ^
   /r:"%MANAGED%\UnityEngine.AudioModule.dll" ^
   /r:"%MANAGED%\UnityEngine.PhysicsModule.dll" ^
   /r:"%CORE%\BepInEx.dll" ^
   /r:"%CORE%\0Harmony.dll" ^
   /resource:"%~dp0vi.tsv",TiengViet.vi.tsv ^
+  /resource:"%~dp0mods.tsv",TiengViet.mods.tsv ^
+  /resource:"%~dp0fonts.bundle",TiengViet.fonts.bundle ^
   "%~dp0*.cs"
 if errorlevel 1 (
     echo.

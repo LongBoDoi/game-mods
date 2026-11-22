@@ -150,6 +150,14 @@ namespace ChefSkills
             return index < 0 ? KeyCode.None : (KeyCode)(FirstJoystickCode + index);
         }
 
+        /// <summary>True when the player plays on the keyboard (false if unknown).</summary>
+        internal static bool IsKeyboard(PlayerInputLookup.Player player)
+        {
+            bool keyboard, rightSide;
+            ControlPadInput.PadNum pad;
+            return Device(player, out keyboard, out rightSide, out pad) && keyboard;
+        }
+
         /// <summary>The player's controls: keyboard (and which side) or a pad.</summary>
         private static bool Device(PlayerInputLookup.Player player, out bool keyboard, out bool rightSide, out ControlPadInput.PadNum pad)
         {

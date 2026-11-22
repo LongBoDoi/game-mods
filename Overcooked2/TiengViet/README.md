@@ -23,14 +23,19 @@ What changes:
 - **Titles**: the game's title font (Naughty Squirrel) has letters such as é and â, but not the
   Vietnamese letters with a hook, a dot below or a horn (ả, ạ, ơ, ư, ộ…). Unity would fill in only
   the missing letters from another font, leaving one word in two typefaces. So while Vietnamese is
-  on, every title with words in it is drawn in **Segoe UI Bold**, which comes with Windows; a row
-  of tabs or buttons then shares one typeface. Numbers and symbols, such as timers and scores, keep
-  the game's font. With English chosen, only a title that needs one of those letters switches. A
+  on, every title with words in it is drawn in the font chosen in the `TitleFont` setting
+  (**Coiny** by default, built into the mod); a row of tabs or buttons then shares one typeface. Numbers and symbols, such as timers and scores, keep
+  the game's font. Each font sits its letters at a different height in the line, so a swapped
+  title is moved up or down until its capitals are where the game's font would put them, in the
+  middle of their banner or button. With English chosen, only a title that needs one of those letters switches. A
   one-line label that the wider font would push onto a second line is shrunk just enough to fit,
   down to 70% of its size. Everything goes back to the game's font and sizes when you switch to
   English.
 - **Other mods' dialog texts**: a few texts that third-party mods show on the game's dialogs are
   translated too, such as DIYChef's "Invalid default chef" warning (see the end of `vi.tsv`).
+- **MOD Settings and Arcade MOD (HostTools)**: MOD Settings' own buttons, every Arcade MOD text
+  (its settings, panels and dialogs: 580 texts), and the setting names and descriptions of the
+  other installed mods, from `mods.tsv` (see below).
 
 It only changes what you see on your own PC. Other players can use any language, with or without
 the mod.
@@ -42,7 +47,21 @@ the mod.
 | Setting | Default | |
 |---|---|---|
 | `Language` | `Vietnamese` | `Vietnamese` or `English`; the same setting as the in-game row |
-| `HeaderFont` | `Segoe UI Bold, Arial Bold, Arial` | Windows fonts for titles. The first one Unity can find is used. Unity only sees regular, bold and italic faces, so names such as Segoe UI Black are not found. Leave it empty to never swap fonts |
+| `TitleFont` | `Coiny` | Font for titles and buttons: `Coiny`, `Grandstander` (Black), `Baloo2` (ExtraBold), `Nunito` (Black), `PaytoneOne`, `FiraSans` (ExtraBold), all built into the mod; `SegoeUI` (Bold, from Windows); or `GameFont`, the game's own, which lacks Vietnamese letters. A dropdown in MOD Settings; a change shows at once |
+
+The built-in fonts are in `fonts/` with their licences (SIL Open Font License 1.1). Unity 2017
+cannot load a font file at runtime, so `tools/fonts.py` packs them into `fonts.bundle`, an asset
+bundle made from the game's own font bundle, and `build.cmd` builds that into the DLL. Baloo 2,
+Grandstander and Nunito are fixed-weight copies of their Google Fonts variable fonts. A taller
+font can make a one-line label clip; such a label is shrunk to fit its box like a too-wide one.
+
+The game's body font (Body_Font, Carlito Bold 1.103) draws the capitals **Ậ, Ệ and Ộ** with
+the dot below but without the hat, so BẬT reads BẠT and MỞ RỘNG reads MỞ RỌNG (the current
+Carlito, 1.104, has the same fault). A text in that font with one of those letters is drawn in
+`fonts/TiengVietBody-Bold.ttf` instead: Carlito Bold with the three letters rebuilt from its own
+Ạ/Ẹ/Ọ and the hat of Â/Ê/Ô, and the game copy's line metrics, so nothing else changes.
+`tools/carlito.py` makes it (it needs fontTools); Carlito's licence reserves its name, so the
+repaired copy is called TiengViet Body.
 
 MOD Settings (OC2ModSettings) copies its font from the game's titles and stops working if that
 font isn't the game's own. TiengViet gives it the game's title font, so its pages keep working
@@ -78,6 +97,25 @@ After a game update, compare the table with the game's current text:
 
 It lists untranslated tags, tags the game dropped, texts whose English changed since they were
 translated, and placeholders that no longer match.
+
+### Other mods' texts
+
+`mods.tsv` holds `Source<TAB>Key<TAB>English<TAB>Vietnamese`, in C# escape form (`\n` is a line
+break):
+
+- `ModSettings`: MOD Settings' labels, by the name of its own text (Title, Close, Refresh…).
+- `HostTools`: Arcade MOD's texts, by the key of its own table (its `Language.cs`). It has its
+  own Chinese/English/Korean/Japanese table and follows the game's language; TiengViet answers
+  its lookups in Vietnamese and adds the Vietnamese to its table, so choice settings still
+  match.
+- `Setting`: names, sections and descriptions of other mods' settings as MOD Settings shows
+  them, matched by their exact English (the Key column is empty). With BepInEx's disk log at
+  `Debug`, each text MOD Settings shows that has no row is logged once as
+  `No Vietnamese for MOD Settings text`.
+
+Both mods relabel themselves only when the game's language changes, so TiengViet tells them
+to look again when you switch. A mod that is not installed, or changed its code, keeps its own
+words.
 
 ## Building
 

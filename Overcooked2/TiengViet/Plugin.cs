@@ -11,6 +11,17 @@ namespace TiengViet
 {
     internal enum GameLanguage { English, Vietnamese }
 
+    /// <summary>Title fonts with every Vietnamese letter: six built into the mod, one from
+    /// Windows, or the game's own (which lacks them).</summary>
+    internal enum TitleFont { Coiny, Grandstander, Baloo2, Nunito, PaytoneOne, FiraSans, SegoeUI, GameFont }
+
+    /// <summary>Read by name by MOD Settings and the Configuration Manager.</summary>
+    internal sealed class ConfigurationManagerAttributes
+    {
+        public Func<object, string> ObjToStr;
+        public int? Order;
+    }
+
     /// <summary>
     /// Tiếng Việt: plays Overcooked! 2 and every mod in this collection in Vietnamese.
     ///
@@ -36,7 +47,7 @@ namespace TiengViet
 
         internal static ManualLogSource Log;
         internal static ConfigEntry<GameLanguage> Language;
-        internal static ConfigEntry<string> HeaderFonts;
+        internal static ConfigEntry<TitleFont> Titles;
 
         internal static bool Vietnamese { get { return Language != null && Language.Value == GameLanguage.Vietnamese; } }
 
@@ -48,13 +59,16 @@ namespace TiengViet
             Language = Config.Bind("General", "Language", GameLanguage.Vietnamese,
                 "Ngôn ngữ của game và các mod trong bộ này. Đổi được ngay trong game: Cài đặt → Cài đặt trò chơi → NGÔN NGỮ.\n" +
                 "Language of the game and of this collection's mods. Also in game: Settings → Game Settings → LANGUAGE.");
-            HeaderFonts = Config.Bind("General", "HeaderFont", "Segoe UI Bold, Arial Bold, Arial",
-                "Phông Windows dùng cho tiêu đề có chữ tiếng Việt mà phông tiêu đề của game không có (ạ, ả, ơ, ư...). " +
-                "Tên đầu tiên có trên máy sẽ được dùng; để trống thì không đổi phông.\n" +
-                "Windows fonts used for titles that need Vietnamese letters the game's title font lacks; the first one installed is used. Empty: never swap.");
+            Titles = Config.Bind("General", "TitleFont", TitleFont.Coiny, new ConfigDescription(
+                "Phông cho tiêu đề và nút của game khi chơi tiếng Việt, vì phông gốc thiếu các chữ như ạ, ả, ơ, ư. " +
+                "Sáu phông đầu có sẵn trong mod, Segoe UI lấy từ Windows; đổi là thấy ngay.\n" +
+                "Font for the game's titles and buttons in Vietnamese, since the game's own lacks letters such as ạ, ả, ơ, ư. " +
+                "The first six come with the mod, Segoe UI is Windows'; changes show at once.",
+                null, new ConfigurationManagerAttributes { ObjToStr = HeaderFont.Label, Order = -1 }));
 
             Publish();
             Translations.Load();
+            ModTexts.Load();
 
             harmony = new Harmony(Id);
             Patch(typeof(LocalizationGet), "the game's text lookup");
@@ -63,9 +77,9 @@ namespace TiengViet
             Patch(typeof(HeaderFont.TextEnable), "the title font fix");
 
             Language.SettingChanged += delegate { Apply(); };
-            HeaderFonts.SettingChanged += delegate { HeaderFont.Reset(); HeaderFont.Sweep(); };
+            Titles.SettingChanged += delegate { HeaderFont.Reset(); HeaderFont.Sweep(); };
             Log.LogInfo("Tiếng Việt " + Version + ": " + (Vietnamese ? "tiếng Việt" : "English") + ", " +
-                Translations.Count + " game texts translated.");
+                Translations.Count + " game texts and " + ModTexts.Count + " texts of other mods translated.");
         }
 
         /// <summary>Every plugin has loaded by now, so other mods' types can be found.</summary>
@@ -73,6 +87,8 @@ namespace TiengViet
         {
             try { HeaderFont.PatchFontReaders(harmony); }
             catch (Exception error) { Log.LogError("Could not patch MOD Settings' font check: " + error); }
+            try { ModTexts.Patch(harmony); }
+            catch (Exception error) { Log.LogError("Could not patch other mods' text tables: " + error); }
         }
 
         private void Patch(Type patch, string what)
@@ -91,6 +107,7 @@ namespace TiengViet
         {
             Publish();
             Refresh.All();
+            ModTexts.Relabel();
             LanguageRow.SyncAll();
             Log.LogInfo("Language: " + (Vietnamese ? "tiếng Việt" : "English"));
         }

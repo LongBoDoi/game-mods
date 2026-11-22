@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
@@ -12,8 +13,8 @@ namespace TiengViet
     /// French or Spanish but not the Vietnamese ones made with a hook, a dot below or a horn
     /// (ả, ạ, ơ, ư, ấ, ộ...). Unity would borrow each missing letter from some other font, so a
     /// word comes out in two typefaces. Instead, a text in that font that needs one of those letters
-    /// is drawn entirely in a Windows font that has them all (Segoe UI Bold by default, see the
-    /// HeaderFont setting); it gets its own font back as soon as its text no longer needs it. This
+    /// is drawn entirely in a font that has them all (Coiny by default, see the TitleFont
+    /// setting); it gets its own font back as soon as its text no longer needs it. This
     /// covers every text in that font, the game's and any mod's, whichever language is chosen.
     /// </summary>
     internal static class HeaderFont
@@ -83,6 +84,49 @@ namespace TiengViet
         private static void GameFontFirst(ref Font source)
         {
             if (source != null && source == substitute && original != null) source = original;
+            if (source != null && source == repairedBody && gameBody != null) source = gameBody;
+        }
+
+        /// <summary>
+        /// The game's body font (Body_Font, Carlito Bold 1.103) draws Ậ, Ệ and Ộ with the dot below
+        /// but without the hat, so BẬT reads BẠT. A text in it that has one of those letters is
+        /// drawn in a repaired copy (fonts.bundle's "body", made by tools/carlito.py), which is the
+        /// same font with the same metrics, and goes back to Body_Font when the letters are gone.
+        /// </summary>
+        private static readonly char[] Hatless = { 'Ậ', 'Ệ', 'Ộ' };
+        private static Font gameBody, repairedBody;
+        private static bool lookedBody;
+
+        private static Font RepairedBody
+        {
+            get
+            {
+                if (lookedBody) return repairedBody;
+                lookedBody = true;
+                try { repairedBody = Bundled("body"); }
+                catch (Exception error) { Plugin.Log.LogWarning("Could not load the repaired body font: " + error.Message); }
+                return repairedBody;
+            }
+        }
+
+        /// <summary>Swaps a body text to the repaired copy and back; true when the text is in either.</summary>
+        private static bool CheckBody(Text text, Font font)
+        {
+            bool repaired = font == repairedBody;
+            if (!repaired && font.name != "Body_Font") return false;
+            bool needs = text.text != null && text.text.IndexOfAny(Hatless) >= 0;
+            if (repaired)
+            {
+                if (!needs && gameBody != null) text.font = gameBody;
+            }
+            else if (needs)
+            {
+                Font use = RepairedBody;
+                if (use == null) return true;
+                gameBody = font;
+                text.font = use;
+            }
+            return true;
         }
 
         private static Font Substitute
@@ -91,34 +135,76 @@ namespace TiengViet
             {
                 if (looked) return substitute;
                 looked = true;
-                var names = new List<string>();
-                foreach (string name in (Plugin.HeaderFonts.Value ?? "").Split(','))
-                    if (name.Trim().Length > 0) names.Add(name.Trim());
-                if (names.Count == 0) return substitute = null;
+                TitleFont choice = Plugin.Titles.Value;
                 try
                 {
-                    string[] all = Font.GetOSInstalledFontNames();
-                    var installed = new HashSet<string>(all, StringComparer.OrdinalIgnoreCase);
-                    Plugin.Log.LogDebug("Windows fonts Unity can use (" + all.Length + "): " + string.Join(", ",
-                        Array.FindAll(all, delegate(string n) { return n.IndexOf("Segoe", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                            n.IndexOf("Arial", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("Bahn", StringComparison.OrdinalIgnoreCase) >= 0; })));
-                    string found = names.Find(delegate(string name) { return installed.Contains(name); });
-                    if (found == null)
-                    {
-                        Plugin.Log.LogWarning("None of the HeaderFont fonts is installed (" + Plugin.HeaderFonts.Value +
-                            "); Vietnamese titles keep the game's font.");
-                        return substitute = null;
-                    }
-                    substitute = Font.CreateDynamicFontFromOSFont(found, 48);
-                    substitute.name = "TiengViet " + found;
-                    Plugin.Log.LogInfo("Vietnamese titles use " + found + ".");
+                    if (choice == TitleFont.GameFont) substitute = null;
+                    else if (choice == TitleFont.SegoeUI) substitute = WindowsFont();
+                    else substitute = Bundled(choice.ToString().ToLowerInvariant()) ?? WindowsFont();
                 }
                 catch (Exception error)
                 {
                     Plugin.Log.LogWarning("Could not load a title font for Vietnamese: " + error.Message);
                     substitute = null;
                 }
+                Plugin.Log.LogInfo(substitute != null ? "Vietnamese titles use " + substitute.name + "." : "Titles keep the game's font.");
                 return substitute;
+            }
+        }
+
+        /// <summary>The fonts built into the mod (fonts.bundle, made by tools/fonts.py).</summary>
+        private static AssetBundle bundle;
+
+        private static Font Bundled(string name)
+        {
+            if (bundle == null)
+            {
+                Stream stream = typeof(HeaderFont).Assembly.GetManifestResourceStream("TiengViet.fonts.bundle");
+                if (stream == null) { Plugin.Log.LogWarning("fonts.bundle is missing from TiengViet.dll."); return null; }
+                var bytes = new byte[stream.Length];
+                int read = 0;
+                while (read < bytes.Length)
+                {
+                    int got = stream.Read(bytes, read, bytes.Length - read);
+                    if (got <= 0) break;
+                    read += got;
+                }
+                bundle = AssetBundle.LoadFromMemory(bytes);
+                if (bundle == null) { Plugin.Log.LogWarning("Could not open the mod's font bundle."); return null; }
+            }
+            Font font = bundle.LoadAsset<Font>("assets/tiengviet/" + name + ".ttf");
+            if (font == null) Plugin.Log.LogWarning("The font bundle has no " + name + ".");
+            return font;
+        }
+
+        /// <summary>Segoe UI Bold, which Windows has (Unity only finds regular, bold and italic faces).</summary>
+        private static Font WindowsFont()
+        {
+            var installed = new HashSet<string>(Font.GetOSInstalledFontNames(), StringComparer.OrdinalIgnoreCase);
+            foreach (string name in new[] { "Segoe UI Bold", "Arial Bold", "Arial" })
+                if (installed.Contains(name))
+                {
+                    Font font = Font.CreateDynamicFontFromOSFont(name, 48);
+                    font.name = name;
+                    return font;
+                }
+            return null;
+        }
+
+        /// <summary>How each choice reads in MOD Settings.</summary>
+        internal static string Label(object value)
+        {
+            if (!(value is TitleFont)) return Convert.ToString(value);
+            switch ((TitleFont)value)
+            {
+                case TitleFont.Coiny: return "Coiny";
+                case TitleFont.Grandstander: return "Grandstander Black";
+                case TitleFont.Baloo2: return "Baloo 2 ExtraBold";
+                case TitleFont.Nunito: return "Nunito Black";
+                case TitleFont.PaytoneOne: return "Paytone One";
+                case TitleFont.FiraSans: return "Fira Sans ExtraBold";
+                case TitleFont.SegoeUI: return "Segoe UI Bold (Windows)";
+                default: return Plugin.Vietnamese ? "Phông gốc của game (thiếu chữ tiếng Việt)" : "Game's own font (no Vietnamese letters)";
             }
         }
 
@@ -136,6 +222,7 @@ namespace TiengViet
         {
             if (text == null) return;
             Font font = text.font;
+            if (font != null && CheckBody(text, font)) return;
             Swapped swapped;
             if (IsLacking(font))
             {
@@ -166,7 +253,56 @@ namespace TiengViet
                     catch (Exception) { }
         }
 
-        /// <summary>Remembers the font (and size) a text had before it was swapped.</summary>
+        private static readonly TextGenerator measurer = new TextGenerator();
+        private static readonly Dictionary<string, float> shifts = new Dictionary<string, float>();
+        private const int MeasureSize = 100;
+
+        /// <summary>
+        /// How far up a text in <paramref name="to"/> must move, per point of font size, so that its
+        /// capitals sit where <paramref name="from"/> puts them. Each font places its letters in
+        /// the line by its own ascent and descent (Coiny's letters sit much lower than Naughty
+        /// Squirrel's), so a title swapped as it is drops below the middle of its banner. This lays
+        /// out an "H" in both fonts with the text's own alignment and compares their middles.
+        /// </summary>
+        private static float Shift(Text text, Font from, Font to)
+        {
+            int row = (int)text.alignment / 3;
+            string key = from.GetInstanceID() + "/" + to.GetInstanceID() + "/" + row + "/" + text.lineSpacing.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            float shift;
+            if (shifts.TryGetValue(key, out shift)) return shift;
+            TextGenerationSettings settings = text.GetGenerationSettings(Vector2.zero);
+            settings.fontSize = MeasureSize;
+            settings.scaleFactor = 1f;
+            settings.resizeTextForBestFit = false;
+            settings.richText = false;
+            settings.horizontalOverflow = HorizontalWrapMode.Overflow;
+            settings.verticalOverflow = VerticalWrapMode.Overflow;
+            settings.generateOutOfBounds = true;
+            float a = Middle(settings, from), b = Middle(settings, to);
+            shift = float.IsNaN(a) || float.IsNaN(b) ? 0f : (a - b) / MeasureSize;
+            shifts[key] = shift;
+            return shift;
+        }
+
+        private static float Middle(TextGenerationSettings settings, Font font)
+        {
+            settings.font = font;
+            measurer.Invalidate();
+            if (!measurer.Populate("H", settings)) return float.NaN;
+            IList<UIVertex> verts = measurer.verts;
+            float low = float.MaxValue, high = float.MinValue;
+            for (int i = 0; i < verts.Count; i++)
+            {
+                low = Mathf.Min(low, verts[i].position.y);
+                high = Mathf.Max(high, verts[i].position.y);
+            }
+            return verts.Count == 0 || high <= low ? float.NaN : (low + high) / 2f;
+        }
+
+        /// <summary>
+        /// Remembers the font (and size) a text had before it was swapped, and moves the swapped
+        /// text up or down so its letters sit where the game's font would put them.
+        /// </summary>
         internal sealed class Swapped : MonoBehaviour
         {
             /// <summary>A label is never shrunk below this share of its own size.</summary>
@@ -174,7 +310,10 @@ namespace TiengViet
 
             private Text text;
             private Font original;
-            private int size, largest;
+            /// <summary>The move for the font now shown, per point of font size (see Shift).</summary>
+            private float shiftPerSize;
+            /// <summary>The label's own sizes, and the sizes it was last left with here.</summary>
+            private int size, largest, shownSize, shownLargest;
             private bool fitting;
 
             internal void Remember(Text owner, Font font)
@@ -183,9 +322,28 @@ namespace TiengViet
                 if (font != null && font != substitute)
                 {
                     original = font;
-                    size = owner.fontSize;
-                    largest = owner.resizeTextMaxSize;
+                    size = shownSize = owner.fontSize;
+                    largest = shownLargest = owner.resizeTextMaxSize;
                 }
+            }
+
+            /// <summary>
+            /// Code that builds a label often sets its size after its words (MOD Settings clones
+            /// a big title and then sets 22). A size that differs from the one left here was set
+            /// by someone else, so it becomes the label's own size.
+            /// </summary>
+            private void Adopt()
+            {
+                if (text.fontSize != shownSize) size = shownSize = text.fontSize;
+                if (text.resizeTextMaxSize != shownLargest) largest = shownLargest = text.resizeTextMaxSize;
+            }
+
+            private void Show(int fontSize, int maxSize)
+            {
+                if (text.fontSize != fontSize) text.fontSize = fontSize;
+                if (text.resizeTextMaxSize != maxSize) text.resizeTextMaxSize = maxSize;
+                shownSize = fontSize;
+                shownLargest = maxSize;
             }
 
             /// <summary>
@@ -197,27 +355,52 @@ namespace TiengViet
             /// </summary>
             internal void Fit()
             {
-                if (fitting || text == null || size <= 0) return;
-                if (text.horizontalOverflow != HorizontalWrapMode.Wrap) return;
-                string words = text.text;
-                if (string.IsNullOrEmpty(words) || words.IndexOf('\n') >= 0) return;
+                if (fitting || text == null) return;
                 fitting = true;
                 try
                 {
+                    float shift = original != null && text.font != null && text.font != original ? Shift(text, original, text.font) : 0f;
+                    if (shift != shiftPerSize)
+                    {
+                        shiftPerSize = shift;
+                        text.SetVerticesDirty();
+                    }
+                    Adopt();
+                    if (size <= 0) return;
+                    Show(size, largest);
+                    string words = text.text;
+                    if (string.IsNullOrEmpty(words) || words.IndexOf('\n') >= 0) return;
                     bool best = text.resizeTextForBestFit;
+                    // Too wide: a wrapping label would break onto a second line. Too tall (a
+                    // font with taller lines than the game's): a clipping label shows nothing.
+                    // Best fit already keeps a label inside its height.
+                    bool wraps = text.horizontalOverflow == HorizontalWrapMode.Wrap;
+                    bool clips = !best && text.verticalOverflow == VerticalWrapMode.Truncate;
+                    if (!wraps && !clips) return;
                     int reference = best ? largest : size;
-                    if (best) { if (text.resizeTextMaxSize != largest) text.resizeTextMaxSize = largest; }
-                    else if (text.fontSize != size) text.fontSize = size;
-                    float width = text.rectTransform.rect.width;
-                    if (width <= 0 || reference <= 0) return;
+                    Rect box = text.rectTransform.rect;
+                    if (box.width <= 0 || box.height <= 0 || reference <= 0) return;
                     TextGenerationSettings settings = text.GetGenerationSettings(Vector2.zero);
                     settings.resizeTextForBestFit = false;
                     settings.fontSize = reference;
-                    float wanted = text.cachedTextGeneratorForLayout.GetPreferredWidth(words, settings) / text.pixelsPerUnit;
-                    if (wanted <= width) return;
-                    int fitted = Mathf.Max(Mathf.FloorToInt(reference * SmallestScale), Mathf.FloorToInt(reference * width / wanted));
-                    if (best) text.resizeTextMaxSize = Mathf.Max(text.resizeTextMinSize, fitted);
-                    else text.fontSize = fitted;
+                    settings.horizontalOverflow = HorizontalWrapMode.Overflow;
+                    settings.verticalOverflow = VerticalWrapMode.Overflow;
+                    TextGenerator generator = text.cachedTextGeneratorForLayout;
+                    float scale = 1f;
+                    if (wraps)
+                    {
+                        float wide = generator.GetPreferredWidth(words, settings) / text.pixelsPerUnit;
+                        if (wide > box.width) scale = box.width / wide;
+                    }
+                    if (clips)
+                    {
+                        float tall = generator.GetPreferredHeight(words, settings) / text.pixelsPerUnit;
+                        if (tall > box.height) scale = Mathf.Min(scale, box.height / tall);
+                    }
+                    if (scale >= 1f) return;
+                    int fitted = Mathf.Max(Mathf.FloorToInt(reference * SmallestScale), Mathf.FloorToInt(reference * scale));
+                    if (best) Show(size, Mathf.Max(text.resizeTextMinSize, fitted));
+                    else Show(fitted, largest);
                 }
                 finally { fitting = false; }
             }
@@ -228,12 +411,37 @@ namespace TiengViet
                 if (text != null && text.font == substitute) Fit();
             }
 
+            /// <summary>Moves the letters just built. The move is worked out in Fit, not here:
+            /// laying out a test letter can rebuild the font's texture, and that must not happen
+            /// while the canvas is drawing.</summary>
+            internal void Move(VertexHelper mesh)
+            {
+                if (!isActiveAndEnabled || text == null || shiftPerSize == 0f || text.font == null || text.font == original) return;
+                float points = text.fontSize;
+                if (text.resizeTextForBestFit)
+                {
+                    points = text.cachedTextGenerator.fontSizeUsedForBestFit;
+                    // In case the generator counts in screen pixels rather than points.
+                    if (points > text.resizeTextMaxSize * 1.01f && text.pixelsPerUnit > 0f) points /= text.pixelsPerUnit;
+                }
+                float move = shiftPerSize * points;
+                if (move == 0f) return;
+                UIVertex vertex = new UIVertex();
+                for (int i = 0; i < mesh.currentVertCount; i++)
+                {
+                    mesh.PopulateUIVertex(ref vertex, i);
+                    vertex.position.y += move;
+                    mesh.SetUIVertex(vertex, i);
+                }
+            }
+
             internal void Restore()
             {
                 if (text == null || original == null) return;
+                Adopt();
+                shiftPerSize = 0f;
                 if (text.font != original) text.font = original;
-                if (size > 0 && text.fontSize != size) text.fontSize = size;
-                if (largest > 0 && text.resizeTextMaxSize != largest) text.resizeTextMaxSize = largest;
+                if (size > 0) Show(size, largest);
             }
         }
 
@@ -243,6 +451,27 @@ namespace TiengViet
             private static void Postfix(Text __instance)
             {
                 try { Check(__instance); }
+                catch (Exception) { }
+            }
+        }
+
+        /// <summary>
+        /// A swapped title is moved as soon as Text has built its letters, before anything else
+        /// reads them: the game's button prompts (the A and B icons in "A ACCEPT B CANCEL") place
+        /// their icon images where the text left room for them, straight after this, so the
+        /// icons move with the words. Mesh effects (outline, shadow) then work on the moved letters.
+        /// </summary>
+        [HarmonyPatch(typeof(Text), "OnPopulateMesh", new Type[] { typeof(VertexHelper) })]
+        internal static class TextPopulate
+        {
+            private static void Postfix(Text __instance, VertexHelper toFill)
+            {
+                try
+                {
+                    if (substitute == null || __instance.font != substitute) return;
+                    Swapped swapped = __instance.GetComponent<Swapped>();
+                    if (swapped != null) swapped.Move(toFill);
+                }
                 catch (Exception) { }
             }
         }

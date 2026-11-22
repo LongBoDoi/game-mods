@@ -56,7 +56,10 @@ namespace TiengViet
             Transform template = content.Find("Resolution");
             if (template == null)
             {
-                Plugin.Log.LogWarning("Game Settings has no Resolution row to copy; no language row. Rows: " + Children(content));
+                // Other screens reuse the options menu (lobby kitchen options, mods' level
+                // pickers); only Game Settings, the one with the volume rows, should have had it.
+                if (content.Find("MusicVolume") != null)
+                    Plugin.Log.LogWarning("Game Settings has no Resolution row to copy; no language row. Rows: " + Children(content));
                 return;
             }
             Plugin.Log.LogInfo("Language row added to Game Settings, above: " + Children(content));

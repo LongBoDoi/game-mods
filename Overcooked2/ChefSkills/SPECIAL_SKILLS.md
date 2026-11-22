@@ -19,7 +19,7 @@ The four rows under the skills on each card are **ACTIVE**, **PASSIVE**, **PASSI
 
 Config (`[Specials]` in `com.manhl.overcooked2.chefskills.cfg`): `Enabled` (default true) and `VersusSpecials` (default false). Online, the host's settings apply to everyone. `[Controls] SkillKey` is the skill key (EMOTE by default), also in MOD Settings with a **Rebind** button that listens for the key or controller button you press.
 
-Before locking in, **Hide** (Y on a controller, Ctrl or Tab on the keyboard) hides the screen so you can look at the kitchen and plan; press it again, or Select or Back, to bring it back.
+Before locking in, **Hide** (Y on a controller, Ctrl or Tab on the keyboard) hides the screen so you can look at the kitchen and plan; press it again, or Select, Lock in or Back, to bring it back. **Lock in** is X on a controller and Enter on the keyboard; Select only picks.
 
 ## Seeing them work
 

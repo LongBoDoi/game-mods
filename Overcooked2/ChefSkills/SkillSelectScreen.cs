@@ -9,7 +9,8 @@ namespace ChefSkills
     /// <summary>
     /// The skill-select step of the level intro. Each local player gets a card listing every
     /// skill: UP/DOWN picks a skill, LEFT lowers it (freeing a point), RIGHT raises it (spending
-    /// one, or going over), SELECT locks the build in only when it adds up to exactly zero, BACK
+    /// one, or going over), SELECT picks a special or a key, LOCK IN (X on a pad, Enter on the
+    /// keyboard) locks the build in only when it adds up to exactly zero, BACK
     /// unlocks it. So every locked-in build adds up to zero. Online, every other player gets a
     /// card too, showing their build and whether they've locked in (see <see cref="SkillSync"/>). There is no
     /// time limit: the screen closes once every player has locked in, or when a player holds the
@@ -124,6 +125,9 @@ namespace ChefSkills
             public ILogicalButton Cancel;
             public ILogicalButton Skip;
             public ILogicalButton Hide;
+            // Locks the build in (X on a pad, Enter on the keyboard): separate from SELECT, which
+            // only picks, so locking in never opens a picker or starts setting a key by accident.
+            public ILogicalButton LockIn;
             public bool SkipArmed;
             public float SkipHeld;
             // Waiting for this player to press a new skill key (the KEY row), and what came of the last try.
@@ -230,6 +234,7 @@ namespace ChefSkills
                     Cancel = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UICancel, player),
                     Skip = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UISkip, player),
                     Hide = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UIChangeMode, player),
+                    LockIn = LockInButton(player),
                 };
                 slot.Hide.ClaimPressEvent();
                 // Ignore presses left over from the loading screen.
@@ -239,6 +244,7 @@ namespace ChefSkills
                 slot.Right.ClaimPressEvent();
                 slot.Select.ClaimPressEvent();
                 slot.Cancel.ClaimPressEvent();
+                slot.LockIn.ClaimPressEvent();
                 slots.Add(slot);
             }
             _slots = slots;
@@ -412,7 +418,7 @@ namespace ChefSkills
 
         /// <summary>
         /// HIDE (the game's change-mode button: Y on a pad, Ctrl on the keyboard; or Tab) hides the
-        /// screen so the players can look at the kitchen, and shows it again; SELECT or BACK also
+        /// screen so the players can look at the kitchen, and shows it again; SELECT, LOCK IN or BACK also
         /// bring it back. True while it is hidden.
         /// </summary>
         private static bool HandleHide(List<Slot> slots)
@@ -430,10 +436,9 @@ namespace ChefSkills
             if (Input.GetKeyDown(KeyCode.Tab)) toggle = true;
             if (_view.Hidden)
                 foreach (Slot slot in slots)
-                    if (slot.Select.JustPressed() || slot.Cancel.JustPressed())
+                    // JustPressed claims the press it reports, so neither press does anything else.
+                    if (slot.Select.JustPressed() || slot.Cancel.JustPressed() || slot.LockIn.JustPressed())
                     {
-                        slot.Select.ClaimPressEvent();
-                        slot.Cancel.ClaimPressEvent();
                         _view.SetHidden(false);
                         PlaySound(GameOneShotAudioTag.UIHighlight);
                         return false;
@@ -449,13 +454,39 @@ namespace ChefSkills
         /// <summary>Throws away this player's pending presses (they meant nothing just now).</summary>
         private static void ClaimAll(Slot slot)
         {
-            slot.Up.ClaimPressEvent();
-            slot.Down.ClaimPressEvent();
-            slot.Left.ClaimPressEvent();
-            slot.Right.ClaimPressEvent();
-            slot.Select.ClaimPressEvent();
-            slot.Cancel.ClaimPressEvent();
-            slot.Hide.ClaimPressEvent();
+            Discard(slot.Up);
+            Discard(slot.Down);
+            Discard(slot.Left);
+            Discard(slot.Right);
+            Discard(slot.Select);
+            Discard(slot.Cancel);
+            Discard(slot.Hide);
+            Discard(slot.LockIn);
+        }
+
+        /// <summary>
+        /// The LOCK IN button: X on a pad (the game's "toggle profile" button, unused on this
+        /// screen); Enter on the keyboard, whose X-equivalent is Ctrl, already HIDE.
+        /// </summary>
+        private static ILogicalButton LockInButton(PlayerInputLookup.Player player)
+        {
+            if (SpecialInput.IsKeyboard(player))
+                return new ComboLogicalButton(new ILogicalButton[]
+                {
+                    new LogicalKeycodeButton(KeyCode.Return, ControlPadInput.Button.Start),
+                    new LogicalKeycodeButton(KeyCode.KeypadEnter, ControlPadInput.Button.Start)
+                });
+            return PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UIResultsToggleProfile, player);
+        }
+
+        /// <summary>
+        /// Throws away a pending press by reading it. A bare ClaimPressEvent stays in force until the
+        /// game next sees the button up, so claiming every frame without reading the button would
+        /// swallow the next real press (that is what made the hidden screen impossible to bring back).
+        /// </summary>
+        private static void Discard(ILogicalButton button)
+        {
+            if (button != null) button.JustPressed();
         }
 
         private static void HandleInput(Slot slot, bool canUnlock, HashSet<Special> taken)
@@ -524,9 +555,10 @@ namespace ChefSkills
                 PlaySound(GameOneShotAudioTag.UISelect);
                 return;
             }
-            if (slot.Select.JustPressed())
+            // SELECT on a skill row does nothing: locking in has its own button.
+            Discard(slot.Select);
+            if (slot.LockIn.JustPressed())
             {
-                slot.Select.ClaimPressEvent();
                 if (!slot.Ready)
                 {
                     // A build can only be locked in when it adds up to exactly zero: no point left
@@ -705,7 +737,8 @@ namespace ChefSkills
             _sync = null;
             SkillPicker.CloseAll();
             _slots = null;
-            if (_view != null) _view.Destroy();
+            // Fades out on its own while the game's intro starts.
+            if (_view != null) _view.Close();
             _view = null;
             _open = false;
         }

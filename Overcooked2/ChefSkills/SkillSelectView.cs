@@ -172,9 +172,11 @@ namespace ChefSkills
         private const float SpecialValueWidth = 140f;
         // Space between the special picks and the skill-key row.
         private const float KeyGap = 4f;
-        private const float DescriptionY = -260f;
+        // The last key row ends at -240.5; the description sits clear of it (-247..-293) and
+        // above the lock-in hint (its icon starts at -301).
+        private const float DescriptionY = -270f;
         private const float DescriptionHeight = 46f;
-        private const float HintY = -318f;
+        private const float HintY = -322f;
         // Rows fill the card art's dark interior (304 wide, measured in game) evenly, 8 in from
         // each side: name -144..-34, arrow, pips -12..84, arrow, effect 104..144.
         private const float RowWidth = 300f;
@@ -193,6 +195,15 @@ namespace ChefSkills
         private const int UnknownPoints = int.MinValue;
 
         private const float OpenSeconds = 0.3f;
+        // Hiding (to look at the kitchen) and closing (the level starting) are quicker than opening.
+        private const float HideSeconds = 0.2f;
+        private const float CloseSeconds = 0.25f;
+        // How small the dialog is when it pops in, and when it has shrunk away.
+        private const float HiddenScale = 0.86f;
+        private const float ClosedScale = 0.9f;
+        // The "show skills" bar drops in from above the screen's top edge.
+        private const float PeekY = -60f;
+        private const float PeekHiddenY = 50f;
         private const float PunchSeconds = 0.18f;
         private const float DeniedSeconds = 0.35f;
         private const float DimAlpha = 0.82f;
@@ -219,18 +230,31 @@ namespace ChefSkills
         private RectTransform _tagBox;
         private bool _tagShown = true;
         private float _plateWidth;
-        private float _openedAt;
+        private CanvasGroup _dialogGroup;
+        // The dialog's show/hide transition: it runs from _shownFrom (when it last changed
+        // direction, at _changedAt) towards 1 when shown or 0 when hidden.
+        private float _shownFrom;
+        private float _changedAt;
+        // Closing: the screen fades out from how it looked at _closedAt, then destroys itself.
+        private bool _closing;
+        private float _closedAt;
+        private float _closeDialogAlpha;
+        private float _closeScale;
+        private float _closeDim;
+        private float _closePeekAlpha;
         private string _signature;
         private GameObject _skipTrack;
         private GameObject _peek;
+        private CanvasGroup _peekGroup;
         private bool _hidden;
         private RectTransform _skipFill;
         private readonly Sprite[] _cardSprites = new Sprite[2];
         private readonly List<Card> _cards = new List<Card>();
 
+        /// <summary>Built and not yet closed (a closing screen is only fading out).</summary>
         internal bool IsAlive
         {
-            get { return _root != null; }
+            get { return _root != null && !_closing; }
         }
 
         /// <summary>The screen's canvas: the special picker is built on it, over the cards.</summary>
@@ -273,7 +297,9 @@ namespace ChefSkills
             view.BuildCanvas();
             view.BuildFrame();
             view.BuildLegend(legendPlayer, skipLabel);
-            view._openedAt = Time.unscaledTime;
+            view._shownFrom = 0f;
+            view._changedAt = Time.unscaledTime;
+            view.ApplyShown(0f, Time.unscaledTime);
             return view;
         }
 
@@ -301,6 +327,7 @@ namespace ChefSkills
         {
             _dialog = Child("Dialog", _root.transform, new Vector2(0f, DialogY), new Vector2(MinDialogWidth, DialogHeight));
             AddImage(_dialog, _art.Get(GameArt.DialogSprite), new Color(0.62f, 0.8f, 0.92f, 1f));
+            _dialogGroup = _dialog.gameObject.AddComponent<CanvasGroup>();
 
             // Header plate straddling the top-left edge, as on the game's own dialogs.
             _plate = Child("Header", _dialog, Vector2.zero, new Vector2(840f, 168f));
@@ -486,9 +513,7 @@ namespace ChefSkills
             RectTransform hint = Child("Hint", card.Root, new Vector2(0f, HintY), new Vector2(320f, 52f));
             card.HintGroup = hint.gameObject.AddComponent<CanvasGroup>();
             HorizontalLayoutGroup row = MakeRow(hint, 10f);
-            if (info.IsLocal)
-                AddIcon(row.transform, GameArt.ButtonIcon(PlayerInputLookup.LogicalButtonID.UISelectNotStart, info.Player),
-                    42f, "SELECT", _art);
+            if (info.IsLocal) AddLockInIcon(row.transform, info.Player);
             card.HintText = AddLabel(row.transform, _art.Header, 30, NeutralColour, "");
             card.Hint = hint.gameObject;
             return card;
@@ -640,27 +665,31 @@ namespace ChefSkills
             AddDirection(row.transform, PlayerInputLookup.LogicalButtonID.UIUp, player, "UP", -90f);
             AddDirection(row.transform, PlayerInputLookup.LogicalButtonID.UIDown, player, "DOWN", 90f);
             AddLabel(row.transform, _art.Header, 28, TitleColour, Lang.T("SKILL", "KỸ NĂNG"));
-            Spacer(row.transform, 28f);
+            Spacer(row.transform, 18f);
             AddDirection(row.transform, PlayerInputLookup.LogicalButtonID.UILeft, player, "LEFT", 0f);
             AddDirection(row.transform, PlayerInputLookup.LogicalButtonID.UIRight, player, "RIGHT", 180f);
             AddLabel(row.transform, _art.Header, 28, TitleColour, Lang.T("CHANGE", "ĐỔI"));
-            Spacer(row.transform, 28f);
+            Spacer(row.transform, 18f);
             AddIcon(row.transform, GameArt.ButtonIcon(PlayerInputLookup.LogicalButtonID.UISelectNotStart, player), 42f, "SELECT", _art);
-            AddLabel(row.transform, _art.Header, 28, TitleColour, Lang.T("LOCK IN / PICK", "CHỐT / CHỌN"));
-            Spacer(row.transform, 28f);
+            AddLabel(row.transform, _art.Header, 28, TitleColour, Lang.T("PICK", "CHỌN"));
+            Spacer(row.transform, 18f);
+            AddLockInIcon(row.transform, player);
+            AddLabel(row.transform, _art.Header, 28, TitleColour, Lang.T("LOCK IN", "CHỐT"));
+            Spacer(row.transform, 18f);
             AddIcon(row.transform, GameArt.ButtonIcon(PlayerInputLookup.LogicalButtonID.UICancel, player), 42f, "BACK", _art);
             AddLabel(row.transform, _art.Header, 28, TitleColour, Lang.T("UNDO", "BỎ CHỐT"));
-            Spacer(row.transform, 28f);
+            Spacer(row.transform, 18f);
             AddIcon(row.transform, GameArt.ButtonIcon(PlayerInputLookup.LogicalButtonID.UIChangeMode, player), 42f, "TAB", _art);
             AddLabel(row.transform, _art.Header, 28, TitleColour, Lang.T("HIDE", "ẨN"));
-            Spacer(row.transform, 28f);
+            Spacer(row.transform, 18f);
             AddIcon(row.transform, GameArt.ButtonIcon(PlayerInputLookup.LogicalButtonID.UISkip, player), 42f, "SKIP", _art);
             Text skip = AddLabel(row.transform, _art.Header, 28, TitleColour, skipLabel);
 
             // Shown instead of everything else while the screen is hidden to look at the kitchen.
             RectTransform peekBar = Child("Peek", _root.transform, Vector2.zero, new Vector2(620f, 64f));
             peekBar.anchorMin = peekBar.anchorMax = new Vector2(0.5f, 1f);
-            peekBar.anchoredPosition = new Vector2(0f, -60f);
+            peekBar.anchoredPosition = new Vector2(0f, PeekHiddenY);
+            _peekGroup = peekBar.gameObject.AddComponent<CanvasGroup>();
             AddImage(peekBar, _art.Get(GameArt.LegendSprite), new Color(0.2f, 0.42f, 0.55f, 1f));
             RectTransform peekItems = Child("Items", peekBar, new Vector2(0f, 2f), new Vector2(600f, 56f));
             HorizontalLayoutGroup peekRow = MakeRow(peekItems, 8f);
@@ -695,14 +724,124 @@ namespace ChefSkills
             get { return _hidden; }
         }
 
-        /// <summary>Hides the dialog and the dimming (leaving a small "show skills" bar), or shows them again.</summary>
+        /// <summary>
+        /// Hides the dialog and the dimming (leaving a small "show skills" bar), or shows them
+        /// again. Both are animated by <see cref="Render"/>, starting from wherever the last
+        /// change had got to, so a quick hide-and-show doesn't jump.
+        /// </summary>
         internal void SetHidden(bool hidden)
         {
-            if (!IsAlive || _hidden == hidden) return;
+            if (!IsAlive || _closing || _hidden == hidden) return;
+            float now = Time.unscaledTime;
+            _shownFrom = ShownAmount(now);
+            _changedAt = now;
             _hidden = hidden;
-            _dialog.gameObject.SetActive(!hidden);
-            if (_peek != null) _peek.SetActive(hidden);
-            if (!hidden) _openedAt = Time.unscaledTime - OpenSeconds * 0.5f;
+        }
+
+        /// <summary>How far shown the dialog is: 0 hidden, 1 fully shown.</summary>
+        private float ShownAmount(float now)
+        {
+            float seconds = _hidden ? HideSeconds : OpenSeconds;
+            float progress = Mathf.Clamp01((now - _changedAt) / seconds);
+            return Mathf.Lerp(_shownFrom, _hidden ? 0f : 1f, progress);
+        }
+
+        /// <summary>
+        /// Poses the dialog, the dimming and the "show skills" bar for <paramref name="shown"/>:
+        /// opening pops the dialog in (grow with a little overshoot, fade in); hiding shrinks and
+        /// fades it while the bar drops in from the top.
+        /// </summary>
+        private void ApplyShown(float shown, float now)
+        {
+            bool showing = !_hidden;
+            float fade = showing ? Mathf.Clamp01(shown * 2f) : shown;
+            float scale = Mathf.LerpUnclamped(HiddenScale, 1f, showing ? EaseOutBack(shown) : shown);
+            _dialog.localScale = new Vector3(scale, scale, 1f);
+            if (_dialogGroup != null) _dialogGroup.alpha = fade;
+            bool dialogOn = showing || shown > 0f;
+            if (_dialog.gameObject.activeSelf != dialogOn) _dialog.gameObject.SetActive(dialogOn);
+            Color dim = DimColour;
+            dim.a = DimAlpha * fade;
+            _dim.color = dim;
+
+            if (_peek == null) return;
+            // The bar comes in as the dialog goes, and leaves quickly when it comes back.
+            float peek = showing ? Mathf.Clamp01(1f - shown * 3f) : 1f - shown;
+            bool peekOn = peek > 0f;
+            if (_peek.activeSelf != peekOn) _peek.SetActive(peekOn);
+            if (!peekOn) return;
+            RectTransform bar = (RectTransform)_peek.transform;
+            bar.anchoredPosition = new Vector2(0f, Mathf.LerpUnclamped(PeekHiddenY, PeekY, EaseOutBack(peek)));
+            bar.localScale = Vector3.one * (1f + 0.04f * Mathf.Sin(now * 3f));
+            if (_peekGroup != null) _peekGroup.alpha = Mathf.Clamp01(peek * 1.5f);
+        }
+
+        /// <summary>
+        /// Fades the screen out (shrinking the dialog a little), then destroys it. The screen is
+        /// finished as far as the caller is concerned: it is no longer alive and draws nothing new.
+        /// </summary>
+        internal void Close()
+        {
+            if (_root == null) return;
+            if (_closing) return;
+            if (!_root.activeInHierarchy)
+            {
+                Destroy();
+                return;
+            }
+            _closing = true;
+            _closedAt = Time.unscaledTime;
+            _closeDialogAlpha = _dialog != null && _dialog.gameObject.activeSelf && _dialogGroup != null ? _dialogGroup.alpha : 0f;
+            _closeScale = _dialog != null ? _dialog.localScale.x : 1f;
+            _closeDim = _dim != null ? _dim.color.a : 0f;
+            _closePeekAlpha = _peek != null && _peek.activeSelf && _peekGroup != null ? _peekGroup.alpha : 0f;
+            _skipTrack = null;
+            _root.AddComponent<CloseFade>().View = this;
+        }
+
+        /// <summary>One frame of the close fade; true once it has finished.</summary>
+        private bool StepClose()
+        {
+            float progress = Mathf.Clamp01((Time.unscaledTime - _closedAt) / CloseSeconds);
+            float left = 1f - progress * progress;
+            if (_dialog != null)
+            {
+                float scale = Mathf.Lerp(ClosedScale * _closeScale, _closeScale, left);
+                _dialog.localScale = new Vector3(scale, scale, 1f);
+            }
+            if (_dialogGroup != null) _dialogGroup.alpha = _closeDialogAlpha * left;
+            if (_dim != null)
+            {
+                Color dim = DimColour;
+                dim.a = _closeDim * left;
+                _dim.color = dim;
+            }
+            if (_peekGroup != null) _peekGroup.alpha = _closePeekAlpha * left;
+            return progress >= 1f;
+        }
+
+        /// <summary>Runs the close fade on the screen's own object (the screen's loop has ended by then).</summary>
+        private sealed class CloseFade : MonoBehaviour
+        {
+            internal SkillSelectView View;
+
+            private void Update()
+            {
+                bool done;
+                try
+                {
+                    done = View == null || View.StepClose();
+                }
+                catch (Exception error)
+                {
+                    Plugin.Log.LogDebug("Màn chọn kỹ năng không mờ dần được: " + error.Message);
+                    done = true;
+                }
+                if (!done) return;
+                if (View != null) View.Destroy();
+                else Object.Destroy(gameObject);
+                View = null;
+            }
         }
 
         /// <summary>Shows how far the Skip hold has got (0 hides the bar).</summary>
@@ -724,17 +863,7 @@ namespace ChefSkills
             SetCards(infos);
             float now = Time.unscaledTime;
 
-            float open = Mathf.Clamp01((now - _openedAt) / OpenSeconds);
-            float scale = Mathf.LerpUnclamped(0.86f, 1f, EaseOutBack(open));
-            _dialog.localScale = new Vector3(scale, scale, 1f);
-            Color dim = DimColour;
-            dim.a = _hidden ? 0f : DimAlpha * Mathf.Clamp01(open * 2f);
-            _dim.color = dim;
-            if (_peek != null)
-            {
-                RectTransform peek = (RectTransform)_peek.transform;
-                peek.localScale = Vector3.one * (1f + 0.04f * Mathf.Sin(now * 3f));
-            }
+            ApplyShown(ShownAmount(now), now);
 
             int counted = 0, ready = 0;
             float pulse = 0.55f + 0.45f * Mathf.Abs(Mathf.Sin(now * 3f));
@@ -1067,6 +1196,18 @@ namespace ChefSkills
         }
 
         /// <summary>A button icon, or the button's name in brackets when the game has no icon for it.</summary>
+        /// <summary>
+        /// The LOCK IN button's icon: the pad's X button, or "[ENTER]" on the keyboard (the game
+        /// would draw its keyboard X-equivalent, Ctrl, which is HIDE here).
+        /// </summary>
+        private void AddLockInIcon(Transform row, PlayerInputLookup.Player player)
+        {
+            if (SpecialInput.IsKeyboard(player))
+                AddIcon(row, null, 42f, "ENTER", _art);
+            else
+                AddIcon(row, GameArt.ButtonIcon(PlayerInputLookup.LogicalButtonID.UIResultsToggleProfile, player), 42f, "X", _art);
+        }
+
         private static void AddIcon(Transform row, Sprite icon, float size, string fallbackName, GameArt art)
         {
             if (icon == null)

@@ -89,6 +89,43 @@ else {
     if ($bad.Count) { $failed += "vi.tsv has $($bad.Count) rows without exactly 3 cells, e.g. $($bad[0])" } else { $checked++ }
 }
 
+$resource = $assembly.MainModule.Resources | Where-Object { $_.Name -eq 'TiengViet.mods.tsv' }
+if (-not $resource) { $failed += 'mods.tsv is not built into the DLL' }
+else {
+    $text = [Text.Encoding]::UTF8.GetString($resource.GetResourceData())
+    $rows = @($text -split "`n" | Where-Object { $_ -and -not $_.StartsWith('#') })
+    $bad = @($rows | Where-Object { $cells = $_ -split "`t"; $cells.Count -ne 4 -or -not $cells[3] -or
+        @('ModSettings', 'HostTools', 'Setting') -notcontains $cells[0] })
+    if ($rows.Count -lt 600) { $failed += "mods.tsv has only $($rows.Count) rows" } else { $checked++ }
+    if ($bad.Count) { $failed += "mods.tsv has $($bad.Count) bad rows, e.g. $($bad[0])" } else { $checked++ }
+}
+
+# --- other mods' text tables (only checked when that mod is installed) -----------------------
+$plugins = Join-Path $GameDir 'BepInEx\plugins'
+$modSettings = Get-ChildItem $plugins -Recurse -Filter 'OC2ModSettings.dll' | Select-Object -First 1
+if ($modSettings) {
+    $ms = [Mono.Cecil.AssemblyDefinition]::ReadAssembly($modSettings.FullName, $reader)
+    Assert-Method $ms 'OC2ModSettings.Texts' 'Resolve' $null                  # ModTexts.ModSettingsText
+    Assert-Method $ms 'OC2ModSettings.EntryMetadata' 'Read' $null             # ModTexts.SettingNames
+    Assert-Method $ms 'OC2ModSettings.RegisteredAction' 'Metadata' ''
+    foreach ($f in 'Name', 'Category', 'Description') { Assert-Field $ms 'OC2ModSettings.EntryMetadata' $f }
+    Assert-Field  $ms 'OC2ModSettings.NativePage' 'language'                   # ModTexts.Relabel
+    Assert-Field  $ms 'OC2ModSettings.NativeEntry' 'language'
+    Assert-Field  $ms 'OC2ModSettings.ModSettingsPlugin' 'Instance'
+    Assert-Field  $ms 'OC2ModSettings.ModSettingsPlugin' 'Catalog'
+    Assert-Field  $ms 'OC2ModSettings.ModSettingsPlugin' 'entry'
+    Assert-Method $ms 'OC2ModSettings.ConfigCatalog' 'Invalidate' ''
+    Assert-Method $ms 'OC2ModSettings.NativeFontLease' 'Keep' 'UnityEngine.Font' # HeaderFont.GameFontFirst
+}
+$hostTools = Get-ChildItem $plugins -Recurse -Filter 'HostUtilities.dll' | Sort-Object FullName -Descending | Select-Object -First 1
+if ($hostTools) {
+    $hu = [Mono.Cecil.AssemblyDefinition]::ReadAssembly($hostTools.FullName, $reader)
+    Assert-Method $hu 'HostUtilities.Language' 'GetText' 'System.String,System.String'   # ModTexts.HostToolsText
+    foreach ($f in 'languageDict', 'configTranslationKeys', 'configTranslationKeyByText', 'publishedGameLanguageCode') {
+        Assert-Field $hu 'HostUtilities.Language' $f                                       # Teach, Relabel
+    }
+}
+
 if ($failed.Count) {
     $failed | ForEach-Object { Write-Host "FAIL $_" -ForegroundColor Red }
     exit 1
