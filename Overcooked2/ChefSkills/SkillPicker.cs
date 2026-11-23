@@ -13,8 +13,10 @@ namespace ChefSkills
     /// per kitchen and taken, or clashing with another pick). Directions move, SELECT picks, BACK
     /// closes; the mouse can point, click and scroll.
     ///
-    /// One per local player; several open at once share the screen side by side. Built on the skill
-    /// screen's canvas with the game's dialog art, like the rest of the screen.
+    /// One per local player. With one player on this machine it opens as a dialog over the dimmed
+    /// screen; with several, each player's picker stays in their own lane of the screen, over their
+    /// own card, so the others can keep choosing while it is open. Built on the skill screen's
+    /// canvas with the game's dialog art, like the rest of the screen.
     /// </summary>
     internal sealed class SkillPicker
     {
@@ -70,6 +72,8 @@ namespace ChefSkills
         private readonly List<Tile> _tiles = new List<Tile>();
         private readonly Image _footIcon, _footDisc;
         private readonly Text _footGlyph, _footName, _footTag, _footText, _footStatus;
+        private readonly Text _titleText, _ownerText;
+        private bool _narrow;
         private readonly float _openedAt;
         private int _cursor;
         private float _scroll, _scrollTarget, _contentHeight;
@@ -82,11 +86,14 @@ namespace ChefSkills
         private readonly SpecialInput.PadNav _pad;
         private float _deniedAt = -10f;
         private int _deniedTile = -1;
+        // The part of the screen this picker keeps to, when several players share the screen.
+        private bool _hasLane;
+        private float _laneLeft, _laneRight;
 
         /// <summary>A player's colour index (for the panel's name tag), and how many players are on this machine.</summary>
         private readonly string _owner;
 
-        private SkillPicker(Transform canvas, GameArt art, PlayerInputLookup.Player player, string owner, SpecialSlot slot, Special current)
+        private SkillPicker(Transform canvas, GameArt art, PlayerInputLookup.Player player, string owner, SpecialSlot slot, Special current, bool shared)
         {
             Player = player;
             Slot = slot;
@@ -97,7 +104,9 @@ namespace ChefSkills
             _mouseAnchor = _lastMouse;
             _pad = new SpecialInput.PadNav(player);
 
-            if (s_dim == null)
+            // One player on this machine: the picker is a dialog over a dimmed screen. With several,
+            // the others are still choosing, so nothing is dimmed.
+            if (s_dim == null && !shared)
             {
                 RectTransform dim = Child("PickerDim", canvas);
                 Stretch(dim);
@@ -105,7 +114,7 @@ namespace ChefSkills
                 dimImage.color = new Color(0.03f, 0.05f, 0.08f, 0.55f);
                 s_dim = dim.gameObject;
             }
-            s_dim.transform.SetAsLastSibling();
+            if (s_dim != null) s_dim.transform.SetAsLastSibling();
 
             _panel = Child("Picker" + (int)player, canvas);
             _panel.sizeDelta = new Vector2(MaxWidth, PanelHeight);
@@ -126,15 +135,15 @@ namespace ChefSkills
             title.offsetMax = new Vector2(-Pad, -Pad + 6f);
             string what = slot == SpecialSlot.Active ? Lang.T("CHOOSE YOUR ACTIVE", "CHỌN KỸ NĂNG CHỦ ĐỘNG")
                 : slot == SpecialSlot.Quirk ? Lang.T("CHOOSE A QUIRK", "CHỌN MỘT TẬT") : Lang.T("CHOOSE A PASSIVE", "CHỌN KỸ NĂNG BỊ ĐỘNG");
-            Text titleText = AddText(title, Header, 44, TitleColour, TextAnchor.MiddleLeft, what);
-            AddShadow(titleText.gameObject);
+            _titleText = AddText(title, Header, 44, TitleColour, TextAnchor.MiddleLeft, what);
+            AddShadow(_titleText.gameObject);
             if (!string.IsNullOrEmpty(owner))
             {
                 // Its own object: a GameObject can hold only one Text.
                 RectTransform ownerRect = Child("Owner", title);
                 Stretch(ownerRect);
-                Text ownerText = AddText(ownerRect, Header, 30, MutedColour, TextAnchor.MiddleRight, owner);
-                AddShadow(ownerText.gameObject);
+                _ownerText = AddText(ownerRect, Header, 30, MutedColour, TextAnchor.MiddleRight, owner);
+                AddShadow(_ownerText.gameObject);
             }
 
             // The grid, scrolled inside a masked viewport.
@@ -220,9 +229,9 @@ namespace ChefSkills
 
         /// <summary>Opens a picker for this player's slot, on the skill screen's canvas.</summary>
         internal static SkillPicker Open(Transform canvas, GameArt art, PlayerInputLookup.Player player, string owner,
-            SpecialSlot slot, Special current, bool byMouse)
+            SpecialSlot slot, Special current, bool byMouse, bool shared)
         {
-            var picker = new SkillPicker(canvas, art, player, owner, slot, current);
+            var picker = new SkillPicker(canvas, art, player, owner, slot, current, shared);
             picker._mouseMode = byMouse;
             return picker;
         }
@@ -254,20 +263,56 @@ namespace ChefSkills
             s_dim = null;
         }
 
-        /// <summary>Several pickers share the screen's width side by side, in player order.</summary>
+        /// <summary>
+        /// Keeps this picker inside its player's lane of the screen (from <paramref name="left"/> to
+        /// <paramref name="right"/>, in reference units from the middle), over their own card.
+        /// </summary>
+        internal void SetLane(float left, float right)
+        {
+            if (_hasLane && Mathf.Abs(_laneLeft - left) < 0.5f && Mathf.Abs(_laneRight - right) < 0.5f) return;
+            _hasLane = true;
+            _laneLeft = left;
+            _laneRight = right;
+            LayoutAll();
+        }
+
+        /// <summary>Is this screen point on any open picker?</summary>
+        internal static bool AnyAt(Vector3 point)
+        {
+            foreach (SkillPicker picker in s_open)
+                if (picker._panel != null && RectTransformUtility.RectangleContainsScreenPoint(picker._panel, point, null)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// A picker with a lane sits in it, as wide as the lane allows. The rest (one player on this
+        /// machine) share the screen's width side by side, in player order.
+        /// </summary>
         private static void LayoutAll()
         {
-            int n = s_open.Count;
-            if (n == 0) return;
-            float width = Mathf.Min(MaxWidth, (ScreenWidth - (n - 1) * PanelGap) / n);
-            float x = -(n * width + (n - 1) * PanelGap) / 2f + width / 2f;
+            var shared = new List<SkillPicker>();
             foreach (SkillPicker picker in s_open)
             {
                 if (picker._panel == null) continue;
                 picker._panel.anchorMin = picker._panel.anchorMax = new Vector2(0.5f, 0.5f);
+                picker._panel.SetAsLastSibling();
+                if (!picker._hasLane)
+                {
+                    shared.Add(picker);
+                    continue;
+                }
+                float laneWidth = Mathf.Max(200f, picker._laneRight - picker._laneLeft - PanelGap);
+                picker._panel.sizeDelta = new Vector2(Mathf.Min(MaxWidth, laneWidth), PanelHeight);
+                picker._panel.anchoredPosition = new Vector2((picker._laneLeft + picker._laneRight) / 2f, PanelY);
+            }
+            int n = shared.Count;
+            if (n == 0) return;
+            float width = Mathf.Min(MaxWidth, (ScreenWidth - (n - 1) * PanelGap) / n);
+            float x = -(n * width + (n - 1) * PanelGap) / 2f + width / 2f;
+            foreach (SkillPicker picker in shared)
+            {
                 picker._panel.sizeDelta = new Vector2(width, PanelHeight);
                 picker._panel.anchoredPosition = new Vector2(x, PanelY);
-                picker._panel.SetAsLastSibling();
                 x += width + PanelGap;
             }
         }
@@ -426,6 +471,25 @@ namespace ChefSkills
             if (instant) _scroll = _scrollTarget;
         }
 
+        // Below this panel width (a lane on a screen shared by three or four players) the header and
+        // the details strip are packed tighter.
+        private const float NarrowWidth = 640f;
+
+        private void Fit(bool narrow)
+        {
+            if (narrow == _narrow) return;
+            _narrow = narrow;
+            _titleText.fontSize = narrow ? 30 : 44;
+            // The picker sits over its owner's card then, so the owner's name can go.
+            if (_ownerText != null) _ownerText.gameObject.SetActive(!narrow);
+            _footDisc.gameObject.SetActive(!narrow);
+            foreach (Text text in new[] { _footName, _footTag, _footText, _footStatus })
+            {
+                RectTransform rect = text.rectTransform;
+                rect.offsetMin = new Vector2(narrow ? 20f : 160f, rect.offsetMin.y);
+            }
+        }
+
         /// <summary>Draws a frame: tiles' states, the highlight, the details strip.</summary>
         internal void Render(int[] loadout, HashSet<Special> taken)
         {
@@ -435,6 +499,7 @@ namespace ChefSkills
             if (width > 1f && Mathf.Abs(width - _shownWidth) > 0.5f)
             {
                 _shownWidth = width;
+                Fit(_panel.sizeDelta.x < NarrowWidth);
                 LayoutTiles(width);
                 ScrollToCursor(true);
             }

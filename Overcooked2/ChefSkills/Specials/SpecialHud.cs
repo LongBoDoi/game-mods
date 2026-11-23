@@ -10,8 +10,11 @@ namespace ChefSkills
     /// The skill bar: for each chef played on this machine, a round button at the bottom of the
     /// screen for its active special (its icon, a cooldown sweep with the seconds left, a ring while
     /// its effect lasts, the key that uses it) and small round icons for its passives and quirk
-    /// (with any recharge sweep or count a module sets, see ChefState.SetTimer/SetCount). Several
-    /// local players get one bar each, side by side, marked with their chef colour.
+    /// (with any recharge sweep or count a module sets, see ChefState.SetTimer/SetCount).
+    ///
+    /// Each local player picks where theirs goes (<see cref="SkillBarSettings"/>): on screen
+    /// (several players' bars spread over the bottom in lanes, each tagged P1..P4 and underlined in
+    /// that player's colour), over their chef's head (small, following the chef), or hidden.
     ///
     /// A refused press shakes the button and says why over it; a used one pops; and when the
     /// active is ready again the button flashes and a ring goes out under the chef.
@@ -51,7 +54,7 @@ namespace ChefSkills
             public readonly Icon[] Small = new Icon[3];
             public Text Key, Reason, Player, DetailsHint;
             public readonly List<Chip> Chips = new List<Chip>();
-            public Image KeyBack, PlayerBack;
+            public Image KeyBack, PlayerBack, Strip;
             public bool WasCooling;
             public float ReadyAt = -10f;
         }
@@ -160,6 +163,14 @@ namespace ChefSkills
 
         // --- every frame ------------------------------------------------------------------------
 
+        // On screen, several players' bars are spread over the middle of the bottom edge (the score
+        // and the timer keep the corners), each in its own lane.
+        private const float LanesHalfWidth = 660f;
+        private const float PackedGap = 90f;
+        // Over a chef: how high above its feet the bar sits, and how big it is drawn.
+        private const float HeadHeight = 2.2f;
+        private const float OverheadScale = 0.55f;
+
         internal void Update(IList<ChefState> chefs)
         {
             if (_root == null) return;
@@ -167,7 +178,16 @@ namespace ChefSkills
             bool hidden = SkillSelectScreen.IsOpen || menu;
             // Hidden as a whole: a game menu or the skill screen is over the level.
             if (_canvas != null && _canvas.enabled == hidden) _canvas.enabled = !hidden;
-            if (!hidden && SpecialInput.DetailsPressed()) _details.Toggle();
+
+            // The players on this machine in player order: each one's rank picks their own DISPLAY
+            // setting, and their own info key opens their own details card.
+            var players = new List<PlayerInputLookup.Player>();
+            foreach (ChefState state in chefs)
+                if (state.Local && state.Chef != null && !players.Contains(PlayerOf(state))) players.Add(PlayerOf(state));
+            players.Sort();
+            foreach (PlayerInputLookup.Player player in players)
+                if (SpecialInput.DetailsPressed(player) && !hidden) _details.Toggle(player);
+
             var shown = new List<ChefState>();
             foreach (ChefState state in chefs)
             {
@@ -180,19 +200,36 @@ namespace ChefSkills
                 return ((int)PlayerOf(a)).CompareTo((int)PlayerOf(b));
             });
 
-            float width = 0f;
-            for (int i = 0; i < shown.Count; i++) width += BarWidth(shown[i]) + (i > 0 ? BarGap : 0f);
-            float x = -width * 0.5f;
+            var onScreen = new List<ChefState>();
+            var modes = new Dictionary<ChefState, SkillBarMode>();
+            foreach (ChefState state in shown)
+            {
+                SkillBarMode mode = SkillBarSettings.Get(players.IndexOf(PlayerOf(state)));
+                modes[state] = mode;
+                if (mode == SkillBarMode.OnScreen) onScreen.Add(state);
+            }
+            float lane;
+            Dictionary<ChefState, float> lefts = LayOut(onScreen, out lane);
+            bool several = players.Count > 1;
+            Camera camera = SpecialFx.GameCamera();
+
             var seen = new HashSet<ChefState>();
             foreach (ChefState state in shown)
             {
                 seen.Add(state);
                 Bar bar = BarFor(state);
-                if (bar.Root.gameObject.activeSelf == hidden) bar.Root.gameObject.SetActive(!hidden);
-                float w = BarWidth(state);
-                bar.Root.anchoredPosition = new Vector2(x, BottomMargin);
-                x += w + BarGap;
-                if (!hidden) Draw(state, bar, shown.Count > 1);
+                TrackReady(state, bar);
+                SkillBarMode mode = modes[state];
+                bool visible = !hidden && mode != SkillBarMode.Hidden;
+                if (visible && mode == SkillBarMode.AboveHead) visible = PlaceOverhead(state, bar, camera);
+                else if (visible)
+                {
+                    bar.Root.anchorMin = bar.Root.anchorMax = new Vector2(0.5f, 0f);
+                    bar.Root.localScale = Vector3.one;
+                    bar.Root.anchoredPosition = new Vector2(lefts[state], BottomMargin);
+                }
+                if (bar.Root.gameObject.activeSelf != visible) bar.Root.gameObject.SetActive(visible);
+                if (visible) Draw(state, bar, several, mode, mode == SkillBarMode.OnScreen && onScreen.Count > 1 ? lane - 20f : ChipMaxRow);
             }
             var gone = new List<ChefState>();
             foreach (KeyValuePair<ChefState, Bar> pair in _bars)
@@ -202,7 +239,84 @@ namespace ChefSkills
                 if (_bars[state].Root != null) Object.Destroy(_bars[state].Root.gameObject);
                 _bars.Remove(state);
             }
-            if (!hidden) _details.Update(shown);
+            if (!hidden) _details.Update(shown, players);
+        }
+
+        /// <summary>
+        /// Where each on-screen bar's left edge goes. One bar sits in the middle; several get a lane
+        /// each across the middle of the screen, in player order, so they stand well apart (packed
+        /// with a wide gap when they don't fit their lanes). <paramref name="lane"/>: each lane's width.
+        /// </summary>
+        private static Dictionary<ChefState, float> LayOut(List<ChefState> bars, out float lane)
+        {
+            var lefts = new Dictionary<ChefState, float>();
+            int n = bars.Count;
+            lane = n > 0 ? 2f * LanesHalfWidth / n : 0f;
+            if (n == 0) return lefts;
+            if (n == 1)
+            {
+                lefts[bars[0]] = -BarWidth(bars[0]) * 0.5f;
+                return lefts;
+            }
+            bool fits = true;
+            float total = 0f;
+            foreach (ChefState state in bars)
+            {
+                float w = BarWidth(state);
+                total += w;
+                if (w + PackedGap > lane) fits = false;
+            }
+            if (fits)
+            {
+                for (int i = 0; i < n; i++)
+                    lefts[bars[i]] = -LanesHalfWidth + lane * (i + 0.5f) - BarWidth(bars[i]) * 0.5f;
+                return lefts;
+            }
+            total += (n - 1) * PackedGap;
+            float x = -total * 0.5f;
+            foreach (ChefState state in bars)
+            {
+                lefts[state] = x;
+                x += BarWidth(state) + PackedGap;
+            }
+            lane = total / n;
+            return lefts;
+        }
+
+        /// <summary>
+        /// Puts the bar over its chef's head, drawn small. False when the chef isn't in front of the
+        /// camera (nothing to show it over).
+        /// </summary>
+        private bool PlaceOverhead(ChefState state, Bar bar, Camera camera)
+        {
+            if (camera == null) return false;
+            Vector3 screen = camera.WorldToScreenPoint(state.Position + Vector3.up * HeadHeight);
+            if (screen.z <= 0f) return false;
+            Vector2 local;
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle((RectTransform)_root.transform, screen, null, out local))
+                return false;
+            bar.Root.anchorMin = bar.Root.anchorMax = new Vector2(0.5f, 0.5f);
+            bar.Root.localScale = new Vector3(OverheadScale, OverheadScale, 1f);
+            // Centred over the head; the key label under the button isn't drawn here, so drop by its height.
+            bar.Root.anchoredPosition = local + new Vector2(-BarWidth(state) * OverheadScale * 0.5f, -30f * OverheadScale);
+            return true;
+        }
+
+        /// <summary>When the active is ready again: a ring goes out under the chef (and the button flashes, if shown).</summary>
+        private static void TrackReady(ChefState state, Bar bar)
+        {
+            if (state.Active == Special.None)
+            {
+                bar.WasCooling = false;
+                return;
+            }
+            bool cooling = SpecialRuntime.Now < state.CooldownUntil;
+            if (bar.WasCooling && !cooling)
+            {
+                bar.ReadyAt = Time.unscaledTime;
+                SpecialFx.Burst(state.Position, SpecialFx.ColourOf(state.Active), 1.1f, 0.45f);
+            }
+            bar.WasCooling = cooling;
         }
 
         private static PlayerInputLookup.Player PlayerOf(ChefState state)
@@ -220,7 +334,7 @@ namespace ChefSkills
             return Mathf.Max(width, ActiveSize);
         }
 
-        private void Draw(ChefState state, Bar bar, bool several)
+        private void Draw(ChefState state, Bar bar, bool several, SkillBarMode mode, float chipRow)
         {
             float now = SpecialRuntime.Now;
             float real = Time.unscaledTime;
@@ -229,7 +343,9 @@ namespace ChefSkills
             // --- the active button --------------------------------------------------------------
             bool hasActive = active != Special.None;
             bar.Active.Root.gameObject.SetActive(hasActive);
-            bar.Key.transform.parent.gameObject.SetActive(hasActive);
+            bool onScreen = mode == SkillBarMode.OnScreen;
+            // Over a chef the bar is small: just the icons, the timers and what a press did.
+            bar.Key.transform.parent.gameObject.SetActive(hasActive && onScreen);
             float smallX = 0f;
             if (hasActive)
             {
@@ -240,14 +356,6 @@ namespace ChefSkills
                 bool running = now < state.ActiveUntil;
                 bool pending = now < state.PendingUntil;
                 float left = state.CooldownUntil - now;
-
-                if (bar.WasCooling && !cooling)
-                {
-                    // Ready again: flash the button and send a ring out under the chef.
-                    bar.ReadyAt = real;
-                    SpecialFx.Burst(state.Position, colour, 1.1f, 0.45f);
-                }
-                bar.WasCooling = cooling;
 
                 bar.Active.Back.color = cooling && !running ? Color.Lerp(colour, Color.black, 0.55f) : colour;
                 bar.Active.Sweep.enabled = cooling && state.CooldownTotal > 0f && state.CooldownTotal < 999f;
@@ -320,11 +428,11 @@ namespace ChefSkills
             else bar.Reason.gameObject.SetActive(false);
 
             // Which key opens the details panel, next to the small icons.
-            string detailsKey = SpecialInput.DetailsKeyName();
+            string detailsKey = onScreen ? SpecialInput.DetailsNameFor(PlayerOf(state)) : null;
             bar.DetailsHint.gameObject.SetActive(detailsKey != null);
             if (detailsKey != null)
             {
-                bar.DetailsHint.text = detailsKey + ": " + (_details.Open ? Lang.T("HIDE INFO", "ẨN THÔNG TIN") : Lang.T("SKILL INFO", "XEM KỸ NĂNG"));
+                bar.DetailsHint.text = detailsKey + ": " + (_details.IsOpen(PlayerOf(state)) ? Lang.T("HIDE INFO", "ẨN THÔNG TIN") : Lang.T("SKILL INFO", "XEM KỸ NĂNG"));
                 bar.DetailsHint.rectTransform.anchoredPosition = new Vector2(smallX, 14f);
             }
 
@@ -357,9 +465,12 @@ namespace ChefSkills
             }
 
             // --- texts --------------------------------------------------------------------------
-            DrawChips(state, bar, BarWidth(state));
-            bar.Player.transform.parent.gameObject.SetActive(several);
-            if (several)
+            DrawChips(state, bar, BarWidth(state), chipRow);
+            // Several players: a P1..P4 tag and a line in their colour under the bar say whose it is.
+            bool tagged = several && onScreen;
+            bar.Player.transform.parent.gameObject.SetActive(tagged);
+            bar.Strip.gameObject.SetActive(tagged);
+            if (tagged)
             {
                 PlayerInputLookup.Player player = PlayerOf(state);
                 bar.Player.text = "P" + ((int)player + 1);
@@ -371,7 +482,11 @@ namespace ChefSkills
                 catch (Exception)
                 {
                 }
-                bar.PlayerBack.color = GameArt.ArrowTints[Mathf.Clamp(index, 0, GameArt.ArrowTints.Length - 1)];
+                Color tint = GameArt.ArrowTints[Mathf.Clamp(index, 0, GameArt.ArrowTints.Length - 1)];
+                bar.PlayerBack.color = tint;
+                bar.Strip.color = tint;
+                bar.Strip.rectTransform.sizeDelta = new Vector2(BarWidth(state) + 24f, 5f);
+                bar.Strip.rectTransform.anchoredPosition = new Vector2(BarWidth(state) * 0.5f, 3f);
             }
         }
 
@@ -402,7 +517,7 @@ namespace ChefSkills
         /// The chef's status lines as chips in a row centred over its bar (more rows upwards when
         /// they don't fit). A chip pops and flashes when it appears or its text changes.
         /// </summary>
-        private void DrawChips(ChefState state, Bar bar, float barWidth)
+        private void DrawChips(ChefState state, Bar bar, float barWidth, float maxRow)
         {
             var lines = new Dictionary<string, string>();
             foreach (KeyValuePair<string, string> line in state.Statuses) lines[line.Key] = line.Value;
@@ -456,7 +571,7 @@ namespace ChefSkills
             {
                 int end = start;
                 float row = widths[start];
-                while (end + 1 < bar.Chips.Count && row + ChipGap + widths[end + 1] <= ChipMaxRow)
+                while (end + 1 < bar.Chips.Count && row + ChipGap + widths[end + 1] <= maxRow)
                 {
                     end++;
                     row += ChipGap + widths[end];
@@ -591,6 +706,14 @@ namespace ChefSkills
             bar.DetailsHint.rectTransform.anchorMin = bar.DetailsHint.rectTransform.anchorMax = Vector2.zero;
             bar.DetailsHint.rectTransform.pivot = new Vector2(0f, 0.5f);
             bar.DetailsHint.color = new Color(0.86f, 0.9f, 0.96f, 0.8f);
+
+            // A line in the player's colour under the bar (several players on this machine).
+            RectTransform strip = Rect("Strip", bar.Root, new Vector2(0f, 0f), Vector2.zero, new Vector2(10f, 5f));
+            bar.Strip = strip.gameObject.AddComponent<Image>();
+            bar.Strip.raycastTarget = false;
+            bar.Strip.sprite = SpecialFx.RoundBox;
+            bar.Strip.type = Image.Type.Sliced;
+            strip.gameObject.SetActive(false);
 
             RectTransform chip = Rect("PlayerChip", bar.Root, new Vector2(0f, 0f), new Vector2(-24f, ActiveSize * 0.5f + 30f), new Vector2(40f, 28f));
             bar.PlayerBack = chip.gameObject.AddComponent<Image>();

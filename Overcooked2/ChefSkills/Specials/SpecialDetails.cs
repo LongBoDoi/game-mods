@@ -7,11 +7,11 @@ using Object = UnityEngine.Object;
 namespace ChefSkills
 {
     /// <summary>
-    /// The skill details panel (toggled with [Controls] DetailsKey, Tab by default): a narrow,
-    /// see-through card docked to the side of the screen, so the kitchen in the middle stays in
-    /// view. For each chef played on this machine it lists the active, passives and quirk: icon,
-    /// name, slot (cooldown, points, team-wide) and what it does. One local player docks left;
-    /// with more, they alternate left and right and stack. It slides and fades in and out, and
+    /// The skill details: for each chef played on this machine, a narrow, see-through card docked to
+    /// the side of the screen (so the kitchen in the middle stays in view) listing its active,
+    /// passives and quirk: icon, name, slot (cooldown, points, team-wide) and what it does. Each
+    /// player opens and closes their own card with their own skill info key (see SpecialInput).
+    /// Player 1 docks left, 2 right, 3 left under 1, 4 right under 2; open cards on a side stack. It slides and fades in and out, and
     /// hides with the skill bar (skill screen, pause menu).
     /// </summary>
     internal sealed class SpecialDetails
@@ -36,120 +36,160 @@ namespace ChefSkills
         private static readonly Color ShadowColour = new Color(0f, 0f, 0f, 0.55f);
 
         private readonly RectTransform _root;
-        private readonly CanvasGroup _group;
         private readonly int _layer;
+        // One card per local chef, in player order, each with its own fade.
         private readonly List<RectTransform> _cards = new List<RectTransform>();
+        private readonly List<CanvasGroup> _cardGroups = new List<CanvasGroup>();
         private readonly List<bool> _cardRight = new List<bool>();
+        private readonly List<float> _cardHeights = new List<float>();
+        private readonly List<PlayerInputLookup.Player> _cardPlayers = new List<PlayerInputLookup.Player>();
+        // 0 = closed, 1 = open; each eases toward its player's wanted state.
+        private readonly List<float> _cardShown = new List<float>();
         private string _builtFor;
-        // 0 = closed, 1 = open; eases toward the wanted state.
-        private float _shown;
-
-        internal bool Open { get; private set; }
+        // The players whose card is open (each player's own info key opens and closes theirs).
+        private readonly HashSet<PlayerInputLookup.Player> _open = new HashSet<PlayerInputLookup.Player>();
 
         internal SpecialDetails(RectTransform canvas)
         {
             _layer = canvas.gameObject.layer;
             _root = Rect("Details", canvas, Vector2.zero, Vector2.one);
             _root.offsetMin = _root.offsetMax = Vector2.zero;
-            _group = _root.gameObject.AddComponent<CanvasGroup>();
-            _group.interactable = false;
-            _group.blocksRaycasts = false;
-            _group.alpha = 0f;
+            CanvasGroup group = _root.gameObject.AddComponent<CanvasGroup>();
+            group.interactable = false;
+            group.blocksRaycasts = false;
             _root.gameObject.SetActive(false);
         }
 
-        internal void Toggle()
+        /// <summary>Is this player's card open?</summary>
+        internal bool IsOpen(PlayerInputLookup.Player player)
         {
-            Open = !Open;
+            return _open.Contains(player);
+        }
+
+        /// <summary>Opens or closes this player's card.</summary>
+        internal void Toggle(PlayerInputLookup.Player player)
+        {
+            bool open = !_open.Remove(player);
+            if (open) _open.Add(player);
             try
             {
-                GameUtils.TriggerAudio(Open ? GameOneShotAudioTag.UISelect : GameOneShotAudioTag.UIBack, LayerMask.NameToLayer("UI"));
+                GameUtils.TriggerAudio(open ? GameOneShotAudioTag.UISelect : GameOneShotAudioTag.UIBack, LayerMask.NameToLayer("UI"));
             }
             catch (System.Exception)
             {
             }
         }
 
-        /// <summary>Every frame while the skill bar shows: (re)builds the cards and runs the transition.</summary>
-        internal void Update(IList<ChefState> chefs)
+        /// <summary>
+        /// Every frame while the skill bar shows: (re)builds the cards and runs each one's
+        /// transition. <paramref name="players"/>: the players on this machine in order (player 1
+        /// docks left, 2 right, 3 left under 1, 4 right under 2).
+        /// </summary>
+        internal void Update(IList<ChefState> chefs, IList<PlayerInputLookup.Player> players)
         {
             if (_root == null) return;
-            bool want = Open && chefs.Count > 0;
-            float step = Time.unscaledDeltaTime / FadeSeconds;
-            _shown = Mathf.Clamp01(_shown + (want ? step : -step));
-            bool active = _shown > 0f;
-            if (_root.gameObject.activeSelf != active) _root.gameObject.SetActive(active);
-            if (!active) return;
-
-            if (chefs.Count > 0)
+            string key = Signature(chefs, players);
+            if (key != _builtFor)
             {
-                string key = Signature(chefs);
-                if (key != _builtFor)
-                {
-                    Build(chefs);
-                    _builtFor = key;
-                }
+                Build(chefs, players);
+                _builtFor = key;
             }
 
-            // Eased: slides in from its edge and fades in; the same way back out.
-            float t = _shown * _shown * (3f - 2f * _shown);
-            _group.alpha = t;
-            float slide = (1f - t) * SlideDistance;
+            float step = Time.unscaledDeltaTime / FadeSeconds;
+            bool any = false;
             for (int i = 0; i < _cards.Count; i++)
             {
-                RectTransform card = _cards[i];
-                if (card == null) continue;
-                Vector2 at = card.anchoredPosition;
-                at.x = _cardRight[i] ? -EdgeMargin + slide : EdgeMargin - slide;
-                card.anchoredPosition = at;
+                bool want = _open.Contains(_cardPlayers[i]);
+                _cardShown[i] = Mathf.Clamp01(_cardShown[i] + (want ? step : -step));
+                if (_cardShown[i] > 0f) any = true;
+            }
+            if (_root.gameObject.activeSelf != any) _root.gameObject.SetActive(any);
+            if (!any) return;
+
+            // The open cards on each side stack, centred together; a closed one leaves no gap.
+            for (int side = 0; side < 2; side++)
+            {
+                float total = 0f;
+                int count = 0;
+                for (int i = 0; i < _cards.Count; i++)
+                {
+                    if (_cardRight[i] != (side == 1) || _cardShown[i] <= 0f) continue;
+                    total += _cardHeights[i];
+                    count++;
+                }
+                total += Mathf.Max(0, count - 1) * StackGap;
+                float top = CentreY + total * 0.5f;
+                for (int i = 0; i < _cards.Count; i++)
+                {
+                    if (_cardRight[i] != (side == 1)) continue;
+                    RectTransform card = _cards[i];
+                    bool on = _cardShown[i] > 0f;
+                    if (card.gameObject.activeSelf != on) card.gameObject.SetActive(on);
+                    if (!on) continue;
+                    // Eased: slides in from its edge and fades in; the same way back out.
+                    float s = _cardShown[i];
+                    float t = s * s * (3f - 2f * s);
+                    _cardGroups[i].alpha = t;
+                    float slide = (1f - t) * SlideDistance;
+                    card.anchoredPosition = new Vector2(_cardRight[i] ? -EdgeMargin + slide : EdgeMargin - slide, top);
+                    top -= _cardHeights[i] + StackGap;
+                }
             }
         }
 
-        private static string Signature(IList<ChefState> chefs)
+        private static string Signature(IList<ChefState> chefs, IList<PlayerInputLookup.Player> players)
         {
             var text = new StringBuilder();
             foreach (ChefState state in chefs)
             {
                 text.Append(state.GetHashCode()).Append(':');
                 for (int i = 0; i < 4; i++) text.Append(state.Loadout[i]).Append(',');
-                text.Append('|');
+                PlayerInputLookup.Player player = PlayerOf(state);
+                text.Append(players.IndexOf(player)).Append(SpecialInput.DetailsNameFor(player)).Append('|');
             }
-            text.Append(SpecialInput.DetailsKeyName()).Append(Lang.Vi ? "|vi" : "|en");
+            text.Append(players.Count).Append(Lang.Vi ? "|vi" : "|en");
             return text.ToString();
+        }
+
+        private static PlayerInputLookup.Player PlayerOf(ChefState state)
+        {
+            return state.Provider != null ? state.Provider.GetID() : PlayerInputLookup.Player.One;
         }
 
         // --- building ---------------------------------------------------------------------------
 
-        private void Build(IList<ChefState> chefs)
+        private void Build(IList<ChefState> chefs, IList<PlayerInputLookup.Player> players)
         {
+            // Keep how far each player's card had faded, so a rebuild doesn't restart it.
+            var shownBefore = new Dictionary<PlayerInputLookup.Player, float>();
+            for (int i = 0; i < _cards.Count; i++) shownBefore[_cardPlayers[i]] = _cardShown[i];
             for (int i = _root.childCount - 1; i >= 0; i--) Object.Destroy(_root.GetChild(i).gameObject);
             _cards.Clear();
+            _cardGroups.Clear();
             _cardRight.Clear();
+            _cardHeights.Clear();
+            _cardPlayers.Clear();
+            _cardShown.Clear();
 
-            // Player 1 left, player 2 right, 3 left under 1, 4 right under 2.
-            var heights = new float[chefs.Count];
-            for (int i = 0; i < chefs.Count; i++)
+            foreach (ChefState state in chefs)
             {
-                bool right = i % 2 == 1;
-                _cards.Add(BuildCard(chefs[i], right, chefs.Count > 1, out heights[i]));
+                PlayerInputLookup.Player player = PlayerOf(state);
+                bool right = Mathf.Max(0, players.IndexOf(player)) % 2 == 1;
+                float height;
+                RectTransform card = BuildCard(state, right, players.Count > 1, out height);
+                CanvasGroup group = card.gameObject.AddComponent<CanvasGroup>();
+                group.interactable = false;
+                group.blocksRaycasts = false;
+                group.alpha = 0f;
+                card.gameObject.SetActive(false);
+                float shown;
+                shownBefore.TryGetValue(player, out shown);
+                _cards.Add(card);
+                _cardGroups.Add(group);
                 _cardRight.Add(right);
-            }
-            for (int side = 0; side < 2; side++)
-            {
-                float total = 0f;
-                int count = 0;
-                for (int i = side; i < chefs.Count; i += 2)
-                {
-                    total += heights[i];
-                    count++;
-                }
-                total += Mathf.Max(0, count - 1) * StackGap;
-                float top = CentreY + total * 0.5f;
-                for (int i = side; i < chefs.Count; i += 2)
-                {
-                    _cards[i].anchoredPosition = new Vector2(_cards[i].anchoredPosition.x, top);
-                    top -= heights[i] + StackGap;
-                }
+                _cardHeights.Add(height);
+                _cardPlayers.Add(player);
+                _cardShown.Add(shown);
             }
         }
 
@@ -173,7 +213,7 @@ namespace ChefSkills
             header.text = title;
             header.color = HeaderColour;
             Place(header.rectTransform, Pad, y);
-            string keyName = SpecialInput.DetailsKeyName();
+            string keyName = SpecialInput.DetailsNameFor(PlayerOf(state));
             if (keyName != null)
             {
                 Text close = MakeText(card, SpecialFx.Font, 15, TextAnchor.UpperRight, CardWidth - 2f * Pad);

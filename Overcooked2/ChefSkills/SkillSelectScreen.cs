@@ -107,6 +107,8 @@ namespace ChefSkills
         private sealed class Slot
         {
             public PlayerInputLookup.Player Player;
+            // Which player on this PC this is (0 = first, in player order): picks their DISPLAY setting.
+            public int Rank;
             public string Title;
             public ChefColourData Colour;
             public int ColourIndex;
@@ -234,8 +236,12 @@ namespace ChefSkills
                     Cancel = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UICancel, player),
                     Skip = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UISkip, player),
                     Hide = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UIChangeMode, player),
-                    LockIn = LockInButton(player),
+                    // Each player's own: X on a whole controller, Enter on the keyboard, and a free
+                    // button on half of a shared controller, never the same as their SELECT.
+                    LockIn = SpecialInput.LockInButton(player),
+                    Rank = slots.Count,
                 };
+                Plugin.Log.LogInfo("Người chơi " + ((int)player + 1) + ": " + SpecialInput.Describe(player));
                 slot.Hide.ClaimPressEvent();
                 // Ignore presses left over from the loading screen.
                 slot.Up.ClaimPressEvent();
@@ -401,7 +407,8 @@ namespace ChefSkills
                     FreePoints = slot.FreePoints, DeniedAt = slot.DeniedAt, DeniedReason = slot.DeniedReason,
                     State = slot.Ready ? SkillSync.CardState.Ready : SkillSync.CardState.Choosing,
                     Specials = slot.Specials, KeyName = SpecialInput.NameFor(slot.Player),
-                    DetailsKeyName = SpecialInput.DetailsKeyName() ?? Lang.T("NONE", "KHÔNG CÓ"),
+                    DetailsKeyName = SpecialInput.DetailsNameFor(slot.Player) ?? Lang.T("NONE", "KHÔNG CÓ"),
+                    BarMode = SkillBarSettings.Name(SkillBarSettings.Get(slot.Rank)), Keyboard = SpecialInput.IsKeyboard(slot.Player),
                     Capturing = slot.Capture != null, CapturingDetails = slot.Capture != null && slot.Capture.Details, Notice = slot.Notice, NoticeAt = slot.NoticeAt
                 });
             if (remote != null)
@@ -462,21 +469,6 @@ namespace ChefSkills
             Discard(slot.Cancel);
             Discard(slot.Hide);
             Discard(slot.LockIn);
-        }
-
-        /// <summary>
-        /// The LOCK IN button: X on a pad (the game's "toggle profile" button, unused on this
-        /// screen); Enter on the keyboard, whose X-equivalent is Ctrl, already HIDE.
-        /// </summary>
-        private static ILogicalButton LockInButton(PlayerInputLookup.Player player)
-        {
-            if (SpecialInput.IsKeyboard(player))
-                return new ComboLogicalButton(new ILogicalButton[]
-                {
-                    new LogicalKeycodeButton(KeyCode.Return, ControlPadInput.Button.Start),
-                    new LogicalKeycodeButton(KeyCode.KeypadEnter, ControlPadInput.Button.Start)
-                });
-            return PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UIResultsToggleProfile, player);
         }
 
         /// <summary>
@@ -555,6 +547,11 @@ namespace ChefSkills
                 PlaySound(GameOneShotAudioTag.UISelect);
                 return;
             }
+            if (!slot.Ready && slot.Selected == SkillSelectView.BarRow && slot.Select.JustPressed())
+            {
+                StepBar(slot, 1);
+                return;
+            }
             // SELECT on a skill row does nothing: locking in has its own button.
             Discard(slot.Select);
             if (slot.LockIn.JustPressed())
@@ -599,11 +596,18 @@ namespace ChefSkills
                 PlaySound(GameOneShotAudioTag.UIHighlight);
             }
 
+            if (slot.Selected == SkillSelectView.BarRow)
+            {
+                // DISPLAY: Left/Right step through on screen / over head / hidden.
+                if (slot.Left.JustPressed()) StepBar(slot, -1);
+                if (slot.Right.JustPressed()) StepBar(slot, 1);
+                return;
+            }
             if (slot.Selected >= SkillStats.Count)
             {
                 // Special and key rows: SELECT opens the picker / sets the key; Left/Right do nothing.
-                slot.Left.ClaimPressEvent();
-                slot.Right.ClaimPressEvent();
+                Discard(slot.Left);
+                Discard(slot.Right);
                 return;
             }
 
@@ -633,6 +637,13 @@ namespace ChefSkills
             }
         }
 
+        /// <summary>Changes where this player's skill bar shows in a level (saved for next time).</summary>
+        private static void StepBar(Slot slot, int step)
+        {
+            SkillBarSettings.Step(slot.Rank, step);
+            PlaySound(GameOneShotAudioTag.UIHighlight);
+        }
+
         private static bool IsSpecialRow(int row)
         {
             return SpecialCatalog.Enabled && row >= SkillStats.Count && row < SkillStats.Count + SpecialCatalog.SlotCount;
@@ -646,7 +657,11 @@ namespace ChefSkills
             string owner = _slots != null && _slots.Count > 1 ? slot.Title : null;
             try
             {
-                slot.Picker = SkillPicker.Open(_view.Overlay, _view.Art, slot.Player, owner, which, (Special)slot.Specials[(int)which], byMouse);
+                // With several players here, each picker keeps to its own player's part of the
+                // screen, so everyone else can still see their card and carry on.
+                bool shared = _slots != null && _slots.Count > 1;
+                slot.Picker = SkillPicker.Open(_view.Overlay, _view.Art, slot.Player, owner, which, (Special)slot.Specials[(int)which], byMouse, shared);
+                if (_slots != null) PlacePickers(_slots);
                 PlaySound(GameOneShotAudioTag.UISelect);
             }
             catch (Exception error)
@@ -666,29 +681,59 @@ namespace ChefSkills
         }
 
         /// <summary>
-        /// A click on a special row of one of this machine's cards opens the picker for it (when no
-        /// picker is open and the screen isn't hidden).
+        /// A click on a special row of one of this machine's cards opens the picker for it (when
+        /// that player has none open, the click isn't on someone's open picker, and the screen
+        /// isn't hidden).
         /// </summary>
         private static void HandleMouse(List<Slot> slots)
         {
             if (_view == null || _view.Hidden || !Input.GetMouseButtonDown(0)) return;
-            foreach (Slot slot in slots)
-                if (slot.Picker != null || slot.Capture != null) return;
+            if (SkillPicker.AnyAt(Input.mousePosition)) return;
             string key;
             int row;
             if (!_view.SpecialRowAt(Input.mousePosition, out key, out row)) return;
             foreach (Slot slot in slots)
             {
-                if ("L" + (int)slot.Player != key || slot.Ready) continue;
+                if ("L" + (int)slot.Player != key || slot.Ready || slot.Picker != null || slot.Capture != null) continue;
                 slot.Selected = row;
                 OpenPicker(slot, true);
                 return;
             }
         }
 
+        // Half the screen's width in the canvas's reference units, less a margin.
+        private const float PickerScreenHalf = 920f;
+
+        /// <summary>
+        /// With several players on this machine, the screen is split into one lane per player
+        /// (split halfway between neighbouring cards), and each open picker stays in its player's
+        /// lane over their own card, leaving the other players' cards in view.
+        /// </summary>
+        private static void PlacePickers(List<Slot> slots)
+        {
+            if (_view == null || slots.Count < 2) return;
+            var placed = new List<KeyValuePair<float, Slot>>();
+            foreach (Slot slot in slots)
+            {
+                float x;
+                if (_view.CardX("L" + (int)slot.Player, out x)) placed.Add(new KeyValuePair<float, Slot>(x, slot));
+            }
+            if (placed.Count < 2) return;
+            placed.Sort(delegate(KeyValuePair<float, Slot> a, KeyValuePair<float, Slot> b) { return a.Key.CompareTo(b.Key); });
+            for (int i = 0; i < placed.Count; i++)
+            {
+                Slot slot = placed[i].Value;
+                if (slot.Picker == null) continue;
+                float left = i == 0 ? -PickerScreenHalf : (placed[i - 1].Key + placed[i].Key) / 2f;
+                float right = i == placed.Count - 1 ? PickerScreenHalf : (placed[i].Key + placed[i + 1].Key) / 2f;
+                slot.Picker.SetLane(left, right);
+            }
+        }
+
         /// <summary>Draws the open pickers (over the cards).</summary>
         private static void RenderPickers(List<Slot> slots, List<SkillSync.RemoteCard> remote)
         {
+            PlacePickers(slots);
             foreach (Slot slot in slots)
             {
                 if (slot.Picker == null) continue;

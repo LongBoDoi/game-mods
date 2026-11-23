@@ -40,6 +40,7 @@ namespace ChefSkills
             SkillStats.Bind(Config);
             SpecialCatalog.Bind(Config);
             SpecialInput.Bind(Config);
+            SkillBarSettings.Bind(Config);
 
             _harmony = new Harmony(Id);
             try

@@ -6,8 +6,8 @@ Besides the nine skill levels, every chef picks **one active special, two passiv
 
 The four rows under the skills on each card are **ACTIVE**, **PASSIVE**, **PASSIVE** and **QUIRK**. Highlight one with Up/Down and step through the choices with Left/Right. Every row starts at "-" (none), so a chef who picks nothing plays the normal game.
 
-- **Active**: press your **skill key** in the kitchen to use it. It is the **EMOTE** button (Y on a controller) unless you change it on the card's **SKILL KEY** row (Select, then press the new key or button). The **skill bar** at the bottom of the screen shows it as a round button: glowing when ready, otherwise a cooldown sweep with the seconds left, a ring while its effect lasts, and the key. When there's nothing to use it on, the button shakes and says why (for example **NO COUNTER IN FRONT**), and no cooldown starts.
-- **Passive**: always on. Its small icon in the skill bar shows a recharge sweep or a count when it has one (Safety Net's 30 s, Double Dash charges, Hot Streak's streak...). Press **Tab** in the kitchen (change it on the card's **DETAILS KEY** row) for a panel with all your picks and what they do.
+- **Active**: press your **skill key** in the kitchen to use it. It is the **EMOTE** button (Y on a controller) unless you change it on the card's **SKILL KEY** row (Select, then press any key or button: shoulders, triggers and the d-pad work too). The **skill bar** (at the bottom of the screen, over your chef, or hidden: your choice on the card's **DISPLAY** row) shows it as a round button: glowing when ready, otherwise a cooldown sweep with the seconds left, a ring while its effect lasts, and the key. When there's nothing to use it on, the button shakes and says why (for example **NO COUNTER IN FRONT**), and no cooldown starts.
+- **Passive**: always on. Its small icon in the skill bar shows a recharge sweep or a count when it has one (Safety Net's 30 s, Double Dash charges, Hot Streak's streak...). Press **Tab** in the kitchen (change it, or set a controller button, on the card's **INFO KEY** row) for a card with all your picks and what they do; each player opens their own.
 - **Quirk**: a drawback that **frees skill points** (shown as **+1** or **+2**), so you can raise your skills further than you lower them.
 - **Picks that clash can't go together.** The card skips them:
   - one dash style: Sprinter, Double Dash or Charge Dash;
@@ -17,9 +17,9 @@ The four rows under the skills on each card are **ACTIVE**, **PASSIVE**, **PASSI
 - **One per kitchen.** Specials that change things for the whole team can be locked in by only one player. If someone else has already locked one in, the card says so and won't lock in until you pick something else. The effect never stacks anyway.
 - **Versus.** Specials marked *(versus)* are only offered when the host sets `VersusSpecials = true`.
 
-Config (`[Specials]` in `com.manhl.overcooked2.chefskills.cfg`): `Enabled` (default true) and `VersusSpecials` (default false). Online, the host's settings apply to everyone. `[Controls] SkillKey` is the skill key (EMOTE by default), also in MOD Settings with a **Rebind** button that listens for the key or controller button you press.
+Config (`[Specials]` in `com.manhl.overcooked2.chefskills.cfg`): `Enabled` (default true) and `VersusSpecials` (default false). Online, the host's settings apply to everyone. `[Controls] SkillKey` (keyboard) and `SkillButton` (controller) are the skill key (EMOTE by default), also in MOD Settings.
 
-Before locking in, **Hide** (Y on a controller, Ctrl or Tab on the keyboard) hides the screen so you can look at the kitchen and plan; press it again, or Select, Lock in or Back, to bring it back. **Lock in** is X on a controller and Enter on the keyboard; Select only picks.
+Before locking in, **Hide** (Y on a controller, Ctrl or Tab on the keyboard) hides the screen so you can look at the kitchen and plan; press it again, or Select, Lock in or Back, to bring it back. **Lock in** is Enter on the keyboard and X on a controller (a free button on half of a shared controller; the card shows it); Select only picks.
 
 ## Seeing them work
 
@@ -180,11 +180,12 @@ The host decides what happens: items, orders, fire, scores and where every chef 
   - `Specials/SpecialRuntime.cs`: activation, cooldowns, buffs and the modifier lists that movement and skills read.
   - `Specials/SpecialNet.cs`: the P2P channel.
   - `Specials/SpecialHud.cs`: the skill bar.
-  - `Specials/SpecialDetails.cs`: the skill details panel docked to the screen edge (`DetailsKey`, Tab by default).
+  - `Specials/SpecialDetails.cs`: each player's skill details card docked to the screen edge (`DetailsKey` / `DetailsButton`, Tab by default).
   - `Specials/SpecialFx.cs`: rings, bursts, beams and floating words, drawn locally or sent to every PC (`...All`, for code that runs only on the host).
   - `Art/`: the special icons. `iconkit.py` is the drawing kit; `icons_*.py` draw one icon per Special value; run `.tools/oc2-python/python.exe -I Overcooked2/ChefSkills/Art/make_icons.py` to rebuild `SpecialIcons.png` (cell n = Special n, 16 columns of 128 px) and `preview.png`. `build.cmd` embeds the sheet; `SpecialFx.IconOf` / `ShowIcon` read it (two letters when a cell is empty). A new special needs an icon there.
   - `SkillPicker.cs`: the grid picker the skill screen opens on a special row.
-  - `Specials/SpecialInput.cs`: the skill key per keyboard side or pad, and setting it from the skill screen.
+  - `Specials/SpecialInput.cs`: the skill and info keys (keyboard key and controller button), setting them from the skill screen, and each player's lock-in button.
+  - `Specials/SkillBarSettings.cs`: where each local player's skill bar shows (on screen, over the head, hidden).
   - In an active's `Execute`, aim from `state.RequestPosition` / `RequestForward` and refuse with `return state.Refuse("REASON");`. Passives can show timers and counts with `state.SetTimer` / `state.SetCount`, and a status chip over the skill bar with `state.SetStatus("Key", "TEXT", Special.X)` (one chip per key; null clears it).
 - **Effects:** each group of specials lives in its own module in `Specials/Modules/` (an `ISpecialModule`, plus its Harmony patches in namespace `ChefSkills.Specials`). A patch that doesn't fit the game version only turns off its own special; the plugin logs it and carries on.
 - **Checks:** `tests/BuildPart.ps1 -Modules <file>.cs` builds the framework with one module and runs `tests/CheckChefSkills.ps1` on it. `-Modules *` builds all of them.

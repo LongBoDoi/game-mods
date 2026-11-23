@@ -191,5 +191,24 @@ namespace ChefSkills
                 return null;
             }
         }
+
+        /// <summary>The game's icon for one controller button, drawn for this player's device (null when it has none).</summary>
+        internal static Sprite PadIcon(ControlPadInput.Button button, PlayerInputLookup.Player player)
+        {
+            if (button == ControlPadInput.Button.Invalid) return null;
+            try
+            {
+                ControllerIconLookup lookup = GameUtils.RequestManager<ControllerIconLookup>();
+                PlayerManager playerManager = GameUtils.RequestManager<PlayerManager>();
+                if (lookup == null || playerManager == null) return null;
+                ControllerIconLookup.DeviceContext device = PlayerButtonImage.GetDevice(playerManager, player);
+                return lookup.GetIcon(button, ControllerIconLookup.IconContext.Bordered, device);
+            }
+            catch (Exception error)
+            {
+                Plugin.Log.LogDebug("Không lấy được biểu tượng nút: " + error.Message);
+                return null;
+            }
+        }
     }
 }

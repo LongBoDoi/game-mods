@@ -45,6 +45,10 @@ namespace ChefSkills
             public bool Capturing;
             /// <summary>The key being set is the details key.</summary>
             public bool CapturingDetails;
+            /// <summary>Local cards: where this player's skill bar shows in a level (the DISPLAY row).</summary>
+            public string BarMode;
+            /// <summary>Local cards: the player is on the keyboard (what the key-setting help says).</summary>
+            public bool Keyboard;
             /// <summary>A short message (the new key, or why it wasn't taken), shown in place of the description for a moment.</summary>
             public string Notice;
             public float NoticeAt;
@@ -65,7 +69,7 @@ namespace ChefSkills
         /// <summary>Rows on a card: the nine skills, then the special picks when specials are on.</summary>
         internal static int RowCount
         {
-            get { return SkillStats.Count + (SpecialCatalog.Enabled ? SpecialCatalog.SlotCount + 2 : 0); }
+            get { return SkillStats.Count + (SpecialCatalog.Enabled ? SpecialCatalog.SlotCount + 3 : 0); }
         }
 
         /// <summary>The last row, under the specials: the key that uses the active (-1 with specials off).</summary>
@@ -78,6 +82,12 @@ namespace ChefSkills
         internal static int DetailsRow
         {
             get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 1 : -1; }
+        }
+
+        /// <summary>The last row: where this player's skill bar shows in a level (-1 with specials off).</summary>
+        internal static int BarRow
+        {
+            get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 2 : -1; }
         }
 
         private static bool IsKeyRow(int index)
@@ -115,7 +125,7 @@ namespace ChefSkills
             public CanvasGroup RowsGroup;
             public Row[] Rows;
             public SpecialRow[] Specials;
-            public SpecialRow KeyRowView, DetailsRowView;
+            public SpecialRow KeyRowView, DetailsRowView, BarRowView;
             public Image Left;
             public Image Right;
             public Text Points;
@@ -164,7 +174,7 @@ namespace ChefSkills
         private const float NameY = 254f;
         private const float PointsY = 216f;
         private const float RowTop = 178f;
-        private const float RowStep = 28f;
+        private const float RowStep = 27f;
         // Space between the nine skills and the special-skill rows under them.
         private const float SpecialGap = 10f;
         // A special row: its pick fills the pips and effect columns, between the arrows.
@@ -172,9 +182,9 @@ namespace ChefSkills
         private const float SpecialValueWidth = 140f;
         // Space between the special picks and the skill-key row.
         private const float KeyGap = 4f;
-        // The last key row ends at -240.5; the description sits clear of it (-247..-293) and
+        // The last row (DISPLAY) ends at -253; the description sits clear of it (-254..-300) and
         // above the lock-in hint (its icon starts at -301).
-        private const float DescriptionY = -270f;
+        private const float DescriptionY = -277f;
         private const float DescriptionHeight = 46f;
         private const float HintY = -322f;
         // Rows fill the card art's dark interior (304 wide, measured in game) evenly, 8 in from
@@ -285,6 +295,20 @@ namespace ChefSkills
                     row = SkillStats.Count + i;
                     return true;
                 }
+            }
+            return false;
+        }
+
+        /// <summary>Where a card's centre is across the screen, in the canvas's reference units (0 = middle).</summary>
+        internal bool CardX(string cardKey, out float x)
+        {
+            x = 0f;
+            if (!IsAlive) return false;
+            foreach (Card card in _cards)
+            {
+                if (card.Key != cardKey || card.Root == null) continue;
+                x = _dialog.anchoredPosition.x + card.Root.anchoredPosition.x;
+                return true;
             }
             return false;
         }
@@ -489,6 +513,8 @@ namespace ChefSkills
                 card.KeyRowView.Value.color = TitleColour;
                 card.DetailsRowView = BuildSpecialRow(rows, SpecialCatalog.SlotCount + 1, card.Tint);
                 card.DetailsRowView.Value.color = TitleColour;
+                card.BarRowView = BuildSpecialRow(rows, SpecialCatalog.SlotCount + 2, card.Tint);
+                card.BarRowView.Value.color = TitleColour;
             }
 
             // Only this machine's players get arrows: they're the ones who can change a level here.
@@ -569,7 +595,9 @@ namespace ChefSkills
             RectTransform name = Child("Name", row.Root, new Vector2(NameX, 0f), new Vector2(NameWidth, RowStep - 5f));
             bool key = slot >= SpecialCatalog.SlotCount;
             AddShadow(AddText(name, _art.Header, 21, key ? NeutralColour : PointsColour, TextAnchor.MiddleLeft,
-                key ? (slot == SpecialCatalog.SlotCount ? Lang.T("SKILL KEY", "PHÍM KỸ NĂNG") : Lang.T("DETAILS KEY", "PHÍM CHI TIẾT")) : SpecialCatalog.SlotNames[slot], true).gameObject);
+                key ? (slot == SpecialCatalog.SlotCount ? Lang.T("SKILL KEY", "PHÍM KỸ NĂNG")
+                    : slot == SpecialCatalog.SlotCount + 1 ? Lang.T("INFO KEY", "PHÍM XEM")
+                    : Lang.T("DISPLAY", "HIỂN THỊ")) : SpecialCatalog.SlotNames[slot], true).gameObject);
 
             RectTransform value = Child("Pick", row.Root, new Vector2(SpecialValueX, 0f),
                 new Vector2(SpecialValueWidth, RowStep - 5f));
@@ -618,18 +646,25 @@ namespace ChefSkills
         }
 
         /// <summary>The line under the rows: what the highlighted skill or pick does.</summary>
-        private static string DescriptionFor(int selected, int[] specials, bool capturing, string detailsKey)
+        private static string DescriptionFor(int selected, int[] specials, bool capturing, string detailsKey, bool keyboard)
         {
             if (selected < 0) return "";
             if (selected < SkillStats.Count) return SkillStats.Descriptions[selected];
             if (selected == KeyRow)
                 return capturing
-                    ? Lang.T("Press the new key or button now (Esc / B: cancel, Backspace: back to emote)", "Bấm phím hoặc nút mới ngay (Esc / B: hủy, Backspace: về nút biểu cảm)")
+                    ? (keyboard
+                        ? Lang.T("Press any key now (Esc: cancel, Backspace: back to emote)", "Bấm phím bất kỳ ngay (Esc: hủy, Backspace: về phím biểu cảm)")
+                        : Lang.T("Press any button now: shoulders, triggers, d-pad... (Start: cancel, Y: back to emote)", "Bấm nút bất kỳ ngay: vai, cò, d-pad... (Start: hủy, Y: về nút biểu cảm)"))
                     : Lang.T("The key or button that uses your active special. SELECT to change it", "Phím hoặc nút dùng kỹ năng chủ động của bạn. SELECT để đổi");
             if (selected == DetailsRow)
                 return capturing
-                    ? Lang.T("Press the new key or button now (Esc / B: cancel, Backspace: no key)", "Bấm phím hoặc nút mới ngay (Esc / B: hủy, Backspace: bỏ phím)")
+                    ? (keyboard
+                        ? Lang.T("Press any key now (Esc: cancel, Backspace: no key)", "Bấm phím bất kỳ ngay (Esc: hủy, Backspace: bỏ phím)")
+                        : Lang.T("Press any button now (Start: cancel, the same button again: none)", "Bấm nút bất kỳ ngay (Start: hủy, bấm lại nút cũ: bỏ nút)"))
                     : (Lang.Vi ? "Trong bếp, " + (detailsKey == null || detailsKey == "KHÔNG CÓ" || detailsKey == "NONE" ? "một phím" : detailsKey) + " hiện hoặc ẩn chi tiết kỹ năng của bạn. SELECT để đổi" : "In the kitchen, " + (detailsKey == null || detailsKey == "NONE" ? "a key" : detailsKey) + " shows or hides your skills' details. SELECT to change it");
+            if (selected == BarRow)
+                return Lang.T("Your skill bar in the kitchen: on screen, over your chef or hidden. LEFT / RIGHT to change",
+                    "Thanh kỹ năng của bạn trong bếp: trên màn hình, trên đầu đầu bếp hoặc ẩn. TRÁI / PHẢI để đổi");
             int slot = selected - SkillStats.Count;
             Special pick = specials != null && slot < specials.Length ? (Special)specials[slot] : Special.None;
             SpecialInfo info = SpecialCatalog.Info(pick);
@@ -900,7 +935,7 @@ namespace ChefSkills
                 // a moment why the lock-in was refused.
                 float deniedAge = now - info.DeniedAt;
                 string about = !string.IsNullOrEmpty(info.DeniedReason) && deniedAge >= 0f && deniedAge < 2f
-                    ? info.DeniedReason : DescriptionFor(selected, info.Specials, info.Capturing, info.DetailsKeyName);
+                    ? info.DeniedReason : DescriptionFor(selected, info.Specials, info.Capturing, info.DetailsKeyName, info.Keyboard);
                 float noticeAge = now - info.NoticeAt;
                 if (!string.IsNullOrEmpty(info.Notice) && noticeAge >= 0f && noticeAge < 2.5f && !info.Capturing) about = info.Notice;
                 if (card.KeyRowView != null)
@@ -917,6 +952,17 @@ namespace ChefSkills
                     string key = card.IsLocal ? (waiting ? Lang.T("PRESS A KEY...", "BẤM PHÍM...") : info.DetailsKeyName ?? "") : "";
                     if (card.DetailsRowView.Value.text != key) card.DetailsRowView.Value.text = key;
                     card.DetailsRowView.Value.color = waiting ? WithAlpha(PointsColour, pulse) : TitleColour;
+                }
+                if (card.BarRowView != null)
+                {
+                    card.BarRowView.Highlight.enabled = selected == BarRow;
+                    string mode = card.IsLocal ? info.BarMode ?? "" : "";
+                    if (card.BarRowView.Value.text != mode)
+                    {
+                        if (card.Initialised && card.BarRowView.Value.text != "") card.BarRowView.PunchAt = now;
+                        card.BarRowView.Value.text = mode;
+                    }
+                    card.BarRowView.Root.localScale = Punch(now - card.BarRowView.PunchAt, 0.06f);
                 }
                 if (!card.Initialised || card.ShownSelected != selected || card.Description.text != about)
                 {
@@ -948,6 +994,7 @@ namespace ChefSkills
                 card.Points.rectTransform.localScale = Punch(denied * PunchSeconds / DeniedSeconds, 0.18f);
 
                 card.HintText.text = choosing && IsKeyRow(selected) ? (info.Capturing ? Lang.T("WAITING...", "ĐANG CHỜ...") : Lang.T("SET KEY", "ĐỔI PHÍM"))
+                    : choosing && selected == BarRow ? Lang.T("CHANGE", "ĐỔI")
                     : choosing && selected >= SkillStats.Count ? Lang.T("CHOOSE", "CHỌN") : HintFor(card.IsLocal, state);
                 card.HintGroup.alpha = choosing && free != 0 && selected < SkillStats.Count ? 0.4f : 1f;
                 if (!card.IsLocal && (state == SkillSync.CardState.Choosing || state == SkillSync.CardState.Loading))
@@ -1195,19 +1242,25 @@ namespace ChefSkills
             return text;
         }
 
-        /// <summary>A button icon, or the button's name in brackets when the game has no icon for it.</summary>
         /// <summary>
-        /// The LOCK IN button's icon: the pad's X button, or "[ENTER]" on the keyboard (the game
-        /// would draw its keyboard X-equivalent, Ctrl, which is HIDE here).
+        /// The LOCK IN button's icon: "[ENTER]" on the keyboard, otherwise the player's own lock-in
+        /// button (X on a whole controller; a free button on half of a shared one).
         /// </summary>
         private void AddLockInIcon(Transform row, PlayerInputLookup.Player player)
         {
             if (SpecialInput.IsKeyboard(player))
+            {
                 AddIcon(row, null, 42f, "ENTER", _art);
+                return;
+            }
+            ControlPadInput.Button button = SpecialInput.LockInPadButton(player);
+            if (button != ControlPadInput.Button.Invalid)
+                AddIcon(row, GameArt.PadIcon(button, player), 42f, SpecialInput.ButtonName(button), _art);
             else
                 AddIcon(row, GameArt.ButtonIcon(PlayerInputLookup.LogicalButtonID.UIResultsToggleProfile, player), 42f, "X", _art);
         }
 
+        /// <summary>A button icon, or the button's name in brackets when the game has no icon for it.</summary>
         private static void AddIcon(Transform row, Sprite icon, float size, string fallbackName, GameArt art)
         {
             if (icon == null)
