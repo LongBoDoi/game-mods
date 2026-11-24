@@ -41,6 +41,10 @@ namespace ChefSkills
         private const int FontSize = 48;
         // Over the skill bar (4000), under the skill screen (5000); the info cards go just above.
         private const int BaseOrder = 4500;
+        // The highest a station's top (over its pivot) and the game's icons (over that top) can be,
+        // in metres: anything beyond is an effect or a hidden icon, not something to stand over.
+        private const float MaxTop = 2.5f;
+        private const float MaxIcons = 2.2f;
 
         internal sealed class Line
         {
@@ -88,6 +92,8 @@ namespace ChefSkills
         private static Canvas s_hudCanvas;
         private static HoverIconUIController[] s_icons = new HoverIconUIController[0];
         private static readonly Dictionary<HoverIconUIController, Graphic[]> s_graphics = new Dictionary<HoverIconUIController, Graphic[]>();
+        private static readonly Dictionary<HoverIconUIController, CanvasGroup[]> s_groups = new Dictionary<HoverIconUIController, CanvasGroup[]>();
+        private static float s_reportedAt = float.MinValue;
         private static float s_iconsAt = float.MinValue;
         private static float s_wheelsAt = float.MinValue;
         // Things drawn over the words, and where they are this frame (in the layer's units).
@@ -249,7 +255,10 @@ namespace ChefSkills
             {
                 Renderer r = stack.Renderers[i];
                 if (r == null || !r.enabled || r.GetType().Name == "ParticleSystemRenderer") continue;
-                top = any ? Mathf.Max(top, r.bounds.max.y) : r.bounds.max.y;
+                // Effect meshes reaching far up (flames, glows, light shafts) aren't the station's top.
+                float rTop = r.bounds.max.y;
+                if (rTop > at.y + MaxTop) continue;
+                top = any ? Mathf.Max(top, rTop) : rTop;
                 any = true;
             }
             return new Vector3(at.x, top + 0.15f, at.z);
@@ -328,7 +337,7 @@ namespace ChefSkills
             // Pixels for a metre over there (the words keep their size in the kitchen as the camera moves).
             float perMetre = Mathf.Max(1f, ((Vector2)camera.WorldToScreenPoint(stack.Anchor + camera.transform.up) - (Vector2)screen).magnitude);
             float bottom = screen.y;
-            if (stack.HasRoot && stack.Root != null) bottom = Mathf.Max(bottom, IconsTop(stack.Root) + Gap * perMetre);
+            if (stack.HasRoot && stack.Root != null) bottom = Mathf.Max(bottom, IconsTop(stack.Root, screen, perMetre) + Gap * perMetre);
             float bar;
             if (stack.IsChef && stack.Root != null && SpecialHud.OverheadTop(stack.Root.gameObject, out bar))
                 bottom = Mathf.Max(bottom, bar + Gap * perMetre);
@@ -442,11 +451,13 @@ namespace ChefSkills
         }
 
         /// <summary>The top (screen pixels) of the game's icons over this thing or anything on it; -1 if none.</summary>
-        private static float IconsTop(Transform root)
+        private static float IconsTop(Transform root, Vector3 anchor, float perMetre)
         {
             if (s_iconCanvas == null) return -1f;
             Camera iconCamera = CameraOf(s_iconCanvas);
             float top = -1f;
+            // Only icons that are really over it: near it across, and not far above it.
+            float across = MaxIcons * perMetre, highest = anchor.y + MaxIcons * perMetre;
             for (int i = 0; i < s_icons.Length; i++)
             {
                 HoverIconUIController icon = s_icons[i];
@@ -455,19 +466,54 @@ namespace ChefSkills
                 if (follows == null || (follows != root && !follows.IsChildOf(root))) continue;
                 Graphic[] graphics;
                 if (!s_graphics.TryGetValue(icon, out graphics)) continue;
+                CanvasGroup[] groups;
+                s_groups.TryGetValue(icon, out groups);
                 for (int g = 0; g < graphics.Length; g++)
                 {
                     Graphic graphic = graphics[g];
-                    if (graphic == null || !graphic.enabled || !graphic.gameObject.activeInHierarchy || graphic.color.a < 0.02f) continue;
+                    if (!Visible(graphic, groups)) continue;
                     graphic.rectTransform.GetWorldCorners(s_corners);
+                    float minX = float.MaxValue, maxX = float.MinValue, minY = float.MaxValue, maxY = float.MinValue;
                     for (int c = 0; c < 4; c++)
                     {
-                        float y = iconCamera == null ? s_corners[c].y : iconCamera.WorldToScreenPoint(s_corners[c]).y;
-                        if (y > top) top = y;
+                        Vector3 point = iconCamera == null ? s_corners[c] : iconCamera.WorldToScreenPoint(s_corners[c]);
+                        minX = Mathf.Min(minX, point.x);
+                        maxX = Mathf.Max(maxX, point.x);
+                        minY = Mathf.Min(minY, point.y);
+                        maxY = Mathf.Max(maxY, point.y);
                     }
+                    // Parked out of the way, or not over this thing at all.
+                    if (Mathf.Abs((minX + maxX) * 0.5f - anchor.x) > across || minY > highest) continue;
+                    top = Mathf.Max(top, Mathf.Min(maxY, highest));
                 }
             }
+            if (top > anchor.y + 1.6f * perMetre && Time.unscaledTime - s_reportedAt > 10f)
+            {
+                s_reportedAt = Time.unscaledTime;
+                Plugin.Log.LogInfo("FxLabels: icons over " + root.name + " reach " +
+                    ((top - anchor.y) / perMetre).ToString("0.0") + " m above it");
+            }
             return top;
+        }
+
+        /// <summary>
+        /// Is this icon part really showing? The game hides some (tutorial hints, warnings) by
+        /// fading their group or their renderer, or shrinking them, not by switching them off.
+        /// </summary>
+        private static bool Visible(Graphic graphic, CanvasGroup[] groups)
+        {
+            if (graphic == null || !graphic.enabled || !graphic.gameObject.activeInHierarchy || graphic.color.a < 0.02f) return false;
+            if (graphic.canvasRenderer != null && (graphic.canvasRenderer.cull || graphic.canvasRenderer.GetAlpha() < 0.02f)) return false;
+            Vector3 scale = graphic.rectTransform.lossyScale;
+            if (Mathf.Abs(scale.x) < 1e-5f || Mathf.Abs(scale.y) < 1e-5f) return false;
+            if (groups != null)
+                for (int i = 0; i < groups.Length; i++)
+                {
+                    CanvasGroup group = groups[i];
+                    if (group != null && group.gameObject.activeInHierarchy && group.alpha < 0.02f && graphic.transform.IsChildOf(group.transform))
+                        return false;
+                }
+            return true;
         }
 
         private static Camera CameraOf(Canvas canvas)
@@ -487,6 +533,7 @@ namespace ChefSkills
             if (now - s_iconsAt < 0.25f) return;
             s_iconsAt = now;
             s_graphics.Clear();
+            s_groups.Clear();
             try
             {
                 if (s_iconCanvas == null)
@@ -507,7 +554,15 @@ namespace ChefSkills
                 ? s_iconCanvas.GetComponentsInChildren<HoverIconUIController>(false)
                 : new HoverIconUIController[0];
             for (int i = 0; i < s_icons.Length; i++)
+            {
                 s_graphics[s_icons[i]] = s_icons[i].GetComponentsInChildren<Graphic>(false);
+                CanvasGroup[] inside = s_icons[i].GetComponentsInChildren<CanvasGroup>(false);
+                CanvasGroup[] over = s_icons[i].GetComponentsInParent<CanvasGroup>(false);
+                var groups = new CanvasGroup[inside.Length + over.Length];
+                inside.CopyTo(groups, 0);
+                over.CopyTo(groups, inside.Length);
+                s_groups[s_icons[i]] = groups;
+            }
 
             int order = BaseOrder;
             order = Mathf.Max(order, OverlayOrder(s_iconCanvas) + 1);
@@ -649,6 +704,7 @@ namespace ChefSkills
                 for (int i = 0; i < s_stacks[s].Lines.Count; i++) Destroy(s_stacks[s].Lines[i]);
             s_stacks.Clear();
             s_graphics.Clear();
+            s_groups.Clear();
             s_icons = new HoverIconUIController[0];
             s_iconCanvas = null;
             s_hudCanvas = null;
