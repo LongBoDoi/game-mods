@@ -76,8 +76,9 @@ namespace ChefSkills
         // 4: dashes are reported by the player's machine and followed by the host (DashSync),
         // which only works when both sides do it. 5: special skills (a loadout per player, and
         // the SpecialNet channel every machine has to read). 6: SpecialNet protocol 2 (refusal
-        // reasons, visual effects) and the reworked specials.
-        private const string Version = "6";
+        // reasons, visual effects) and the reworked specials. 7: protocol 3 (aimed actives: the
+        // chosen target in the press, chefs standing still while aiming; Swap and Summon wind up).
+        private const string Version = "7";
         private const float TickSeconds = 0.5f;
         private const int LevelLimit = 5;
 

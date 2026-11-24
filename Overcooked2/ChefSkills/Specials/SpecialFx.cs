@@ -38,8 +38,11 @@ namespace ChefSkills
             public RectTransform Rect;
             public Image Image;
             public Image Inner;
-            public Text Label;
+            /// <summary>A mark's word, in the stack over what it marks.</summary>
+            public FxLabels.Line Line;
             public Transform Follow;
+            /// <summary>A station's work surface (rings lie on it rather than on the floor inside the counter).</summary>
+            public Transform Surface;
             public Renderer[] Renderers;
             public Vector3 Position, To;
             public Color Colour;
@@ -50,6 +53,17 @@ namespace ChefSkills
         private static readonly List<Effect> s_effects = new List<Effect>();
         private static readonly Dictionary<string, Effect> s_marks = new Dictionary<string, Effect>();
         private static readonly Dictionary<string, float> s_sent = new Dictionary<string, float>();
+
+        // Marks sent for an object this machine doesn't have yet, tried again for a moment.
+        private sealed class Waiting
+        {
+            public SpecialMessage Message;
+            public Color Colour;
+            public float Until;
+        }
+
+        private static readonly List<Waiting> s_waiting = new List<Waiting>();
+        private const float WaitSeconds = 1.5f;
         private static Sprite s_disc, s_ring, s_glow;
         private static Font s_font;
         private static Material s_onTop;
@@ -367,6 +381,12 @@ namespace ChefSkills
             }
         }
 
+        /// <summary>The same, for other drawing over the kitchen (the aim rings).</summary>
+        internal static Material OnTopMaterial
+        {
+            get { return OnTop; }
+        }
+
         /// <summary>The camera the kitchen is seen through (cached per frame).</summary>
         internal static Camera GameCamera()
         {
@@ -415,6 +435,12 @@ namespace ChefSkills
         /// </summary>
         internal static void Mark(GameObject target, Color colour, float seconds, string label, float radius)
         {
+            Mark(target, colour, seconds, label, radius, FxLabels.LabelSize);
+        }
+
+        /// <summary>A mark whose label is <paramref name="labelSize"/> metres tall (FxLabels sizes).</summary>
+        internal static void Mark(GameObject target, Color colour, float seconds, string label, float radius, float labelSize)
+        {
             if (target == null) return;
             string key = target.GetInstanceID() + "/" + (label ?? "") + "/" + ColorUtility.ToHtmlStringRGB(colour);
             Effect effect;
@@ -424,14 +450,20 @@ namespace ChefSkills
                 effect.End = Mathf.Max(effect.End, now + seconds);
                 return;
             }
-            effect = Make(Kind.Mark, "Mark", label, false);
+            effect = Make(Kind.Mark, "Mark", null, false);
             if (effect == null) return;
+            if (!string.IsNullOrEmpty(label))
+                effect.Line = FxLabels.Hold(target, Vector3.zero, key, label, colour, seconds, labelSize);
             effect.Image.sprite = Ring;
             effect.Inner.sprite = Glow;
             effect.Follow = target.transform;
+            effect.Surface = SurfaceOf(target);
             effect.Renderers = target.GetComponentsInChildren<Renderer>();
             effect.Colour = colour;
-            effect.Radius = radius > 0f ? radius : DefaultRadius(target);
+            // On a counter top the station's whole width would overhang it: keep to the work surface.
+            effect.Radius = radius > 0f ? radius
+                : effect.Surface != null ? Mathf.Min(DefaultRadius(target), 0.62f)
+                : DefaultRadius(target);
             effect.End = now + seconds;
             effect.Key = key;
             s_marks[key] = effect;
@@ -452,23 +484,21 @@ namespace ChefSkills
                 if (s_effects[i].Kind == Kind.Mark && s_effects[i].Follow == t) s_effects[i].End = 0f;
         }
 
-        /// <summary>A word that floats up from over <paramref name="target"/> and fades.</summary>
+        /// <summary>
+        /// A word that pops up over <paramref name="target"/> and fades, in the stack of words over
+        /// it (FxLabels: with the other words there, above the game's icons).
+        /// </summary>
         internal static void Text(GameObject target, string text, Color colour)
         {
             if (target == null || string.IsNullOrEmpty(text)) return;
-            Text(Top(target), text, colour);
+            FxLabels.Float(target, Vector3.zero, text, colour);
         }
 
-        /// <summary>A word that floats up from <paramref name="position"/> and fades.</summary>
+        /// <summary>A word that pops up at <paramref name="position"/> (joining the words over anything there) and fades.</summary>
         internal static void Text(Vector3 position, string text, Color colour)
         {
             if (string.IsNullOrEmpty(text)) return;
-            Effect effect = Make(Kind.Text, "Text", text, true);
-            if (effect == null) return;
-            effect.Position = position;
-            effect.Colour = colour;
-            effect.End = effect.Start + 1.3f;
-            Place(effect);
+            FxLabels.Float(null, position, text, colour);
         }
 
         /// <summary>A band along the floor from one place to another (a teleport, a pull, a throw), fading.</summary>
@@ -559,6 +589,88 @@ namespace ChefSkills
             });
         }
 
+        // --- every machine, any colour (the base skills have no special to take a colour from) ---
+
+        // In I: the kind's low byte carries this flag, and the top 16 bits the colour (RGB 5-6-5).
+        private const int OwnColour = 0x80;
+        // With OwnColour (whose bits 8-15 are free): the mark's label is a skill's, drawn smaller.
+        private const int SmallLabel = 0x100;
+
+        private static float LabelSizeOf(SpecialMessage message)
+        {
+            return (message.I & OwnColour) != 0 && (message.I & SmallLabel) != 0 ? FxLabels.SkillLabelSize : FxLabels.LabelSize;
+        }
+
+        /// <summary><see cref="Burst(Vector3, Color, float, float)"/> on every machine.</summary>
+        internal static void BurstAll(Vector3 position, Color colour, float radius, float seconds)
+        {
+            SendColoured(Kind.Burst, 0, position, new Vector3(radius, 0f, 0f), seconds, colour, null);
+        }
+
+        /// <summary>
+        /// <see cref="Mark(GameObject, Color, float, string, float)"/> on every machine, throttled
+        /// like <see cref="MarkAll(GameObject, Special, float, string)"/>. The label goes over the
+        /// network, so build it with Lang.Both.
+        /// </summary>
+        internal static void MarkAll(GameObject target, Color colour, float seconds, string label, float radius)
+        {
+            MarkAll(target, colour, seconds, label, radius, false);
+        }
+
+        /// <summary>The same, with a smaller label when <paramref name="smallLabel"/> (the skills' ones, FxLabels.SkillLabelSize).</summary>
+        internal static void MarkAll(GameObject target, Color colour, float seconds, string label, float radius, bool smallLabel)
+        {
+            if (target == null) return;
+            uint id = SkillManager.EntityId(target);
+            if (id == 0)
+            {
+                Mark(target, colour, seconds, label, radius, smallLabel ? FxLabels.SkillLabelSize : FxLabels.LabelSize);
+                return;
+            }
+            string key = "C" + id + "/" + ColorUtility.ToHtmlStringRGB(colour) + "/" + label;
+            if (Throttled(key, seconds * 0.5f)) return;
+            SendColoured(Kind.Mark, id, target.transform.position, new Vector3(radius, 0f, 0f), seconds, colour, label, smallLabel ? SmallLabel : 0);
+        }
+
+        /// <summary><see cref="Text(GameObject, string, Color)"/> on every machine (build the text with Lang.Both).</summary>
+        internal static void TextAll(GameObject target, string text, Color colour)
+        {
+            if (target == null || string.IsNullOrEmpty(text)) return;
+            uint id = SkillManager.EntityId(target);
+            if (Throttled("T" + (id != 0 ? id.ToString() : target.GetInstanceID().ToString()) + "/" + text, 0.4f)) return;
+            if (id == 0)
+            {
+                Text(target, text, colour);
+                return;
+            }
+            SendColoured(Kind.Text, id, Top(target), Vector3.zero, 0f, colour, text);
+        }
+
+        private static void SendColoured(Kind kind, uint target, Vector3 a, Vector3 b, float seconds, Color colour, string text)
+        {
+            SendColoured(kind, target, a, b, seconds, colour, text, 0);
+        }
+
+        private static void SendColoured(Kind kind, uint target, Vector3 a, Vector3 b, float seconds, Color colour, string text, int flags)
+        {
+            Register();
+            int r = Mathf.Clamp(Mathf.RoundToInt(colour.r * 31f), 0, 31);
+            int g = Mathf.Clamp(Mathf.RoundToInt(colour.g * 63f), 0, 63);
+            int bl = Mathf.Clamp(Mathf.RoundToInt(colour.b * 31f), 0, 31);
+            int packed = (r << 11) | (g << 5) | bl;
+            SpecialNet.SendToAll(new SpecialMessage
+            {
+                Topic = SpecialNet.Topic.Fx, Chef = target, Vector1 = a, Vector2 = b, G = seconds,
+                I = unchecked((int)kind | OwnColour | flags | (packed << 16)), Text = text
+            });
+        }
+
+        private static Color Unpack(int i)
+        {
+            int packed = (i >> 16) & 0xFFFF;
+            return new Color(((packed >> 11) & 31) / 31f, ((packed >> 5) & 63) / 63f, (packed & 31) / 31f);
+        }
+
         /// <summary>Hooks the effect messages up (from SpecialRuntime.RegisterModules).</summary>
         internal static void Register()
         {
@@ -570,9 +682,8 @@ namespace ChefSkills
         private static void OnMessage(SpecialMessage message)
         {
             if (!SpecialRuntime.InLevel) return;
-            var kind = (Kind)(message.I & 0xFF);
-            var special = (Special)(message.I >> 8);
-            Color colour = ColourOf(special);
+            var kind = (Kind)(message.I & 0x7F);
+            Color colour = (message.I & OwnColour) != 0 ? Unpack(message.I) : ColourOf((Special)((message.I >> 8) & 0xFF));
             GameObject target = null;
             if (message.Chef != 0)
             {
@@ -585,7 +696,10 @@ namespace ChefSkills
                     Burst(message.Vector1, colour, message.D > 0f ? message.D : 1.4f, message.G > 0f ? message.G : 0.5f);
                     break;
                 case Kind.Mark:
-                    if (target != null) Mark(target, colour, message.G, message.Text, 0f);
+                    if (target != null) Mark(target, colour, message.G, message.Text, message.D, LabelSizeOf(message));
+                    // Something the host has only just made (an item out of a crate, a conjured
+                    // pan): the game's own message creating it here can come a little after ours.
+                    else if (message.Chef != 0) Wait(message, colour);
                     break;
                 case Kind.Text:
                     if (target != null) Text(target, message.Text, colour);
@@ -597,6 +711,29 @@ namespace ChefSkills
             }
         }
 
+        private static void Wait(SpecialMessage message, Color colour)
+        {
+            if (s_waiting.Count >= 32) s_waiting.RemoveAt(0);
+            s_waiting.Add(new Waiting { Message = message, Colour = colour, Until = Time.unscaledTime + WaitSeconds });
+        }
+
+        private static void RetryWaiting()
+        {
+            float now = Time.unscaledTime;
+            for (int i = s_waiting.Count - 1; i >= 0; i--)
+            {
+                Waiting waiting = s_waiting[i];
+                EntitySerialisationEntry entry = EntitySerialisationRegistry.GetEntry(waiting.Message.Chef);
+                GameObject target = entry != null ? entry.m_GameObject : null;
+                if (target == null && now < waiting.Until) continue;
+                s_waiting.RemoveAt(i);
+                if (target == null) continue;
+                // Only what is left of it.
+                float seconds = waiting.Message.G - (now - (waiting.Until - WaitSeconds));
+                if (seconds > 0.1f) Mark(target, waiting.Colour, seconds, waiting.Message.Text, waiting.Message.D, LabelSizeOf(waiting.Message));
+            }
+        }
+
         // --- drawing ----------------------------------------------------------------------------
 
         private static float DefaultRadius(GameObject target)
@@ -605,6 +742,35 @@ namespace ChefSkills
             Bounds bounds;
             if (!BoundsOf(target.GetComponentsInChildren<Renderer>(), out bounds)) return 0.5f;
             return Mathf.Clamp(Mathf.Max(bounds.extents.x, bounds.extents.z) + 0.15f, 0.35f, 1.1f);
+        }
+
+        /// <summary>
+        /// Where a station's items sit (a counter's top, a cooker's hob, a sink's rim), so a ring
+        /// marking the station shows on it; null for anything else (chefs, items).
+        /// </summary>
+        internal static Vector3 SurfacePoint(GameObject target)
+        {
+            Vector3 at = target.transform.position;
+            Transform surface = SurfaceOf(target);
+            if (surface != null) at.y = surface.position.y;
+            return at;
+        }
+
+        private static Transform SurfaceOf(GameObject target)
+        {
+            if (target.GetComponent<PlayerControls>() != null) return null;
+            AttachStation attach = target.GetComponent<AttachStation>();
+            if (attach != null && attach.m_attachPoint != null) return attach.m_attachPoint;
+            WashingStation sink = target.GetComponent<WashingStation>();
+            if (sink != null)
+            {
+                // A sink has no attach point of its own; its drying rack stands at the same height.
+                attach = sink.m_dryingStation != null ? sink.m_dryingStation.GetComponent<AttachStation>() : null;
+                if (attach != null && attach.m_attachPoint != null) return attach.m_attachPoint;
+                if (sink.m_dirtyPlates != null && sink.m_dirtyPlates.Length > 0 && sink.m_dirtyPlates[0] != null)
+                    return sink.m_dirtyPlates[0].transform;
+            }
+            return null;
         }
 
         private static bool BoundsOf(Renderer[] renderers, out Bounds bounds)
@@ -654,24 +820,6 @@ namespace ChefSkills
                 effect.Inner = AddImage(root.transform, "Inner", false);
                 effect.Image = AddImage(root.transform, "Ring", false);
             }
-            if (!string.IsNullOrEmpty(label))
-            {
-                // Labels stand up and face the camera; they are a child canvas for Mark (which lies flat).
-                Transform parent = root.transform;
-                if (kind == Kind.Mark)
-                {
-                    var holder = new GameObject("LabelCanvas", typeof(RectTransform));
-                    holder.transform.SetParent(null, false);
-                    Canvas labelCanvas = holder.AddComponent<Canvas>();
-                    labelCanvas.renderMode = RenderMode.WorldSpace;
-                    labelCanvas.sortingOrder = 120;
-                    ((RectTransform)holder.transform).sizeDelta = new Vector2(100f, 100f);
-                    holder.transform.localScale = Vector3.one / UnitsPerMetre;
-                    holder.transform.SetParent(root.transform.parent, true);
-                    parent = holder.transform;
-                }
-                effect.Label = AddText(parent, label, kind == Kind.Text ? 92 : 70);
-            }
             s_effects.Add(effect);
             return effect;
         }
@@ -689,36 +837,22 @@ namespace ChefSkills
             return image;
         }
 
-        private static Text AddText(Transform parent, string text, int size)
-        {
-            var go = new GameObject("Label", typeof(RectTransform));
-            var rect = (RectTransform)go.transform;
-            rect.SetParent(parent, false);
-            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(900f, 160f);
-            Text label = go.AddComponent<Text>();
-            label.raycastTarget = false;
-            label.supportRichText = false;
-            label.font = Font;
-            label.fontSize = size;
-            label.alignment = TextAnchor.MiddleCenter;
-            label.horizontalOverflow = HorizontalWrapMode.Overflow;
-            label.verticalOverflow = VerticalWrapMode.Overflow;
-            label.text = Lang.Pick(text);
-            label.material = OnTop;
-            Outline outline = go.AddComponent<Outline>();
-            outline.effectColor = new Color(0.04f, 0.06f, 0.1f, 0.9f);
-            outline.effectDistance = new Vector2(5f, -5f);
-            return label;
-        }
-
         /// <summary>Every frame (from SpecialRuntime.Update): moves, fades and ends the effects.</summary>
         internal static void Update()
+        {
+            if (s_waiting.Count > 0) RetryWaiting();
+            bool hide = SpecialHud.GameMenuOpen();
+            UpdateEffects(hide);
+            // After the rings, which keep their labels' time. The words are drawn over the screen,
+            // so they also give way to whatever the game puts over its kitchen icons.
+            FxLabels.Update(hide || SpecialHud.KitchenUiHidden() || SkillSelectScreen.IsOpen);
+        }
+
+        private static void UpdateEffects(bool hide)
         {
             if (s_effects.Count == 0) return;
             float now = Time.unscaledTime;
             Camera camera = GameCamera();
-            bool hide = SpecialHud.GameMenuOpen();
             for (int i = s_effects.Count - 1; i >= 0; i--)
             {
                 Effect effect = s_effects[i];
@@ -765,7 +899,8 @@ namespace ChefSkills
                 {
                     Vector3 at = effect.Follow.position;
                     Bounds bounds;
-                    float floor = effect.Follow.GetComponent<PlayerControls>() != null || !BoundsOf(effect.Renderers, out bounds)
+                    float floor = effect.Surface != null ? effect.Surface.position.y
+                        : effect.Follow.GetComponent<PlayerControls>() != null || !BoundsOf(effect.Renderers, out bounds)
                         ? at.y
                         : bounds.min.y;
                     root.position = new Vector3(at.x, floor + RingLift, at.z);
@@ -782,25 +917,8 @@ namespace ChefSkills
                     Color glow = effect.Colour;
                     glow.a = 0.3f * fade;
                     effect.Inner.color = glow;
-                    if (effect.Label != null)
-                    {
-                        Transform label = effect.Label.transform.parent;
-                        label.position = new Vector3(at.x, Top(effect.Follow.gameObject).y + 0.1f, at.z);
-                        if (camera != null) label.rotation = camera.transform.rotation;
-                        Color text = effect.Colour;
-                        text.a = fade;
-                        effect.Label.color = text;
-                    }
-                    break;
-                }
-                case Kind.Text:
-                {
-                    root.position = effect.Position + Vector3.up * (0.9f * (1f - (1f - t) * (1f - t)));
-                    if (camera != null) root.rotation = camera.transform.rotation;
-                    float pop = t < 0.12f ? Mathf.Lerp(1.4f, 1f, t / 0.12f) : 1f;
-                    root.localScale = Vector3.one * (pop / UnitsPerMetre);
-                    colour.a = t < 0.7f ? 1f : 1f - (t - 0.7f) / 0.3f;
-                    effect.Label.color = colour;
+                    // Its word (in the stack over the thing, FxLabels) lasts as long as the ring.
+                    if (effect.Line != null) effect.Line.End = effect.End;
                     break;
                 }
                 case Kind.Beam:
@@ -828,8 +946,7 @@ namespace ChefSkills
                 Effect current;
                 if (s_marks.TryGetValue(effect.Key, out current) && current == effect) s_marks.Remove(effect.Key);
             }
-            if (effect.Label != null && effect.Kind == Kind.Mark && effect.Label.transform.parent != null)
-                Object.Destroy(effect.Label.transform.parent.gameObject);
+            if (effect.Line != null) effect.Line.End = 0f;
             if (effect.Root != null) Object.Destroy(effect.Root);
         }
 
@@ -840,6 +957,8 @@ namespace ChefSkills
             s_effects.Clear();
             s_marks.Clear();
             s_sent.Clear();
+            s_waiting.Clear();
+            FxLabels.Clear();
         }
     }
 }

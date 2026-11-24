@@ -67,6 +67,15 @@ namespace ChefSkills
             get { return Lang.Vi ? NamesVi : NamesEn; }
         }
 
+        /// <summary>
+        /// A skill's name followed by <paramref name="suffix"/>, in both languages (Lang.Both), for
+        /// text sent to the other machines.
+        /// </summary>
+        internal static string NameBoth(Skill skill, string suffix)
+        {
+            return Lang.Both(NamesEn[(int)skill] + suffix, NamesVi[(int)skill] + suffix);
+        }
+
         /// <summary>The line under a player's skills that explains the highlighted one.</summary>
         internal static string[] Descriptions
         {

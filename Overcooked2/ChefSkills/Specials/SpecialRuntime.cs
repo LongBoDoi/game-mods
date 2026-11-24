@@ -34,6 +34,15 @@ namespace ChefSkills
         /// <summary>Optional, every machine once the server has confirmed it (buffs, effects).</summary>
         public Action<ChefState> OnActivated;
 
+        /// <summary>
+        /// Optional, the player's own machine: what it can be used on right now, the one it would
+        /// pick anyway first. With this, holding the skill key lets the player choose among them
+        /// (see <see cref="SpecialAim"/>) and Execute gets the choice in
+        /// <see cref="ChefState.HasAimPoint"/>, <see cref="ChefState.AimPoint"/> and
+        /// <see cref="ChefState.AimChef"/>.
+        /// </summary>
+        public Func<ChefState, List<AimTarget>> Targets;
+
         /// <summary>Seconds the effect lasts (shown on the HUD; ChefState.ActiveUntil).</summary>
         public float Duration;
     }
@@ -90,6 +99,31 @@ namespace ChefSkills
         /// </summary>
         public Vector3 RequestPosition;
         public Vector3 RequestForward = Vector3.forward;
+
+        /// <summary>
+        /// The press chose a target (held the skill key and picked one): Execute uses the one at
+        /// <see cref="AimPoint"/> (flat, within a little of it) or, for a chef, <see cref="AimChef"/>,
+        /// whichever way the chef faces. <see cref="RequestForward"/> then points at it.
+        /// </summary>
+        public bool HasAimPoint;
+        public Vector3 AimPoint;
+        public ChefState AimChef;
+
+        /// <summary>Flat distance from the chosen target's spot (MaxValue when none was chosen).</summary>
+        public float AimDistance(Vector3 point)
+        {
+            if (!HasAimPoint) return float.MaxValue;
+            Vector3 offset = point - AimPoint;
+            offset.y = 0f;
+            return offset.magnitude;
+        }
+
+        /// <summary>Every machine: holding the skill key to choose a target until then (can't run meanwhile).</summary>
+        internal float AimingUntil;
+        /// <summary>The player's machine: choosing a target now.</summary>
+        internal SpecialAim.Session Aim;
+        /// <summary>Other machines: what this chef has chosen.</summary>
+        internal SpecialAim.Remote RemoteAim;
 
         /// <summary>Set by Execute (with <see cref="Refuse"/>) when it returns false: shown to the player.</summary>
         internal string RefuseReason;
@@ -310,6 +344,7 @@ namespace ChefSkills
             SpecialNet.Register(SpecialNet.Topic.Denied, OnDenied);
             SpecialNet.Register(SpecialNet.Topic.Buff, OnBuff);
             SpecialFx.Register();
+            SpecialAim.Register();
 
             int count = 0;
             foreach (Type type in typeof(SpecialRuntime).Assembly.GetTypes())
@@ -351,6 +386,7 @@ namespace ChefSkills
             if (s_hud != null) s_hud.Destroy();
             s_hud = null;
             SpecialFx.Clear();
+            SpecialAim.Destroy();
         }
 
         /// <summary>The skill screen has closed: loadouts are set, the level starts.</summary>
@@ -519,7 +555,7 @@ namespace ChefSkills
         {
             ChefState state = StateOf(chef);
             if (state == null) return 1f;
-            if (HasBuff(state, BuffId.Frozen)) return 0f;
+            if (HasBuff(state, BuffId.Frozen) || SpecialAim.Aiming(state)) return 0f;
             float value = 1f + BuffStrength(state, BuffId.RunSpeed);
             value *= Product(RunSpeedModifiers, state, "RunSpeed");
             return Mathf.Clamp(value, 0f, 4f);
@@ -546,7 +582,7 @@ namespace ChefSkills
         {
             ChefState state = StateOf(chef);
             if (state == null) return true;
-            if (HasBuff(state, BuffId.Frozen)) return false;
+            if (HasBuff(state, BuffId.Frozen) || SpecialAim.Aiming(state)) return false;
             for (int i = 0; i < DashAllowed.Count; i++)
             {
                 try
@@ -622,6 +658,14 @@ namespace ChefSkills
                 }
                 if (state.Local) ReadActivation(state);
             }
+            try
+            {
+                SpecialAim.Draw(s_chefs);
+            }
+            catch (Exception error)
+            {
+                Fail("Aim", error);
+            }
 
             if (!TimeManager.IsPaused(TimeManager.PauseLayer.Main)) Raise(Tick, Time.deltaTime, "Tick");
             if (s_hud != null) s_hud.Update(s_chefs);
@@ -688,23 +732,67 @@ namespace ChefSkills
 
         // --- actives ----------------------------------------------------------------------------
 
-        /// <summary>A local player pressed EMOTE: use their active.</summary>
+        /// <summary>
+        /// A local player's skill key: a press uses their active, or, for one with targets, starts
+        /// choosing one (used when the key is let go; see <see cref="SpecialAim"/>).
+        /// </summary>
         private static void ReadActivation(ChefState state)
         {
-            PlayerControls controls = state.Controls;
             bool down = SpecialInput.IsDown(state);
             bool pressed = down && !state.EmoteWasDown;
             state.EmoteWasDown = down;
+            if (state.Aim != null)
+            {
+                SpecialAim.Hold(state, down);
+                return;
+            }
             if (!pressed || state.Active == Special.None) return;
-            if (!controls.enabled || controls.IsSuppressed() || HasBuff(state, BuffId.Frozen) || SpecialHud.GameMenuOpen()) return;
+            if (!CanUseNow(state)) return;
             if (s_now < state.CooldownUntil || s_now < state.PendingUntil)
             {
                 SpecialHud.Deny(state, s_now < state.PendingUntil ? null : Lang.Both("NOT READY", "CHƯA HỒI CHIÊU XONG"));
                 return;
             }
+            ActiveHandler handler;
+            if (s_actives.TryGetValue(state.Active, out handler) && handler.Targets != null && SpecialAim.Begin(state, handler.Targets))
+                return;
+            Fire(state, null);
+        }
 
+        /// <summary>The player's own machine: their chef can use its active now (not knocked out, no menu).</summary>
+        internal static bool CanUseNow(ChefState state)
+        {
+            PlayerControls controls = state.Controls;
+            return controls != null && controls.enabled && !controls.IsSuppressed() && !controls.m_bRespawning &&
+                   !HasBuff(state, BuffId.Frozen) && !SpecialHud.GameMenuOpen();
+        }
+
+        /// <summary>
+        /// The player's own machine: use the chef's active, on <paramref name="target"/> when one
+        /// was chosen (null: whatever the special picks itself, from where the chef stands and faces).
+        /// </summary>
+        internal static void Fire(ChefState state, AimTarget target)
+        {
+            if (state.Active == Special.None) return;
+            Vector3 forward = state.Forward;
+            float reach = 0f;
+            if (target != null)
+            {
+                Vector3 offset = target.Current - state.Position;
+                offset.y = 0f;
+                Vector3 direction = target.Direction;
+                direction.y = 0f;
+                if (direction.sqrMagnitude > 1e-4f) forward = direction.normalized;
+                else if (offset.sqrMagnitude > 1e-4f) forward = offset.normalized;
+                // The chosen spot is sent as a distance along that facing (a target right at the
+                // chef, like the pot in its hands, still counts as chosen).
+                reach = Mathf.Max(0.05f, offset.magnitude);
+            }
             state.RequestPosition = state.Position;
-            state.RequestForward = state.Forward;
+            state.RequestForward = forward;
+            state.HasAimPoint = target != null;
+            state.AimPoint = state.Position + forward * reach;
+            state.AimChef = target != null ? target.Chef : null;
             if (IsServer)
             {
                 ServerActivate(state, state.Active);
@@ -714,7 +802,8 @@ namespace ChefSkills
             SpecialNet.SendToHost(new SpecialMessage
             {
                 Topic = SpecialNet.Topic.ActivateRequest, Chef = state.Id, I = (int)state.Active,
-                Vector1 = state.Position, Vector2 = state.Forward
+                Vector1 = state.Position, Vector2 = forward, G = reach,
+                Text = state.AimChef != null && state.AimChef.Id != 0 ? state.AimChef.Id.ToString() : null
             });
             ActiveHandler handler;
             if (s_actives.TryGetValue(state.Active, out handler) && handler.Predict != null)
@@ -743,6 +832,17 @@ namespace ChefSkills
             }
             state.RequestPosition = message.Vector1;
             state.RequestForward = message.Vector2.sqrMagnitude > 0.01f ? message.Vector2 : state.Forward;
+            // A chosen target: G metres along the facing (and Text its chef's ID).
+            Vector3 forward = state.RequestForward;
+            forward.y = 0f;
+            state.HasAimPoint = message.G > 0.01f && forward.sqrMagnitude > 1e-4f;
+            state.AimPoint = state.HasAimPoint ? message.Vector1 + forward.normalized * message.G : message.Vector1;
+            uint aimed;
+            state.AimChef = state.HasAimPoint && !string.IsNullOrEmpty(message.Text) && uint.TryParse(message.Text, out aimed)
+                ? StateById(aimed)
+                : null;
+            // The player has let go of the skill key, whether or not its "done aiming" got here first.
+            state.AimingUntil = 0f;
             ServerActivate(state, state.Active);
         }
 
@@ -776,9 +876,12 @@ namespace ChefSkills
             SpecialInfo info = SpecialCatalog.Info(special);
             float cooldown = info != null ? info.Cooldown : 10f;
             float duration = s_actives[special].Duration;
+            // Where it was used (where the player saw their chef), so every machine shows it there:
+            // the owner's chef may already be somewhere else by then (Blink, Vault...).
             SpecialNet.SendToAll(new SpecialMessage
             {
-                Topic = SpecialNet.Topic.Activated, Chef = state.Id, I = (int)special, A = cooldown, B = duration
+                Topic = SpecialNet.Topic.Activated, Chef = state.Id, I = (int)special, A = cooldown, B = duration,
+                Vector2 = state.RequestPosition, G = 1f
             });
         }
 
@@ -818,9 +921,10 @@ namespace ChefSkills
                 }
             }
             if (state.Local) SpecialHud.Used(state);
-            // Everyone sees that a special went off, and whose.
-            SpecialFx.Burst(state.Position, SpecialFx.ColourOf(special), 1.6f, 0.55f);
-            SpecialFx.Text(state.Chef, SpecialCatalog.NameOf(special) + "!", SpecialFx.ColourOf(special));
+            // Everyone sees that a special went off, and whose, at the same spot.
+            Vector3 at = message.G > 0.5f && Vector3.Distance(message.Vector2, state.Position) < 12f ? message.Vector2 : state.Position;
+            SpecialFx.Burst(at, SpecialFx.ColourOf(special), 1.6f, 0.55f);
+            SpecialFx.Text(at + Vector3.up * 2.1f, SpecialCatalog.NameOf(special) + "!", SpecialFx.ColourOf(special));
         }
 
         private static void OnDenied(SpecialMessage message)

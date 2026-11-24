@@ -28,6 +28,7 @@ namespace ChefSkills
             ChopCredit.Clear();
             ClientChopCredit.Clear();
             CurrentPlacer = null;
+            StationFx.Reset();
         }
 
         /// <summary>
@@ -54,13 +55,25 @@ namespace ChefSkills
         /// Time to add to a pot or bowl this frame: COOKING scales it until the food is done, then
         /// SLOW BURN stretches the time it takes to burn (or over-mix).
         /// </summary>
-        internal static float Scale(GameObject container, float deltaTime, float progress, float doneAt)
+        internal static float Scale(GameObject container, float deltaTime, float progress, float doneAt, bool spoiled)
         {
             if (!Plugin.Enabled.Value) return deltaTime;
             GameObject chef = OwnerOf(container);
             if (chef == null) return deltaTime;
-            if (progress < doneAt) return deltaTime * Plugin.Skills.Multiplier(chef, Skill.Cooking);
-            return deltaTime / Plugin.Skills.Multiplier(chef, Skill.SlowBurn);
+            Skill skill = progress < doneAt ? Skill.Cooking : Skill.SlowBurn;
+            float multiplier = Plugin.Skills.Multiplier(chef, skill);
+            if (deltaTime > 0f && !spoiled && !Mathf.Approximately(multiplier, 1f))
+            {
+                try
+                {
+                    StationFx.Cooking(container, chef, skill, multiplier);
+                }
+                catch (Exception error)
+                {
+                    Plugin.Log.LogDebug("StationFx (cooking): " + error.Message);
+                }
+            }
+            return skill == Skill.Cooking ? deltaTime * multiplier : deltaTime / multiplier;
         }
     }
 
@@ -143,6 +156,15 @@ namespace ChefSkills
             {
                 _reentered = false;
             }
+            // Every machine sees every chop, so each shows it on the board itself.
+            try
+            {
+                if (_station != null) StationFx.Chopped(_station.gameObject, _worker, multiplier, strokes);
+            }
+            catch (Exception error)
+            {
+                Plugin.Log.LogDebug("StationFx (chopping): " + error.Message);
+            }
             return false;
         }
     }
@@ -154,7 +176,7 @@ namespace ChefSkills
         private static void Prefix(ServerCookingHandler __instance, ref float _cookingDeltatTime)
         {
             _cookingDeltatTime = LevelState.Scale(__instance.gameObject, _cookingDeltatTime,
-                __instance.GetCookingProgress(), __instance.AccessCookingTime);
+                __instance.GetCookingProgress(), __instance.AccessCookingTime, __instance.IsBurning());
         }
     }
 
@@ -165,7 +187,7 @@ namespace ChefSkills
         private static void Prefix(ServerMixingHandler __instance, ref float _deltaTime)
         {
             _deltaTime = LevelState.Scale(__instance.gameObject, _deltaTime,
-                __instance.GetMixingProgress(), __instance.AccessMixingTime);
+                __instance.GetMixingProgress(), __instance.AccessMixingTime, __instance.IsOverMixed());
         }
     }
 
@@ -249,12 +271,26 @@ namespace ChefSkills
             ConfigField.SetValue(__instance, config);
         }
 
-        private static void Postfix(PlateReturnController __instance, float __state)
+        private static void Postfix(PlateReturnController __instance, float __state, PlatingStepData _plateType, ServerPlateStation _station)
         {
             if (__state < 0f) return;
             var config = (PlateReturnController.PlateReturnControllerConfig)ConfigField.GetValue(__instance);
+            float sooner = config.m_plateReturnTime;
             config.m_plateReturnTime = __state;
             ConfigField.SetValue(__instance, config);
+
+            // Show it at the plate return (or the pass, when the plate goes to one chosen later).
+            try
+            {
+                ServerPlateReturnStation back = _station != null ? _station.GetReturnStation(_plateType) : null;
+                GameObject where = back != null ? back.gameObject : _station != null ? _station.gameObject : null;
+                StationFx.Served(where, LevelState.CurrentPlacer,
+                    Plugin.Skills.Multiplier(LevelState.CurrentPlacer, Skill.Serving), sooner);
+            }
+            catch (Exception error)
+            {
+                Plugin.Log.LogDebug("StationFx (serving): " + error.Message);
+            }
         }
     }
 
@@ -325,6 +361,16 @@ namespace ChefSkills
             var station = StationField != null ? StationField.GetValue(__instance) as WashingStation : null;
             if (ui != null && station != null && station.m_cleanPlateTime > 0f)
                 ui.SetProgress(Mathf.Clamp01(timer / station.m_cleanPlateTime));
+
+            // Every machine runs this, so each shows it on the sink itself.
+            try
+            {
+                StationFx.Washing(__instance.gameObject, washers, multiplier);
+            }
+            catch (Exception error)
+            {
+                Plugin.Log.LogDebug("StationFx (washing): " + error.Message);
+            }
         }
     }
 
@@ -375,6 +421,32 @@ namespace ChefSkills
             _changed = spray;
             _time = spray.m_exinguishTime;
             spray.m_exinguishTime = _time / multiplier;
+        }
+
+        private static readonly MethodInfo InSprayMethod =
+            AccessTools.Method(typeof(ServerSprayingUtensil), "IsInSpray", new Type[] { typeof(Transform) });
+        private static readonly object[] Args = new object[1];
+
+        /// <summary>Shows it on the stations this spray is putting out (the host sends it to everyone).</summary>
+        private static void Postfix(ServerFireExtinguishSpray __instance)
+        {
+            if (_changed == null || InSprayMethod == null || !__instance.IsSpraying()) return;
+            try
+            {
+                GameObject chef = __instance.Carrier;
+                float multiplier = Plugin.Skills.Multiplier(chef, Skill.Firefighting);
+                foreach (ServerFlammable burning in ServerFlammable.GetAllOnFire())
+                {
+                    if (burning == null) continue;
+                    Args[0] = burning.transform;
+                    if ((bool)InSprayMethod.Invoke(__instance, Args))
+                        StationFx.Firefighting(burning.gameObject, chef, multiplier);
+                }
+            }
+            catch (Exception error)
+            {
+                Plugin.Log.LogDebug("StationFx (firefighting): " + error.Message);
+            }
         }
 
         [HarmonyFinalizer]

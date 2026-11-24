@@ -4,8 +4,8 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 
-[assembly: System.Reflection.AssemblyVersion("1.1.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.1.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.2.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.2.0.0")]
 
 namespace TiengViet
 {
@@ -13,9 +13,10 @@ namespace TiengViet
     /// language and the mod out of the way, as if it were not installed.</summary>
     internal enum GameLanguage { English, Vietnamese, GameDefault }
 
-    /// <summary>Title fonts with every Vietnamese letter: six built into the mod, one from
-    /// Windows, or the game's own (which lacks them).</summary>
-    internal enum TitleFont { Coiny, Grandstander, Baloo2, Nunito, PaytoneOne, FiraSans, SegoeUI, GameFont }
+    /// <summary>Title fonts with every Vietnamese letter: the game's own with the letters added
+    /// (made on the player's PC), six built into the mod, one from Windows, or the game's own as
+    /// it is (which lacks them).</summary>
+    internal enum TitleFont { NaughtySquirrel, Coiny, Grandstander, Baloo2, Nunito, PaytoneOne, FiraSans, SegoeUI, GameFont }
 
     /// <summary>Read by name by MOD Settings and the Configuration Manager.</summary>
     internal sealed class ConfigurationManagerAttributes
@@ -35,14 +36,15 @@ namespace TiengViet
     /// change applies at once: text on screen is redrawn in the new language.
     ///
     /// The game's title font has no Vietnamese letters such as ạ, ả, ơ or ư, so a title that
-    /// needs one is drawn in a Windows font that has them (<see cref="HeaderFont"/>).
+    /// needs one is drawn in a font that has them: by default the game's own with the missing
+    /// letters added (<see cref="HeaderFont"/>, <see cref="GameTitleFont"/>).
     /// </summary>
     [BepInPlugin(Id, "Tieng Viet", Version)]
     [BepInProcess("Overcooked2.exe")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Id = "com.manhl.overcooked2.tiengviet";
-        public const string Version = "1.1.0";
+        public const string Version = "1.2.0";
 
         /// <summary>The AppDomain slot every mod in the collection reads: "vi" or "en".</summary>
         internal const string Slot = "com.manhl.overcooked2.language";
@@ -80,11 +82,13 @@ namespace TiengViet
                 "Language of the game and of this collection's mods. Also in game: Settings → Game Settings → LANGUAGE. " +
                 "GameDefault keeps the game on its Steam language and turns off everything this mod changes, as if it were not installed.",
                 null, new ConfigurationManagerAttributes { ObjToStr = LanguageLabel, Order = 0 }));
-            Titles = Config.Bind("General", "TitleFont", TitleFont.Coiny, new ConfigDescription(
+            Titles = Config.Bind("General", "TitleFont", TitleFont.NaughtySquirrel, new ConfigDescription(
                 "Phông cho tiêu đề và nút của game khi chơi tiếng Việt, vì phông gốc thiếu các chữ như ạ, ả, ơ, ư. " +
-                "Sáu phông đầu có sẵn trong mod, Segoe UI lấy từ Windows; đổi là thấy ngay.\n" +
+                "NaughtySquirrel là chính phông của game, được mod thêm các chữ đó ngay trên máy bạn; " +
+                "sáu phông sau có sẵn trong mod, Segoe UI lấy từ Windows; đổi là thấy ngay.\n" +
                 "Font for the game's titles and buttons in Vietnamese, since the game's own lacks letters such as ạ, ả, ơ, ư. " +
-                "The first six come with the mod, Segoe UI is Windows'; changes show at once.",
+                "NaughtySquirrel is the game's own font with those letters added by the mod on your PC; " +
+                "the next six come with the mod, Segoe UI is Windows'; changes show at once.",
                 null, new ConfigurationManagerAttributes { ObjToStr = HeaderFont.Label, Order = -1 }));
 
             Publish();

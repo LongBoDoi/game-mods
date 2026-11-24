@@ -102,6 +102,48 @@ else {
     if ($bad.Count) { $failed += "mods.tsv has $($bad.Count) bad rows, e.g. $($bad[0])" } else { $checked++ }
 }
 
+# The template for the game's title font with Vietnamese letters (GameTitleFont.cs): LZ4 with
+# its size first, unpacking to a bundle with room for the font.
+$resource = $assembly.MainModule.Resources | Where-Object { $_.Name -eq 'TiengViet.title.bundle.lz4' }
+if (-not $resource) { $failed += 'title.bundle.lz4 is not built into the DLL' }
+else {
+    $data = $resource.GetResourceData()
+    $size = [BitConverter]::ToInt32($data, 0)
+    if ($size -lt 400000 -or $size -gt 2000000) { $failed += "title.bundle.lz4 unpacks to $size bytes" } else { $checked++ }
+}
+
+# The title font is made on the player's PC, so make it here from the installed game: find
+# Naughty Squirrel in the game's font bundle and add the Vietnamese letters.
+$bundle22 = Join-Path $GameDir 'Overcooked2_Data\StreamingAssets\Windows\bundle22'
+if (Test-Path -LiteralPath $bundle22) {
+    try {
+        $searchDirs = @($managed, (Join-Path $GameDir 'BepInEx\core'))
+        [AppDomain]::CurrentDomain.add_AssemblyResolve({
+            param($sender, $e)
+            $file = (New-Object Reflection.AssemblyName $e.Name).Name + '.dll'
+            foreach ($dir in $searchDirs) {
+                $path = Join-Path $dir $file
+                if (Test-Path -LiteralPath $path) { return [Reflection.Assembly]::LoadFrom($path) }
+            }
+            return $null
+        }.GetNewClosure())
+        $mod = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $PluginPath).Path))
+        $any = [Reflection.BindingFlags]'Static, NonPublic, Public'
+        $font = $mod.GetType('TiengViet.GameTitleFont+Bundles').GetMethod('FindFont', $any).Invoke($null, [object[]]@([string]$bundle22, 'Naughty Squirrel'))
+        if (-not $font) { $failed += 'Naughty Squirrel is not in the game''s bundle22 any more' }
+        else {
+            $call = [object[]]@($font, 0)
+            $built = $mod.GetType('TiengViet.VietGlyphs').GetMethod('Build', $any).Invoke($null, $call)
+            if ($call[1] -ne 94) { $failed += "The title font got $($call[1]) Vietnamese letters, expected 94" } else { $checked++ }
+            if ($built.Length -gt 384 * 1024) { $failed += "The title font is $($built.Length) bytes, more than its 384 KB room" } else { $checked++ }
+        }
+    } catch {
+        $inner = $_.Exception
+        while ($inner.InnerException) { $inner = $inner.InnerException }
+        $failed += "Could not make the title font: $($inner.Message)"
+    }
+}
+
 # --- other mods' text tables (only checked when that mod is installed) -----------------------
 $plugins = Join-Path $GameDir 'BepInEx\plugins'
 $modSettings = Get-ChildItem $plugins -Recurse -Filter 'OC2ModSettings.dll' | Select-Object -First 1

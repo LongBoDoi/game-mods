@@ -10,18 +10,34 @@ TiengViet/fonts into one of them, and drops everything else:
 - "body": the game's body font repaired (see carlito.py). It takes the metrics and fallbacks of
   the game's own Body_Font asset, so it lays out exactly like it.
 
+It also builds TiengViet/title.bundle.lz4, the bundle for the game's title font with Vietnamese
+letters. That font is commercial, so the mod cannot carry it: TiengViet makes it on the player's
+PC from their own game (VietGlyphs.cs) and copies it into this bundle before loading it. The
+bundle is the game's Header_Font asset, with its metrics, kerning and fallbacks, renamed, and
+with room for the font file in place of the font: TITLE_ROOM bytes that start with TITLE_MARK.
+It is stored uncompressed, so the font can be copied in without rewriting the bundle, and the
+whole file is LZ4-compressed for the DLL (it is mostly that empty room).
+
     .tools\\oc2-python\\python.exe -I Overcooked2\\TiengViet\\tools\\fonts.py "E:\\Steam\\steamapps\\common\\Overcooked! 2"
 
 Needs UnityPy (the bundled Python has it). Rebuild TiengViet afterwards: build.cmd embeds
 fonts.bundle in the DLL.
 """
 import hashlib, os, struct, sys
+import lz4.block
 import UnityPy
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONTS = os.path.join(HERE, "fonts")
 OUT = os.path.join(HERE, "fonts.bundle")
 BUNDLE = "tiengviet_fonts"
+TITLE_OUT = os.path.join(HERE, "title.bundle.lz4")
+TITLE_BUNDLE = "tiengviet_title"
+TITLE_ASSET = "assets/tiengviet/title.ttf"
+TITLE_NAME = "TiengViet Title"
+# Must match GameTitleFont.cs.
+TITLE_MARK = b"TiengVietTitleFontRoom"
+TITLE_ROOM = 384 * 1024
 
 # Asset name (what TiengViet loads), font file, family name.
 CHOICES = [
@@ -117,6 +133,49 @@ def main(game):
     print("check:", len(check.objects), "objects; fonts", names, "; files", list(check.file.files))
 
 
+def title(game):
+    source = os.path.join(game, "Overcooked2_Data", "StreamingAssets", "Windows", "bundle22")
+    env = UnityPy.load(source)
+    bundle = env.file
+    (cab_name, serialized), = [(n, f) for n, f in bundle.files.items() if not n.endswith(".resS")]
+    objects = serialized.objects
+    obj = next(o for o in objects.values() if o.type.name == "Font" and o.read().m_Name == "Header_Font")
+    tree = obj.read_typetree()
+    room = TITLE_MARK + bytes(TITLE_ROOM - len(TITLE_MARK))
+    tree.update({
+        "m_Name": TITLE_NAME,
+        "m_FontData": list(room) if isinstance(tree["m_FontData"], list) else room,
+        "m_FontNames": tree["m_FontNames"] + [n for n in OS_FALLBACKS if n not in tree["m_FontNames"]],
+        "m_FallbackFonts": [p for p in tree["m_FallbackFonts"] if p["m_FileID"] != 0],
+    })
+    obj.save_typetree(tree)
+    deps = [obj.path_id] + [tree[k]["m_PathID"] for k in ("m_DefaultMaterial", "m_Texture") if tree[k]["m_FileID"] == 0 and tree[k]["m_PathID"]]
+    manifest = next(o for o in objects.values() if o.type.name == "AssetBundle")
+    keep = set(deps) | {manifest.path_id}
+    for path_id in [p for p in objects if p not in keep]:
+        del objects[path_id]
+    tree = manifest.read_typetree()
+    tree.update({"m_Name": TITLE_BUNDLE, "m_AssetBundleName": TITLE_BUNDLE,
+                 "m_Container": [(TITLE_ASSET, {"preloadIndex": 0, "preloadSize": len(deps),
+                                                "asset": {"m_FileID": 0, "m_PathID": obj.path_id}})],
+                 "m_PreloadTable": [{"m_FileID": 0, "m_PathID": p} for p in deps], "m_Dependencies": []})
+    manifest.save_typetree(tree)
+    new_cab = "CAB-" + hashlib.md5(TITLE_BUNDLE.encode()).hexdigest()
+    serialized.name = new_cab
+    bundle.files = {new_cab: serialized}
+    data = bundle.save(packer="none")
+    at = data.find(TITLE_MARK)
+    if at < 4 or data.find(TITLE_MARK, at + 1) != -1 or struct.unpack("<i", data[at - 4:at])[0] != TITLE_ROOM:
+        sys.exit("title.bundle: the font room is not where GameTitleFont.cs looks for it")
+    open(TITLE_OUT, "wb").write(lz4.block.compress(data, mode="high_compression", store_size=True))
+    print(f"wrote {TITLE_OUT} ({os.path.getsize(TITLE_OUT)} bytes, {len(data)} unpacked, room at {at})")
+
+    check = UnityPy.load(data)
+    print("check:", sorted((o.type.name, o.read().m_Name) for o in check.objects), list(check.file.files))
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
-    main(sys.argv[1] if len(sys.argv) > 1 else r"E:\Steam\steamapps\common\Overcooked! 2")
+    game = sys.argv[1] if len(sys.argv) > 1 else r"E:\Steam\steamapps\common\Overcooked! 2"
+    main(game)
+    title(game)

@@ -136,6 +136,9 @@ namespace ChefSkills
             public SpecialInput.Capture Capture;
             // The special picker, while it is open for this player.
             public SkillPicker Picker;
+            // Moving the skill bar's preview (BAR POSITION row): where it is now.
+            public bool Placing;
+            public Vector2 PlaceSpot;
             public string Notice;
             public float NoticeAt = -10f;
 
@@ -222,7 +225,7 @@ namespace ChefSkills
                 var slot = new Slot
                 {
                     Player = player,
-                    Title = _sync != null && players.Count == 1 ? Lang.T("YOU", "BẠN") : Lang.T("PLAYER ", "NGƯỜI CHƠI ") + ((int)player + 1),
+                    Title = PlayerNames.Local(chefs[player], players.IndexOf(player)),
                     Colour = colour,
                     ColourIndex = GameArt.ColourIndex(colour),
                     Chefs = chefs[player].ToArray(),
@@ -324,6 +327,7 @@ namespace ChefSkills
 
                 _view.Render(Cards(slots, remote), everyoneReady, _sync != null && _sync.WaitingForHost);
                 RenderPickers(slots, remote);
+                RenderPreviews(slots);
 
                 if (everyoneReady)
                 {
@@ -409,6 +413,7 @@ namespace ChefSkills
                     Specials = slot.Specials, KeyName = SpecialInput.NameFor(slot.Player),
                     DetailsKeyName = SpecialInput.DetailsNameFor(slot.Player) ?? Lang.T("NONE", "KHÔNG CÓ"),
                     BarMode = SkillBarSettings.Name(SkillBarSettings.Get(slot.Rank)), Keyboard = SpecialInput.IsKeyboard(slot.Player),
+                    BarSize = SkillBarSettings.SizePercent(slot.Rank) + "%", BarSizePercent = SkillBarSettings.SizePercent(slot.Rank), BarSpot = SkillBarSettings.PositionName(slot.Rank), Placing = slot.Placing,
                     Capturing = slot.Capture != null, CapturingDetails = slot.Capture != null && slot.Capture.Details, Notice = slot.Notice, NoticeAt = slot.NoticeAt
                 });
             if (remote != null)
@@ -431,7 +436,7 @@ namespace ChefSkills
         private static bool HandleHide(List<Slot> slots)
         {
             bool capturing = false;
-            foreach (Slot slot in slots) capturing |= slot.Capture != null || slot.Picker != null;
+            foreach (Slot slot in slots) capturing |= slot.Capture != null || slot.Picker != null || slot.Placing;
             if (capturing) return false;
             bool toggle = false;
             foreach (Slot slot in slots)
@@ -547,6 +552,21 @@ namespace ChefSkills
                 PlaySound(GameOneShotAudioTag.UISelect);
                 return;
             }
+            if (slot.Placing)
+            {
+                HandlePlacing(slot);
+                return;
+            }
+            if (!slot.Ready && slot.Selected == SkillSelectView.SizeRow && slot.Select.JustPressed())
+            {
+                StepSize(slot, SkillBarSettings.SizePercent(slot.Rank) >= SkillBarSettings.MaxSize ? -10 : 1);
+                return;
+            }
+            if (!slot.Ready && slot.Selected == SkillSelectView.SpotRow && slot.Select.JustPressed())
+            {
+                StartPlacing(slot);
+                return;
+            }
             if (!slot.Ready && slot.Selected == SkillSelectView.BarRow && slot.Select.JustPressed())
             {
                 StepBar(slot, 1);
@@ -603,6 +623,12 @@ namespace ChefSkills
                 if (slot.Right.JustPressed()) StepBar(slot, 1);
                 return;
             }
+            if (slot.Selected == SkillSelectView.SizeRow)
+            {
+                if (slot.Left.JustPressed()) StepSize(slot, -1);
+                if (slot.Right.JustPressed()) StepSize(slot, 1);
+                return;
+            }
             if (slot.Selected >= SkillStats.Count)
             {
                 // Special and key rows: SELECT opens the picker / sets the key; Left/Right do nothing.
@@ -635,6 +661,107 @@ namespace ChefSkills
                 }
                 else Deny(slot);
             }
+        }
+
+        /// <summary>
+        /// Makes this player's skill bar bigger or smaller (saved for next time). Past either end it
+        /// does nothing: no refusal, since that flashes the points line, which is about the build.
+        /// </summary>
+        private static void StepSize(Slot slot, int step)
+        {
+            if (SkillBarSettings.StepSize(slot.Rank, step)) PlaySound(GameOneShotAudioTag.UIHighlight);
+        }
+
+        // How fast the preview moves while a direction is held, in screen widths/heights per second.
+        private const float PlaceSpeed = 0.4f;
+
+        /// <summary>BAR POSITION: shows the bar's preview where it sits now, for the player to move.</summary>
+        private static void StartPlacing(Slot slot)
+        {
+            if (SkillBarSettings.Get(slot.Rank) != SkillBarMode.OnScreen)
+            {
+                // Said under the rows, not as a refusal: that would flash the points line too.
+                slot.Notice = Lang.T("ONLY FOR A BAR ON SCREEN", "CHỈ DÙNG KHI THANH Ở TRÊN MÀN HÌNH");
+                slot.NoticeAt = Time.unscaledTime;
+                PlaySound(GameOneShotAudioTag.UIBack);
+                return;
+            }
+            Vector2 spot;
+            if (!SkillBarSettings.Position(slot.Rank, out spot)) spot = AutoSpot(slot);
+            slot.PlaceSpot = spot;
+            slot.Placing = true;
+            PlaySound(GameOneShotAudioTag.UISelect);
+        }
+
+        /// <summary>
+        /// About where the bar sits when automatic: its lane along the bottom among this machine's
+        /// players (see SpecialHud.LayOut), as screen fractions.
+        /// </summary>
+        private static Vector2 AutoSpot(Slot slot)
+        {
+            int count = _slots != null ? Mathf.Max(1, _slots.Count) : 1;
+            float lane = 1320f / count;
+            float x = count == 1 ? 0f : -660f + lane * (slot.Rank + 0.5f);
+            return new Vector2(0.5f + x / 1920f, 26f / 1080f);
+        }
+
+        /// <summary>
+        /// Moving the preview: the directions move it (held, it keeps going), SELECT or LOCK IN
+        /// keeps it there, BACK puts it back, HIDE goes back to automatic.
+        /// </summary>
+        private static void HandlePlacing(Slot slot)
+        {
+            float step = PlaceSpeed * Time.unscaledDeltaTime;
+            Vector2 move = Vector2.zero;
+            if (slot.Left.IsDown()) move.x -= 1f;
+            if (slot.Right.IsDown()) move.x += 1f;
+            if (slot.Up.IsDown()) move.y += 1f;
+            if (slot.Down.IsDown()) move.y -= 1f;
+            float aspect = Screen.height > 0 ? (float)Screen.width / Screen.height : 16f / 9f;
+            slot.PlaceSpot = new Vector2(Mathf.Clamp01(slot.PlaceSpot.x + move.x * step / aspect * (16f / 9f)),
+                Mathf.Clamp01(slot.PlaceSpot.y + move.y * step));
+            bool done = slot.Select.JustPressed() | slot.LockIn.JustPressed();
+            bool cancel = slot.Cancel.JustPressed();
+            bool auto = slot.Hide.JustPressed();
+            ClaimAll(slot);
+            if (done)
+            {
+                SkillBarSettings.SetPosition(slot.Rank, slot.PlaceSpot);
+                slot.Placing = false;
+                PlaySound(GameOneShotAudioTag.UISelect);
+            }
+            else if (auto)
+            {
+                SkillBarSettings.SetPosition(slot.Rank, null);
+                slot.Placing = false;
+                PlaySound(GameOneShotAudioTag.UISelect);
+            }
+            else if (cancel)
+            {
+                slot.Placing = false;
+                PlaySound(GameOneShotAudioTag.UIBack);
+            }
+        }
+
+        /// <summary>Draws the previews of the bars being placed.</summary>
+        private static void RenderPreviews(List<Slot> slots)
+        {
+            if (_view == null) return;
+            var previews = new List<SkillSelectView.BarPreview>();
+            foreach (Slot slot in slots)
+            {
+                if (!slot.Placing) continue;
+                float scale = SkillBarSettings.Scale(slot.Rank);
+                previews.Add(new SkillSelectView.BarPreview
+                {
+                    CardKey = "L" + (int)slot.Player,
+                    Label = slot.Title,
+                    Spot = slot.PlaceSpot,
+                    Width = Mathf.Max(SpecialHud.FullWidth(slot.Specials), 220f) * scale,
+                    Height = SpecialHud.BarHeight * scale,
+                });
+            }
+            _view.ShowPreviews(previews);
         }
 
         /// <summary>Changes where this player's skill bar shows in a level (saved for next time).</summary>

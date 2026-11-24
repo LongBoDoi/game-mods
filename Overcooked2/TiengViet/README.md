@@ -33,9 +33,11 @@ What changes:
 - **Titles**: the game's title font (Naughty Squirrel) has letters such as é and â, but not the
   Vietnamese letters with a hook, a dot below or a horn (ả, ạ, ơ, ư, ộ…). Unity would fill in only
   the missing letters from another font, leaving one word in two typefaces. So while Vietnamese is
-  on, every title with words in it is drawn in the font chosen in the `TitleFont` setting
-  (**Coiny** by default, built into the mod); a row of tabs or buttons then shares one typeface. Numbers and symbols, such as timers and scores, keep
-  the game's font. Each font sits its letters at a different height in the line, so a swapped
+  on, every title with words in it is drawn in the font chosen in the `TitleFont` setting; a row
+  of tabs or buttons then shares one typeface. By default that is the game's own font with the
+  missing letters added (see [The game's title font in Vietnamese](#the-games-title-font-in-vietnamese)),
+  so titles look exactly as they do in English. Numbers and symbols, such as timers and scores, keep
+  the game's font. With another font chosen: each font sits its letters at a different height in the line, so a swapped
   title is moved up or down until its capitals are where the game's font would put them, in the
   middle of their banner or button. With English chosen, only a title that needs one of those letters switches. A
   one-line label that the wider font would push onto a second line is shrunk just enough to fit,
@@ -57,13 +59,41 @@ the mod.
 | Setting | Default | |
 |---|---|---|
 | `Language` | `GameDefault` | `Vietnamese`, `English` or `GameDefault` (Default (Steam): the mod changes nothing); the same setting as the in-game row |
-| `TitleFont` | `Coiny` | Font for titles and buttons: `Coiny`, `Grandstander` (Black), `Baloo2` (ExtraBold), `Nunito` (Black), `PaytoneOne`, `FiraSans` (ExtraBold), all built into the mod; `SegoeUI` (Bold, from Windows); or `GameFont`, the game's own, which lacks Vietnamese letters. A dropdown in MOD Settings; a change shows at once |
+| `TitleFont` | `NaughtySquirrel` | Font for titles and buttons: `NaughtySquirrel`, the game's own with the Vietnamese letters added on your PC; `Coiny`, `Grandstander` (Black), `Baloo2` (ExtraBold), `Nunito` (Black), `PaytoneOne`, `FiraSans` (ExtraBold), all built into the mod; `SegoeUI` (Bold, from Windows); or `GameFont`, the game's own as it is, which lacks Vietnamese letters. A dropdown in MOD Settings; a change shows at once |
 
 The built-in fonts are in `fonts/` with their licences (SIL Open Font License 1.1). Unity 2017
 cannot load a font file at runtime, so `tools/fonts.py` packs them into `fonts.bundle`, an asset
 bundle made from the game's own font bundle, and `build.cmd` builds that into the DLL. Baloo 2,
 Grandstander and Nunito are fixed-weight copies of their Google Fonts variable fonts. A taller
 font can make a one-line label clip; such a label is shrunk to fit its box like a too-wide one.
+
+### The game's title font in Vietnamese
+
+Naughty Squirrel (StudioTypo) is a commercial font, so the mod does not carry it, changed or not.
+Instead, `VietGlyphs.cs` adds the missing letters on your PC, from the copy inside your game, the
+first time a title needs one. It reads the font out of the game's font bundle
+(`StreamingAssets\Windows\bundle22`) and adds 94 letters made from the font's own parts:
+
+- **The font's own accents**: grave, acute, tilde, the hat of â/ê/ô and the breve of ă, cut
+  from the letters that already have them (à, á, ã, â, ă…), and set where the font sets them.
+- **The hook above (ả)**: the top of its question mark, a little taller than its acute.
+- **The dot below (ạ)**: its dot accent, at 80%.
+- **The horn (ơ, ư)**: its apostrophe at half the letter's height, the round end above the
+  letter's right shoulder and the tail running down into it.
+- **Stacked tones**: the acute, grave and hook go beside the hat on its right, as in Vietnamese
+  typesetting; the tilde goes on top. Both are 80% size.
+
+The letters the font already has are copied unchanged, so English text is identical. The result is
+kept in `BepInEx\cache\TiengViet\title-vi.otf` and made again when the game's bundle or the mod's
+letters change. Unity 2017 cannot load a font file, so it is copied into `title.bundle.lz4`, a
+bundle built into the DLL by `tools/fonts.py`. That bundle holds the game's Header_Font asset
+with the same metrics and fallbacks, and empty room in place of the font file. If anything
+fails, the log says why and titles use Coiny instead.
+
+`tests\CheckTiengViet.ps1` makes the font from the installed game, so it notices if a game update
+moves or changes it.
+
+### The body font
 
 The game's body font (Body_Font, Carlito Bold 1.103) draws the capitals **Ậ, Ệ and Ộ** with
 the dot below but without the hat, so BẬT reads BẠT and MỞ RỘNG reads MỞ RỌNG (the current

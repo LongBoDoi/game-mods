@@ -47,6 +47,12 @@ namespace ChefSkills
             public bool CapturingDetails;
             /// <summary>Local cards: where this player's skill bar shows in a level (the DISPLAY row).</summary>
             public string BarMode;
+            /// <summary>Local cards: the BAR SIZE and BAR POSITION rows.</summary>
+            public string BarSize, BarSpot;
+            /// <summary>Local cards: the BAR SIZE row's value in percent (its arrows fade at either end).</summary>
+            public int BarSizePercent;
+            /// <summary>Local cards: moving the skill bar's preview to place it (the BAR POSITION row).</summary>
+            public bool Placing;
             /// <summary>Local cards: the player is on the keyboard (what the key-setting help says).</summary>
             public bool Keyboard;
             /// <summary>A short message (the new key, or why it wasn't taken), shown in place of the description for a moment.</summary>
@@ -69,7 +75,7 @@ namespace ChefSkills
         /// <summary>Rows on a card: the nine skills, then the special picks when specials are on.</summary>
         internal static int RowCount
         {
-            get { return SkillStats.Count + (SpecialCatalog.Enabled ? SpecialCatalog.SlotCount + 3 : 0); }
+            get { return SkillStats.Count + (SpecialCatalog.Enabled ? SpecialCatalog.SlotCount + SettingRows : 0); }
         }
 
         /// <summary>The last row, under the specials: the key that uses the active (-1 with specials off).</summary>
@@ -84,10 +90,37 @@ namespace ChefSkills
             get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 1 : -1; }
         }
 
-        /// <summary>The last row: where this player's skill bar shows in a level (-1 with specials off).</summary>
+        /// <summary>Where this player's skill bar shows in a level (-1 with specials off).</summary>
         internal static int BarRow
         {
             get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 2 : -1; }
+        }
+
+        /// <summary>How big this player's skill bar is (-1 with specials off).</summary>
+        internal static int SizeRow
+        {
+            get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 3 : -1; }
+        }
+
+        /// <summary>The last row: where this player's skill bar sits on screen (-1 with specials off).</summary>
+        internal static int SpotRow
+        {
+            get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 4 : -1; }
+        }
+
+        /// <summary>The setting rows under the special picks: SKILL KEY, INFO KEY, DISPLAY, BAR SIZE, BAR POSITION.</summary>
+        private const int SettingRows = 5;
+
+        private static string[] SettingNames
+        {
+            get
+            {
+                return new[]
+                {
+                    Lang.T("SKILL KEY", "PHÍM KỸ NĂNG"), Lang.T("INFO KEY", "PHÍM XEM"), Lang.T("DISPLAY", "HIỂN THỊ"),
+                    Lang.T("BAR SIZE", "CỠ THANH"), Lang.T("BAR POSITION", "VỊ TRÍ THANH"),
+                };
+            }
         }
 
         private static bool IsKeyRow(int index)
@@ -125,7 +158,16 @@ namespace ChefSkills
             public CanvasGroup RowsGroup;
             public Row[] Rows;
             public SpecialRow[] Specials;
-            public SpecialRow KeyRowView, DetailsRowView, BarRowView;
+            // SKILL KEY, INFO KEY, DISPLAY, BAR SIZE, BAR POSITION.
+            public SpecialRow[] Settings;
+            // The window the rows scroll in, the rows themselves, and how far they are scrolled up.
+            public RectTransform Viewport, Content;
+            public float Scroll, ScrollTarget;
+            public Image MoreUp, MoreDown;
+            // The hint at the bottom: what SELECT does on this row, and LOCK IN.
+            public GameObject PickPart;
+            public Text PickText;
+            public CanvasGroup LockGroup;
             public Image Left;
             public Image Right;
             public Text Points;
@@ -174,18 +216,29 @@ namespace ChefSkills
         private const float NameY = 254f;
         private const float PointsY = 216f;
         private const float RowTop = 178f;
-        private const float RowStep = 27f;
+        private const float RowStep = 28f;
+        // The window the rows scroll in (card units): from just under the points line down to
+        // above the description.
+        private const float ViewTop = RowTop + RowStep / 2f + 2f;
+        private const float ViewBottom = -212f;
+        // Keep this much of the next row in view while scrolling.
+        private const float ScrollMargin = RowStep;
         // Space between the nine skills and the special-skill rows under them.
         private const float SpecialGap = 10f;
         // A special row: its pick fills the pips and effect columns, between the arrows.
         private const float SpecialValueX = 62f;
         private const float SpecialValueWidth = 140f;
+        // DISPLAY and BAR SIZE: the value between their own arrows (left at 0, right at 124).
+        private const float SteppedValueX = 62f;
+        private const float SteppedValueWidth = 104f;
+        private const float SteppedArrowLeftX = 0f;
+        private const float SteppedArrowRightX = 124f;
         // Space between the special picks and the skill-key row.
         private const float KeyGap = 4f;
-        // The last row (DISPLAY) ends at -253; the description sits clear of it (-254..-300) and
-        // above the lock-in hint (its icon starts at -301).
-        private const float DescriptionY = -277f;
-        private const float DescriptionHeight = 46f;
+        // The description has its own room under the rows' window (-214..-294), up to three lines,
+        // above the hint (its icons start at -301).
+        private const float DescriptionY = -254f;
+        private const float DescriptionHeight = 78f;
         private const float HintY = -322f;
         // Rows fill the card art's dark interior (304 wide, measured in game) evenly, 8 in from
         // each side: name -144..-34, arrow, pips -12..84, arrow, effect 104..144.
@@ -287,6 +340,8 @@ namespace ChefSkills
             foreach (Card card in _cards)
             {
                 if (!card.IsLocal || card.Specials == null) continue;
+                // A row scrolled out of the window can't be clicked.
+                if (card.Viewport == null || !RectTransformUtility.RectangleContainsScreenPoint(card.Viewport, mouse, null)) continue;
                 for (int i = 0; i < card.Specials.Length; i++)
                 {
                     if (card.Specials[i].Root == null || !RectTransformUtility.RectangleContainsScreenPoint(card.Specials[i].Root, mouse, null))
@@ -297,6 +352,85 @@ namespace ChefSkills
                 }
             }
             return false;
+        }
+
+        /// <summary>A player's skill bar, drawn where it will sit in the kitchen while they place it.</summary>
+        internal struct BarPreview
+        {
+            public string CardKey;
+            public string Label;
+            /// <summary>The bar's bottom centre, as fractions of the screen from its bottom-left.</summary>
+            public Vector2 Spot;
+            /// <summary>Its size in the skill bar's own canvas units (already scaled by the player's size).</summary>
+            public float Width, Height;
+        }
+
+        private readonly Dictionary<string, RectTransform> _previews = new Dictionary<string, RectTransform>();
+
+        /// <summary>Draws these bar previews over the screen (and removes any others).</summary>
+        internal void ShowPreviews(List<BarPreview> previews)
+        {
+            if (!IsAlive) return;
+            var keep = new HashSet<string>();
+            RectTransform canvas = (RectTransform)_root.transform;
+            Canvas own = _root.GetComponent<Canvas>();
+            // The skill bar's canvas scales 1920x1080 to the screen matching width and height halfway.
+            float barFactor = Mathf.Sqrt(Screen.width / 1920f * (Screen.height / 1080f));
+            float factor = own != null && own.scaleFactor > 0f ? barFactor / own.scaleFactor : 1f;
+            float now = Time.unscaledTime;
+            foreach (BarPreview preview in previews)
+            {
+                keep.Add(preview.CardKey);
+                RectTransform rect;
+                if (!_previews.TryGetValue(preview.CardKey, out rect) || rect == null)
+                {
+                    rect = BuildPreview(preview.CardKey);
+                    _previews[preview.CardKey] = rect;
+                }
+                float w = preview.Width * factor, h = preview.Height * factor;
+                rect.sizeDelta = new Vector2(w, h);
+                rect.anchoredPosition = SpecialHud.SpotToCorner(preview.Spot, w, h, canvas.rect);
+                rect.SetAsLastSibling();
+                Color tint = TintOf(preview.CardKey);
+                float pulse = 0.5f + 0.5f * Mathf.Sin(now * 5f);
+                rect.Find("Back").GetComponent<Image>().color = WithAlpha(tint, 0.35f + 0.1f * pulse);
+                rect.Find("Frame").GetComponent<Image>().color = Color.Lerp(tint, Color.white, 0.3f + 0.4f * pulse);
+                Text label = rect.Find("Label").GetComponent<Text>();
+                if (label.text != preview.Label) label.text = preview.Label;
+            }
+            var gone = new List<string>();
+            foreach (KeyValuePair<string, RectTransform> pair in _previews)
+                if (!keep.Contains(pair.Key)) gone.Add(pair.Key);
+            foreach (string key in gone)
+            {
+                if (_previews[key] != null) Object.Destroy(_previews[key].gameObject);
+                _previews.Remove(key);
+            }
+        }
+
+        private Color TintOf(string cardKey)
+        {
+            foreach (Card card in _cards)
+                if (card.Key == cardKey) return card.Tint;
+            return TitleColour;
+        }
+
+        private RectTransform BuildPreview(string key)
+        {
+            RectTransform rect = Child("BarPreview" + key, _root.transform);
+            rect.anchorMin = rect.anchorMax = rect.pivot = Vector2.zero;
+            Image back = AddImage(Stretch(Child("Back", rect)), SpecialFx.RoundBox, TitleColour);
+            back.type = Image.Type.Sliced;
+            RectTransform frameRect = Stretch(Child("Frame", rect));
+            frameRect.offsetMin = new Vector2(-3f, -3f);
+            frameRect.offsetMax = new Vector2(3f, 3f);
+            Image frame = AddImage(frameRect, SpecialFx.RoundFrame, TitleColour);
+            frame.type = Image.Type.Sliced;
+            RectTransform label = Stretch(Child("Label", rect));
+            label.offsetMin = new Vector2(6f, 4f);
+            label.offsetMax = new Vector2(-6f, -4f);
+            AddShadow(AddText(label, _art.Header, 28, TitleColour, TextAnchor.MiddleCenter, "", true).gameObject);
+            return rect;
         }
 
         /// <summary>Where a card's centre is across the screen, in the canvas's reference units (0 = middle).</summary>
@@ -356,7 +490,8 @@ namespace ChefSkills
             // Header plate straddling the top-left edge, as on the game's own dialogs.
             _plate = Child("Header", _dialog, Vector2.zero, new Vector2(840f, 168f));
             AddImage(_plate, _art.Get(GameArt.HeaderSprite), new Color(0.27f, 0.72f, 0.86f, 1f));
-            _title = Child("Title", _plate, new Vector2(40f, 11f), new Vector2(690f, 113f));
+            // Centred on the banner (its slanted ends are the same width either side).
+            _title = Child("Title", _plate, new Vector2(0f, 11f), new Vector2(690f, 113f));
             // Always one line: the dialog is made wide enough for the title (see Layout), and the
             // text is only made smaller if even the widest dialog can't fit it.
             _titleText = AddText(_title, _art.Header, (int)TitleSize, TitleColour, TextAnchor.MiddleCenter,
@@ -414,14 +549,16 @@ namespace ChefSkills
             get { return DialogHeight / 2f - TopInset * DialogHeight; }
         }
 
-        /// <summary>The cards sit centred between the bottom of the title plate and the panel's bottom rim.</summary>
+        /// <summary>
+        /// The cards sit centred on the panel, between its top and bottom rims (the title plate's
+        /// art ends above the cards' tops either way).
+        /// </summary>
         private static float CardY
         {
             get
             {
-                float plateBottom = VisibleTop - PlateHeight / 2f;
                 float visibleBottom = -DialogHeight / 2f + BottomInset * DialogHeight;
-                return (plateBottom + visibleBottom) / 2f;
+                return (VisibleTop + visibleBottom) / 2f;
             }
         }
 
@@ -434,8 +571,7 @@ namespace ChefSkills
             _tagShown = tagShown;
             float y = VisibleTop;
             float group = _plateWidth + (tagShown ? TagGap + TagWidth : 0f);
-            // On its own, the plate centres its title text, which sits 40 right of the plate's middle.
-            float left = -group / 2f - (tagShown ? 0f : 40f);
+            float left = -group / 2f;
             _plate.anchoredPosition = new Vector2(left + _plateWidth / 2f, y);
             // Level with the title text, which sits a little above the plate's middle.
             _tagBox.anchoredPosition = new Vector2(left + _plateWidth + TagGap + TagWidth / 2f, y + 11f);
@@ -498,8 +634,13 @@ namespace ChefSkills
             card.Points = AddText(points, _art.Header, 26, PointsColour, TextAnchor.MiddleCenter, "", true);
             AddShadow(card.Points.gameObject);
 
-            // Every skill as a row: name, level pips (red below 0, green above) and the effect.
-            RectTransform rows = Child("Skills", card.Root, Vector2.zero, new Vector2(CardWidth, CardHeight));
+            // Every skill as a row: name, level pips (red below 0, green above) and the effect. The
+            // rows scroll inside a window (keeping the highlighted one in view), so the line under
+            // them always has room.
+            card.Viewport = Child("Rows", card.Root, new Vector2(0f, (ViewTop + ViewBottom) / 2f), new Vector2(CardWidth, ViewTop - ViewBottom));
+            card.Viewport.gameObject.AddComponent<RectMask2D>();
+            RectTransform rows = Child("Skills", card.Viewport, new Vector2(0f, -(ViewTop + ViewBottom) / 2f), new Vector2(CardWidth, CardHeight));
+            card.Content = rows;
             card.RowsGroup = rows.gameObject.AddComponent<CanvasGroup>();
             card.RowsGroup.interactable = false;
             card.RowsGroup.blocksRaycasts = false;
@@ -507,22 +648,23 @@ namespace ChefSkills
             for (int i = 0; i < card.Rows.Length; i++) card.Rows[i] = BuildRow(rows, i, card.Tint);
             card.Specials = new SpecialRow[SpecialCatalog.Enabled ? SpecialCatalog.SlotCount : 0];
             for (int i = 0; i < card.Specials.Length; i++) card.Specials[i] = BuildSpecialRow(rows, i, card.Tint);
-            if (SpecialCatalog.Enabled)
+            card.Settings = new SpecialRow[SpecialCatalog.Enabled ? SettingRows : 0];
+            for (int i = 0; i < card.Settings.Length; i++)
             {
-                card.KeyRowView = BuildSpecialRow(rows, SpecialCatalog.SlotCount, card.Tint);
-                card.KeyRowView.Value.color = TitleColour;
-                card.DetailsRowView = BuildSpecialRow(rows, SpecialCatalog.SlotCount + 1, card.Tint);
-                card.DetailsRowView.Value.color = TitleColour;
-                card.BarRowView = BuildSpecialRow(rows, SpecialCatalog.SlotCount + 2, card.Tint);
-                card.BarRowView.Value.color = TitleColour;
+                card.Settings[i] = BuildSpecialRow(rows, SpecialCatalog.SlotCount + i, card.Tint);
+                card.Settings[i].Value.color = TitleColour;
             }
 
             // Only this machine's players get arrows: they're the ones who can change a level here.
             if (info.IsLocal)
             {
-                card.Left = Arrow(card.Root, "L", arrowIndex, ArrowLeftX);
-                card.Right = Arrow(card.Root, "R", arrowIndex, ArrowRightX);
+                card.Left = Arrow(rows, "L", arrowIndex, ArrowLeftX);
+                card.Right = Arrow(rows, "R", arrowIndex, ArrowRightX);
             }
+
+            // Little arrows at the window's edges when there are more rows above or below.
+            card.MoreUp = ScrollMark(card.Root, ViewTop - 8f, -90f);
+            card.MoreDown = ScrollMark(card.Root, ViewBottom + 8f, 90f);
 
             RectTransform description = Child("About", card.Root, new Vector2(0f, DescriptionY), new Vector2(292f, DescriptionHeight));
             card.Description = AddText(description, _art.Body, 22, NeutralColour, TextAnchor.MiddleCenter, "", true);
@@ -536,11 +678,27 @@ namespace ChefSkills
             AddShadow(AddText(badgeText, _art.Header, 34, Color.white, TextAnchor.MiddleCenter, Lang.T("READY!", "SẴN SÀNG!"), true).gameObject);
             card.Badge = badge.gameObject;
 
-            RectTransform hint = Child("Hint", card.Root, new Vector2(0f, HintY), new Vector2(320f, 52f));
+            // Local cards: the player's own buttons. On a row where SELECT does something, its
+            // button and what it does ("[A] CHOOSE"), then always the lock-in button ("[X] LOCK IN").
+            RectTransform hint = Child("Hint", card.Root, new Vector2(0f, HintY), new Vector2(340f, 52f));
             card.HintGroup = hint.gameObject.AddComponent<CanvasGroup>();
-            HorizontalLayoutGroup row = MakeRow(hint, 10f);
-            if (info.IsLocal) AddLockInIcon(row.transform, info.Player);
-            card.HintText = AddLabel(row.transform, _art.Header, 30, NeutralColour, "");
+            HorizontalLayoutGroup row = MakeRow(hint, 18f);
+            if (info.IsLocal)
+            {
+                RectTransform pick = Child("Pick", row.transform);
+                MakeRow(pick, 8f);
+                pick.gameObject.AddComponent<ContentSizeFitter>().horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+                AddIcon(pick, GameArt.ButtonIcon(PlayerInputLookup.LogicalButtonID.UISelectNotStart, info.Player), 38f,
+                    SpecialInput.IsKeyboard(info.Player) ? "SPACE" : "A", _art);
+                card.PickText = AddLabel(pick, _art.Header, 26, NeutralColour, "");
+                card.PickPart = pick.gameObject;
+                card.PickPart.SetActive(false);
+            }
+            RectTransform lockPart = Child("LockIn", row.transform);
+            MakeRow(lockPart, 8f);
+            card.LockGroup = lockPart.gameObject.AddComponent<CanvasGroup>();
+            if (info.IsLocal) AddLockInIcon(lockPart, info.Player);
+            card.HintText = AddLabel(lockPart, _art.Header, 30, NeutralColour, "");
             card.Hint = hint.gameObject;
             return card;
         }
@@ -592,15 +750,19 @@ namespace ChefSkills
             row.Highlight = AddImage(Stretch(Child("Highlight", row.Root)), null, highlight);
             row.Highlight.enabled = false;
 
-            RectTransform name = Child("Name", row.Root, new Vector2(NameX, 0f), new Vector2(NameWidth, RowStep - 5f));
             bool key = slot >= SpecialCatalog.SlotCount;
+            // Setting rows have no icon disc, so their names get that room too.
+            RectTransform name = key
+                ? Child("Name", row.Root, new Vector2(NameX + 10f, 0f), new Vector2(NameWidth + 20f, RowStep - 5f))
+                : Child("Name", row.Root, new Vector2(NameX, 0f), new Vector2(NameWidth, RowStep - 5f));
             AddShadow(AddText(name, _art.Header, 21, key ? NeutralColour : PointsColour, TextAnchor.MiddleLeft,
-                key ? (slot == SpecialCatalog.SlotCount ? Lang.T("SKILL KEY", "PHÍM KỸ NĂNG")
-                    : slot == SpecialCatalog.SlotCount + 1 ? Lang.T("INFO KEY", "PHÍM XEM")
-                    : Lang.T("DISPLAY", "HIỂN THỊ")) : SpecialCatalog.SlotNames[slot], true).gameObject);
+                key ? SettingNames[slot - SpecialCatalog.SlotCount] : SpecialCatalog.SlotNames[slot], true).gameObject);
 
-            RectTransform value = Child("Pick", row.Root, new Vector2(SpecialValueX, 0f),
-                new Vector2(SpecialValueWidth, RowStep - 5f));
+            // DISPLAY and BAR SIZE step with Left/Right, so their values leave room for the arrows.
+            int rowIndex = SkillStats.Count + slot;
+            bool stepped = key && (rowIndex == BarRow || rowIndex == SizeRow);
+            RectTransform value = Child("Pick", row.Root, new Vector2(stepped ? SteppedValueX : SpecialValueX, 0f),
+                new Vector2(stepped ? SteppedValueWidth : SpecialValueWidth, RowStep - 5f));
             row.Value = AddText(value, _art.Header, 21, TitleColour, TextAnchor.MiddleCenter, "", true);
             AddShadow(row.Value.gameObject);
             if (!key)
@@ -646,7 +808,7 @@ namespace ChefSkills
         }
 
         /// <summary>The line under the rows: what the highlighted skill or pick does.</summary>
-        private static string DescriptionFor(int selected, int[] specials, bool capturing, string detailsKey, bool keyboard)
+        private static string DescriptionFor(int selected, int[] specials, bool capturing, string detailsKey, bool keyboard, bool placing)
         {
             if (selected < 0) return "";
             if (selected < SkillStats.Count) return SkillStats.Descriptions[selected];
@@ -665,6 +827,15 @@ namespace ChefSkills
             if (selected == BarRow)
                 return Lang.T("Your skill bar in the kitchen: on screen, over your chef or hidden. LEFT / RIGHT to change",
                     "Thanh kỹ năng của bạn trong bếp: trên màn hình, trên đầu đầu bếp hoặc ẩn. TRÁI / PHẢI để đổi");
+            if (selected == SizeRow)
+                return Lang.T("How big your skill bar is, on screen and over your head. LEFT / RIGHT to change",
+                    "Cỡ thanh kỹ năng của bạn, trên màn hình và trên đầu. TRÁI / PHẢI để đổi");
+            if (selected == SpotRow)
+                return placing
+                    ? Lang.T("Move the bar with the directions. SELECT: done, BACK: cancel, HIDE: back to automatic",
+                        "Di chuyển thanh bằng phím hướng. SELECT: xong, BACK: hủy, ẨN: về tự động")
+                    : Lang.T("Where your bar sits on screen: automatic, or anywhere you put it. SELECT to move it",
+                        "Vị trí thanh trên màn hình: tự động, hoặc nơi bạn đặt. SELECT để di chuyển");
             int slot = selected - SkillStats.Count;
             Special pick = specials != null && slot < specials.Length ? (Special)specials[slot] : Special.None;
             SpecialInfo info = SpecialCatalog.Info(pick);
@@ -824,6 +995,7 @@ namespace ChefSkills
                 Destroy();
                 return;
             }
+            ShowPreviews(new List<BarPreview>());
             _closing = true;
             _closedAt = Time.unscaledTime;
             _closeDialogAlpha = _dialog != null && _dialog.gameObject.activeSelf && _dialogGroup != null ? _dialogGroup.alpha : 0f;
@@ -935,34 +1107,34 @@ namespace ChefSkills
                 // a moment why the lock-in was refused.
                 float deniedAge = now - info.DeniedAt;
                 string about = !string.IsNullOrEmpty(info.DeniedReason) && deniedAge >= 0f && deniedAge < 2f
-                    ? info.DeniedReason : DescriptionFor(selected, info.Specials, info.Capturing, info.DetailsKeyName, info.Keyboard);
+                    ? info.DeniedReason : DescriptionFor(selected, info.Specials, info.Capturing, info.DetailsKeyName, info.Keyboard, info.Placing);
                 float noticeAge = now - info.NoticeAt;
                 if (!string.IsNullOrEmpty(info.Notice) && noticeAge >= 0f && noticeAge < 2.5f && !info.Capturing) about = info.Notice;
-                if (card.KeyRowView != null)
+                // The setting rows: their values, the one being set pulsing.
+                if (card.Settings.Length == SettingRows)
                 {
-                    card.KeyRowView.Highlight.enabled = selected == KeyRow;
-                    string key = card.IsLocal ? (info.Capturing && !info.CapturingDetails ? Lang.T("PRESS A KEY...", "BẤM PHÍM...") : info.KeyName ?? "") : "";
-                    if (card.KeyRowView.Value.text != key) card.KeyRowView.Value.text = key;
-                    card.KeyRowView.Value.color = info.Capturing && !info.CapturingDetails ? WithAlpha(PointsColour, pulse) : TitleColour;
-                }
-                if (card.DetailsRowView != null)
-                {
-                    card.DetailsRowView.Highlight.enabled = selected == DetailsRow;
-                    bool waiting = info.Capturing && info.CapturingDetails;
-                    string key = card.IsLocal ? (waiting ? Lang.T("PRESS A KEY...", "BẤM PHÍM...") : info.DetailsKeyName ?? "") : "";
-                    if (card.DetailsRowView.Value.text != key) card.DetailsRowView.Value.text = key;
-                    card.DetailsRowView.Value.color = waiting ? WithAlpha(PointsColour, pulse) : TitleColour;
-                }
-                if (card.BarRowView != null)
-                {
-                    card.BarRowView.Highlight.enabled = selected == BarRow;
-                    string mode = card.IsLocal ? info.BarMode ?? "" : "";
-                    if (card.BarRowView.Value.text != mode)
+                    string[] values =
                     {
-                        if (card.Initialised && card.BarRowView.Value.text != "") card.BarRowView.PunchAt = now;
-                        card.BarRowView.Value.text = mode;
+                        info.Capturing && !info.CapturingDetails ? Lang.T("PRESS A KEY...", "BẤM PHÍM...") : info.KeyName,
+                        info.Capturing && info.CapturingDetails ? Lang.T("PRESS A KEY...", "BẤM PHÍM...") : info.DetailsKeyName,
+                        info.BarMode, info.BarSize,
+                        info.Placing ? Lang.T("MOVING...", "ĐANG DI CHUYỂN...") : info.BarSpot,
+                    };
+                    bool[] waiting = { info.Capturing && !info.CapturingDetails, info.Capturing && info.CapturingDetails, false, false, info.Placing };
+                    for (int s = 0; s < SettingRows; s++)
+                    {
+                        SpecialRow setting = card.Settings[s];
+                        int rowIndex = SkillStats.Count + SpecialCatalog.SlotCount + s;
+                        setting.Highlight.enabled = selected == rowIndex;
+                        string value = card.IsLocal ? values[s] ?? "" : "";
+                        if (setting.Value.text != value)
+                        {
+                            if (card.Initialised && setting.Value.text != "" && !waiting[s]) setting.PunchAt = now;
+                            setting.Value.text = value;
+                        }
+                        setting.Value.color = waiting[s] ? WithAlpha(PointsColour, pulse) : value == "-" ? NeutralColour : TitleColour;
+                        setting.Root.localScale = Punch(now - setting.PunchAt, 0.06f);
                     }
-                    card.BarRowView.Root.localScale = Punch(now - card.BarRowView.PunchAt, 0.06f);
                 }
                 if (!card.Initialised || card.ShownSelected != selected || card.Description.text != about)
                 {
@@ -993,10 +1165,18 @@ namespace ChefSkills
                 card.Points.color = flash || free < 0 ? NerfColour : free == 0 ? BuffColour : PointsColour;
                 card.Points.rectTransform.localScale = Punch(denied * PunchSeconds / DeniedSeconds, 0.18f);
 
-                card.HintText.text = choosing && IsKeyRow(selected) ? (info.Capturing ? Lang.T("WAITING...", "ĐANG CHỜ...") : Lang.T("SET KEY", "ĐỔI PHÍM"))
-                    : choosing && selected == BarRow ? Lang.T("CHANGE", "ĐỔI")
-                    : choosing && selected >= SkillStats.Count ? Lang.T("CHOOSE", "CHỌN") : HintFor(card.IsLocal, state);
-                card.HintGroup.alpha = choosing && free != 0 && selected < SkillStats.Count ? 0.4f : 1f;
+                // The lock-in part always says LOCK IN (or what another player is doing); SELECT's
+                // own button is shown with what it does, only on rows where it does something.
+                card.HintText.text = HintFor(card.IsLocal, state);
+                string pickHint = choosing ? PickHint(selected, info) : null;
+                if (card.PickPart != null)
+                {
+                    if (card.PickPart.activeSelf != (pickHint != null)) card.PickPart.SetActive(pickHint != null);
+                    if (pickHint != null && card.PickText.text != pickHint) card.PickText.text = pickHint;
+                }
+                // Locking in only works at exactly 0 points, and not while setting a key or placing the bar.
+                card.LockGroup.alpha = choosing && (free != 0 || info.Capturing || info.Placing) ? 0.4f : 1f;
+                card.HintGroup.alpha = 1f;
                 if (!card.IsLocal && (state == SkillSync.CardState.Choosing || state == SkillSync.CardState.Loading))
                 {
                     // Other players' "choosing..." / "loading..." breathe so it reads as live.
@@ -1007,6 +1187,7 @@ namespace ChefSkills
                 else card.HintText.color = NeutralColour;
 
                 if (card.Left != null) ShowArrows(card, info, selected, free, now);
+                ScrollRows(card, selected, now);
                 card.Initialised = true;
                 card.Root.localScale = Punch(now - card.ReadyPunchAt, 0.06f);
             }
@@ -1039,21 +1220,37 @@ namespace ChefSkills
         /// <summary>The coloured arrows sit either side of the highlighted skill's pips.</summary>
         private static void ShowArrows(Card card, CardInfo info, int selected, int free, float now)
         {
-            // Only skill rows step with Left/Right; special rows open the picker.
-            bool show = selected >= 0 && selected < SkillStats.Count;
+            // Skill rows, DISPLAY and BAR SIZE step with Left/Right; the other rows use SELECT.
+            bool setting = card.IsLocal && !info.Placing && selected >= 0 && (selected == BarRow || selected == SizeRow);
+            bool show = selected >= 0 && selected < SkillStats.Count || setting;
             card.Left.enabled = show;
             card.Right.enabled = show;
             if (!show) return;
             float y = RowY(selected);
             // They nudge outwards like the game's chef-select arrows.
             float nudge = 3f * Mathf.Abs(Mathf.Sin(now * 4f));
-            int max = SkillStats.MaxLevel;
-            int level = info.Levels[selected];
+            bool canLower, canRaise;
+            if (selected == SizeRow)
+            {
+                canLower = info.BarSizePercent > SkillBarSettings.MinSize;
+                canRaise = info.BarSizePercent < SkillBarSettings.MaxSize;
+            }
+            else if (selected == BarRow)
+            {
+                canLower = canRaise = true; // the modes wrap round
+            }
+            else
+            {
+                int max = SkillStats.MaxLevel;
+                int level = info.Levels[selected];
+                canLower = level > -max;
+                canRaise = level < max;
+            }
             // They fade where there's no further to go: the bottom level, or the top one.
-            card.Left.rectTransform.anchoredPosition = new Vector2(ArrowLeftX - nudge, y);
-            card.Right.rectTransform.anchoredPosition = new Vector2(ArrowRightX + nudge, y);
-            card.Left.color = new Color(1f, 1f, 1f, level > -max ? 1f : 0.3f);
-            card.Right.color = new Color(1f, 1f, 1f, level < max ? 1f : 0.3f);
+            card.Left.rectTransform.anchoredPosition = new Vector2((setting ? SteppedArrowLeftX : ArrowLeftX) - nudge, y);
+            card.Right.rectTransform.anchoredPosition = new Vector2((setting ? SteppedArrowRightX : ArrowRightX) + nudge, y);
+            card.Left.color = new Color(1f, 1f, 1f, canLower ? 1f : 0.3f);
+            card.Right.color = new Color(1f, 1f, 1f, canRaise ? 1f : 0.3f);
             if (card.Left.sprite == null) card.Left.color = WithAlpha(card.Tint, card.Left.color.a);
             if (card.Right.sprite == null) card.Right.color = WithAlpha(card.Tint, card.Right.color.a);
         }
@@ -1081,6 +1278,61 @@ namespace ChefSkills
             if (free == 0) return Lang.T("BALANCED", "ĐÃ CÂN BẰNG");
             if (free > 0) return Lang.Vi ? "CÒN " + free + " ĐIỂM ĐỂ CỘNG" : free == 1 ? "1 POINT TO SPEND" : free + " POINTS TO SPEND";
             return Lang.Vi ? "LỐ " + -free + " ĐIỂM" : free == -1 ? "1 POINT OVER" : -free + " POINTS OVER";
+        }
+
+        /// <summary>What SELECT does on the highlighted row, or null where it does nothing (skill rows).</summary>
+        private static string PickHint(int selected, CardInfo info)
+        {
+            if (selected < SkillStats.Count) return null;
+            if (IsKeyRow(selected)) return info.Capturing ? Lang.T("WAITING...", "ĐANG CHỜ...") : Lang.T("SET KEY", "ĐỔI PHÍM");
+            if (selected == BarRow || selected == SizeRow) return Lang.T("CHANGE", "ĐỔI");
+            if (selected == SpotRow) return info.Placing ? Lang.T("DONE", "XONG") : Lang.T("MOVE", "DI CHUYỂN");
+            return Lang.T("CHOOSE", "CHỌN");
+        }
+
+        /// <summary>
+        /// Scrolls the card's rows so the highlighted one (and a row either side) stays in the
+        /// window, easing there; the little arrows show when more rows are above or below.
+        /// </summary>
+        private static void ScrollRows(Card card, int selected, float now)
+        {
+            if (card.Content == null) return;
+            float last = RowY(RowCount - 1) - RowStep / 2f;
+            float max = Mathf.Max(0f, ViewBottom - last);
+            if (selected >= 0)
+            {
+                float y = RowY(selected);
+                float low = ViewBottom + RowStep / 2f + ScrollMargin - y;
+                float high = ViewTop - RowStep / 2f - ScrollMargin - y;
+                card.ScrollTarget = Mathf.Clamp(card.ScrollTarget, low, Mathf.Max(low, high));
+            }
+            else card.ScrollTarget = 0f;
+            card.ScrollTarget = Mathf.Clamp(card.ScrollTarget, 0f, max);
+            card.Scroll = card.Initialised
+                ? Mathf.Lerp(card.Scroll, card.ScrollTarget, 1f - Mathf.Exp(-Time.unscaledDeltaTime * 14f))
+                : card.ScrollTarget;
+            card.Content.anchoredPosition = new Vector2(0f, -(ViewTop + ViewBottom) / 2f + card.Scroll);
+            if (card.MoreUp != null) card.MoreUp.enabled = card.Scroll > 2f;
+            if (card.MoreDown != null) card.MoreDown.enabled = card.Scroll < max - 2f;
+            float bob = 2f * Mathf.Sin(now * 4f);
+            if (card.MoreUp != null) card.MoreUp.rectTransform.anchoredPosition = new Vector2(ScrollMarkX, ViewTop - 8f + bob);
+            if (card.MoreDown != null) card.MoreDown.rectTransform.anchoredPosition = new Vector2(ScrollMarkX, ViewBottom + 8f - bob);
+        }
+
+        // The scroll arrows sit at the right edge of the card's dark interior.
+        private const float ScrollMarkX = 138f;
+
+        /// <summary>A small arrow (the game's menu arrow, turned <paramref name="angle"/>) at the rows' window edge.</summary>
+        private Image ScrollMark(RectTransform parent, float y, float angle)
+        {
+            Sprite arrow = _art.Get("t_ui_arrow_left_standard_01");
+            RectTransform rect = Child("More", parent, new Vector2(ScrollMarkX, y), new Vector2(16f, 16f));
+            Image image = AddImage(rect, arrow, TitleColour);
+            image.color = arrow != null ? new Color(1f, 1f, 1f, 0.85f) : WithAlpha(TitleColour, 0.6f);
+            image.preserveAspect = true;
+            rect.localRotation = Quaternion.Euler(0f, 0f, angle);
+            image.enabled = false;
+            return image;
         }
 
         private static string HintFor(bool local, SkillSync.CardState state)

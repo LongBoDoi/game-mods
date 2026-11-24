@@ -87,6 +87,7 @@ namespace ChefSkills.Specials
         private static readonly FieldInfo ClientSinkTimer = AccessTools.Field(typeof(ClientWashingStation), "m_cleaningTimer");
         private static readonly FieldInfo ClientSinkUi = AccessTools.Field(typeof(ClientWashingStation), "m_progressUI");
         private static readonly FieldInfo ClientSinkConfig = AccessTools.Field(typeof(ClientWashingStation), "m_washingStation");
+        private static readonly FieldInfo ClientSinkPlates = AccessTools.Field(typeof(ClientWashingStation), "m_plateCount");
         private static readonly FieldInfo RackStack = AccessTools.Field(typeof(ServerPlateReturnStation), "m_stack");
         private static readonly FieldInfo RackConfig = AccessTools.Field(typeof(ServerPlateReturnStation), "m_returnStation");
         private static readonly FieldInfo StackItems = AccessTools.Field(typeof(ServerPlateStackBase), "m_stack");
@@ -173,11 +174,11 @@ namespace ChefSkills.Specials
             SpecialRuntime.LevelEnded += ForgetTemplates;
             SpecialRuntime.LevelBonusProviders.Add(InspiringBonus);
 
-            SpecialRuntime.RegisterActive(Special.PowerChop, new ActiveHandler { Execute = PowerChop });
-            SpecialRuntime.RegisterActive(Special.WashBurst, new ActiveHandler { Execute = WashBurst });
+            SpecialRuntime.RegisterActive(Special.PowerChop, new ActiveHandler { Execute = PowerChop, Targets = BoardTargets });
+            SpecialRuntime.RegisterActive(Special.WashBurst, new ActiveHandler { Execute = WashBurst, Targets = SinkTargets });
             SpecialRuntime.RegisterActive(Special.PlateConjurer, new ActiveHandler { Execute = PlateConjurer });
-            SpecialRuntime.RegisterActive(Special.SparePan, new ActiveHandler { Execute = SparePan });
-            SpecialRuntime.RegisterActive(Special.Hex, new ActiveHandler { Execute = Hex });
+            SpecialRuntime.RegisterActive(Special.SparePan, new ActiveHandler { Execute = SparePan, Targets = PanTargets });
+            SpecialRuntime.RegisterActive(Special.Hex, new ActiveHandler { Execute = Hex, Targets = HexTargets });
 
             SpecialNet.Register(TopicMultitask, OnStrokes);
             SpecialNet.Register(TopicEcho, OnStrokes);
@@ -360,6 +361,92 @@ namespace ChefSkills.Specials
             Vector3 offset = a - b;
             offset.y = 0f;
             return offset.magnitude;
+        }
+
+        /// <summary>
+        /// The target the active works on: the one the player chose (within a little of the chosen
+        /// spot, and in reach whichever way the chef faces), or else one faced, as <see cref="Faces"/>.
+        /// </summary>
+        private static bool Reaches(ChefState state, Vector3 from, Vector3 forward, Vector3 target, float range, float arc, out float distance)
+        {
+            if (!state.HasAimPoint) return Faces(from, forward, target, range, arc, out distance);
+            distance = FlatDistance(from, target);
+            return distance <= range + AimSlack && state.AimDistance(target) <= AimPick;
+        }
+
+        // A chosen target counts within this much of where it was chosen, and a little out of reach.
+        private const float AimPick = 0.9f;
+        private const float AimSlack = 0.6f;
+
+        // --- what the actives can be aimed at (the player's machine) -------------------------------
+
+        /// <summary>Things within <paramref name="range"/> of the chef, the one faced first (else the nearest).</summary>
+        private static List<AimTarget> Around<T>(ChefState state, float range, Func<T, bool> usable) where T : Component
+        {
+            var targets = new List<AimTarget>();
+            Vector3 from = state.Position;
+            foreach (T candidate in Object.FindObjectsOfType<T>())
+            {
+                if (candidate == null || !candidate.gameObject.activeInHierarchy) continue;
+                if (FlatDistance(from, candidate.transform.position) > range || !usable(candidate)) continue;
+                targets.Add(AimTarget.ForObject(candidate.gameObject));
+            }
+            return SpecialAim.FacedFirst(targets, from, state.Forward, FaceArc);
+        }
+
+        private static List<AimTarget> BoardTargets(ChefState state)
+        {
+            return Around<ClientWorkstation>(state, BoardReach, delegate(ClientWorkstation board)
+            {
+                ClientWorkableItem item = ClientBoardItem != null ? ClientBoardItem.GetValue(board) as ClientWorkableItem : null;
+                return item != null && !item.HasFinished();
+            });
+        }
+
+        private static List<AimTarget> SinkTargets(ChefState state)
+        {
+            return Around<ClientWashingStation>(state, SinkReach, delegate(ClientWashingStation sink)
+            {
+                return ClientSinkPlates == null || (int)ClientSinkPlates.GetValue(sink) > 0;
+            });
+        }
+
+        private static List<AimTarget> PanTargets(ChefState state)
+        {
+            return Around<ClientCookingHandler>(state, BoardReach, delegate(ClientCookingHandler pan)
+            {
+                GameObject obj = pan.gameObject;
+                if (obj.GetComponent<PhysicalAttachment>() == null || obj.GetComponentInParent<PlayerControls>() != null) return false;
+                ClientIngredientContainer contents = obj.GetComponent<ClientIngredientContainer>();
+                return contents == null || !contents.HasContents();
+            });
+        }
+
+        private static List<AimTarget> HexTargets(ChefState state)
+        {
+            var targets = new List<AimTarget>();
+            int faced = -1;
+            float best = float.MaxValue;
+            IList<ChefState> chefs = SpecialRuntime.Chefs;
+            for (int i = 0; i < chefs.Count; i++)
+            {
+                ChefState other = chefs[i];
+                if (other == state || other.Chef == null || FlatDistance(state.Position, other.Position) > HexRange) continue;
+                if (other.Team == state.Team && other.Has(Special.LoneWolf)) continue;
+                targets.Add(AimTarget.ForChef(other));
+                // The one it picks anyway: faced, a rival before a teammate.
+                float distance;
+                if (!Faces(state.Position, state.Forward, other.Position, HexRange, HexArc, out distance)) continue;
+                float score = distance + (other.Team == state.Team ? 10f : 0f);
+                if (score < best)
+                {
+                    best = score;
+                    faced = targets.Count - 1;
+                }
+            }
+            if (faced >= 0) SpecialAim.MoveFirst(targets, faced);
+            else SpecialAim.FacedFirst(targets, state.Position, state.Forward, HexArc);
+            return targets;
         }
 
         private static bool Faces(Vector3 from, Vector3 forward, Vector3 target, float range, float arc, out float distance)
@@ -898,10 +985,18 @@ namespace ChefSkills.Specials
             // Nobody washes here, so the clients' bars stand still: send them the host's timer
             // with the game's own "interaction state" message a few times a second.
             float next;
-            if (SinkSync != null && (!s_sinkSyncAt.TryGetValue(sink, out next) || Now >= next))
+            if (SinkSync != null)
             {
-                s_sinkSyncAt[sink] = Now + 0.25f;
-                SinkSync.Invoke(sink, new object[] { false });
+                bool started = !s_sinkSyncAt.TryGetValue(sink, out next);
+                if (started || Now >= next)
+                {
+                    s_sinkSyncAt[sink] = Now + 0.25f;
+                    // A sink that ran empty hides its bar, and only "washing" shows it again: say
+                    // so once (every machine shows the bar), then "not washing" so they don't
+                    // run the timer themselves. Both go in order on the game's own channel.
+                    if (started) SinkSync.Invoke(sink, new object[] { true });
+                    SinkSync.Invoke(sink, new object[] { false });
+                }
             }
         }
 
@@ -1201,8 +1296,13 @@ namespace ChefSkills.Specials
             {
                 ChefState other = chefs[i];
                 if (other == state || other.Chef == null) continue;
+                // The chef the player chose (in range, whichever way the caster faces).
+                if (state.HasAimPoint && state.AimChef != null && other != state.AimChef) continue;
                 float distance;
-                if (!Faces(from, forward, other.Position, HexRange, HexArc, out distance)) continue;
+                bool inReach = state.HasAimPoint && state.AimChef != null
+                    ? (distance = FlatDistance(from, other.Position)) <= HexRange + AimSlack
+                    : Faces(from, forward, other.Position, HexRange, HexArc, out distance);
+                if (!inReach) continue;
                 if (other.Team == state.Team && other.Has(Special.LoneWolf))
                 {
                     lonely = true;
@@ -1245,13 +1345,34 @@ namespace ChefSkills.Specials
 
         private static bool PowerChop(ChefState state)
         {
-            ServerWorkstation board = FacedBoard(AimPosition(state), AimForward(state),
-                Object.FindObjectsOfType<ServerWorkstation>(), BoardReach);
+            ServerWorkstation board = state.HasAimPoint
+                ? ChosenBoard(state, AimPosition(state), Object.FindObjectsOfType<ServerWorkstation>())
+                : FacedBoard(AimPosition(state), AimForward(state), Object.FindObjectsOfType<ServerWorkstation>(), BoardReach);
             if (board == null) return state.Refuse(Lang.Both("NO FOOD ON A BOARD IN FRONT", "KHÔNG CÓ ĐỒ TRÊN THỚT TRƯỚC MẶT"));
             if (!Finish(board, ItemOn(board), state)) return state.Refuse(Lang.Both("NOTHING TO CHOP", "KHÔNG CÓ GÌ ĐỂ THÁI"));
             SpecialFx.BurstAll(board.transform.position, Special.PowerChop);
             SpecialFx.TextAll(board.gameObject, Lang.Both("CHOPPED!", "THÁI XONG!"), Special.PowerChop);
             return true;
+        }
+
+        /// <summary>The loaded board the player chose (nearest the chosen spot, in reach).</summary>
+        private static ServerWorkstation ChosenBoard(ChefState state, Vector3 from, IEnumerable<ServerWorkstation> boards)
+        {
+            ServerWorkstation best = null;
+            float bestDistance = float.MaxValue;
+            foreach (ServerWorkstation board in boards)
+            {
+                if (board == null || !board.gameObject.activeInHierarchy || ItemOn(board) == null) continue;
+                float distance;
+                if (!Reaches(state, from, Vector3.zero, board.transform.position, BoardReach, FaceArc, out distance)) continue;
+                float off = state.AimDistance(board.transform.position);
+                if (off < bestDistance)
+                {
+                    best = board;
+                    bestDistance = off;
+                }
+            }
+            return best;
         }
 
         private static bool WashBurst(ChefState state)
@@ -1266,7 +1387,7 @@ namespace ChefSkills.Specials
             {
                 if (sink == null || !sink.gameObject.activeInHierarchy || (int)SinkPlates.GetValue(sink) <= 0) continue;
                 float distance;
-                if (!Faces(from, forward, sink.transform.position, SinkReach, FaceArc, out distance) || distance >= bestDistance) continue;
+                if (!Reaches(state, from, forward, sink.transform.position, SinkReach, FaceArc, out distance) || distance >= bestDistance) continue;
                 ServerPlateReturnStation rack = SinkRack != null ? SinkRack.GetValue(sink) as ServerPlateReturnStation : null;
                 if (rack == null || !rack.CanReturnPlate())
                 {
@@ -1357,7 +1478,7 @@ namespace ChefSkills.Specials
                 GameObject obj = handler.gameObject;
                 if (obj.GetComponent<PhysicalAttachment>() == null || obj.GetComponentInParent<PlayerControls>() != null) continue;
                 float distance;
-                if (!Faces(from, forward, obj.transform.position, BoardReach, FaceArc, out distance) || distance >= bestDistance) continue;
+                if (!Reaches(state, from, forward, obj.transform.position, BoardReach, FaceArc, out distance) || distance >= bestDistance) continue;
                 IIngredientContents contents = obj.RequestInterface<IIngredientContents>();
                 if (contents != null && contents.HasContents())
                 {

@@ -92,7 +92,7 @@ namespace ChefSkills.Specials
             ActiveHandler swap = new ActiveHandler { Execute = ExecuteSwap };
             SpecialRuntime.RegisterActive(Special.PackMule, swap);
             SpecialRuntime.RegisterActive(Special.Pocket, swap);
-            SpecialRuntime.RegisterActive(Special.Telekinesis, new ActiveHandler { Execute = ExecuteTelekinesis });
+            SpecialRuntime.RegisterActive(Special.Telekinesis, new ActiveHandler { Execute = ExecuteTelekinesis, Targets = TelekinesisTargets });
 
             SpecialNet.Register(TopicStash, OnStashMessage);
             SpecialNet.Register(TopicToss, OnTossRequest);
@@ -638,7 +638,7 @@ namespace ChefSkills.Specials
 
             Vector3 from;
             IHandlePickup best = FindPull(state, carrier, origin, forward, TelekinesisArc, out from);
-            if (best == null) best = FindPull(state, carrier, origin, forward, TelekinesisWideArc, out from);
+            if (best == null && !state.HasAimPoint) best = FindPull(state, carrier, origin, forward, TelekinesisWideArc, out from);
             if (best == null) return state.Refuse(Lang.Both("NOTHING TO PULL", "KHÔNG CÓ GÌ ĐỂ KÉO"));
             // The game's own pickup, just from further away: counter, floor or crate alike.
             best.HandlePickup(carrier, FlatForward(forward));
@@ -670,14 +670,25 @@ namespace ChefSkills.Specials
                 Vector3 offset = candidate.transform.position - origin;
                 offset.y = 0f;
                 float distance = offset.magnitude;
-                if (distance > TelekinesisRange) continue;
-                float angle = distance > 0.5f ? Vector3.Angle(forward, offset) : 0f;
-                if (angle > arc) continue;
+                float score;
+                if (state.HasAimPoint)
+                {
+                    // The one the player chose: nearest the chosen spot, in reach whichever way.
+                    float off = state.AimDistance(candidate.transform.position);
+                    if (distance > TelekinesisRange + 0.6f || off > 0.9f) continue;
+                    score = off;
+                }
+                else
+                {
+                    if (distance > TelekinesisRange) continue;
+                    float angle = distance > 0.5f ? Vector3.Angle(forward, offset) : 0f;
+                    if (angle > arc) continue;
+                    score = distance + angle * 0.08f;
+                }
 
                 IHandlePickup handler = PlayerControlsHelper.GetControllingPickupHandler_Server(candidate);
                 if (handler == null || !handler.CanHandlePickup(carrier)) continue;
                 if (vegetarian && IsRawMeat(PickupItemOf(candidate))) continue;
-                float score = distance + angle * 0.08f;
                 if (score < bestScore)
                 {
                     bestScore = score;
@@ -686,6 +697,64 @@ namespace ChefSkills.Specials
                 }
             }
             return best;
+        }
+
+        /// <summary>
+        /// The player's machine: what TELEKINESIS could pull (anything that can be picked up within
+        /// reach: loose items, items on counters, crates), the one it picks anyway first.
+        /// </summary>
+        private static List<AimTarget> TelekinesisTargets(ChefState state)
+        {
+            var targets = new List<AimTarget>();
+            ClientPlayerAttachmentCarrier carrier = state.Chef != null ? state.Chef.GetComponent<ClientPlayerAttachmentCarrier>() : null;
+            if (carrier == null || carrier.InspectCarriedItem() != null) return targets;
+            Vector3 origin = state.Position, forward = state.Forward;
+            forward.y = 0f;
+            forward = forward.sqrMagnitude > 1e-4f ? forward.normalized : Vector3.forward;
+            var seen = new HashSet<int>();
+            int best = -1;
+            float bestScore = float.MaxValue, bestWide = float.MaxValue;
+            int bestWideIndex = -1;
+            foreach (Collider collider in Physics.OverlapSphere(origin, TelekinesisRange + 0.4f, ~0, QueryTriggerInteraction.Collide))
+            {
+                if (collider == null || !collider.enabled) continue;
+                GameObject candidate = ClientPickupObjectOf(collider.transform);
+                if (candidate == null || !seen.Add(candidate.GetInstanceID())) continue;
+                Vector3 offset = candidate.transform.position - origin;
+                offset.y = 0f;
+                float distance = offset.magnitude;
+                if (distance > TelekinesisRange) continue;
+                IClientHandlePickup handler = PlayerControlsHelper.GetControllingPickupHandler_Client(candidate);
+                if (handler == null || !handler.CanHandlePickup(carrier)) continue;
+                targets.Add(AimTarget.ForObject(candidate));
+                // The one it picks anyway: the same score as the host's, narrow arc before wide.
+                float angle = distance > 0.5f ? Vector3.Angle(forward, offset) : 0f;
+                float score = distance + angle * 0.08f;
+                if (angle <= TelekinesisArc && score < bestScore)
+                {
+                    bestScore = score;
+                    best = targets.Count - 1;
+                }
+                if (angle <= TelekinesisWideArc && score < bestWide)
+                {
+                    bestWide = score;
+                    bestWideIndex = targets.Count - 1;
+                }
+            }
+            if (best >= 0) SpecialAim.MoveFirst(targets, best);
+            else if (bestWideIndex >= 0) SpecialAim.MoveFirst(targets, bestWideIndex);
+            else SpecialAim.FacedFirst(targets, origin, forward, 180f);
+            return targets;
+        }
+
+        private static GameObject ClientPickupObjectOf(Transform transform)
+        {
+            for (int depth = 0; transform != null && depth < 6; depth++, transform = transform.parent)
+            {
+                if (transform.GetComponent<PlayerControls>() != null) return null;
+                if (transform.GetComponent<IClientHandlePickup>() != null) return transform.gameObject;
+            }
+            return null;
         }
 
         /// <summary>The object a pickup would be aimed at for this collider (null: none, or part of a chef).</summary>

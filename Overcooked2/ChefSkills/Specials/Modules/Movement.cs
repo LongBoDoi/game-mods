@@ -358,8 +358,12 @@ namespace ChefSkills.Specials
                     break;
                 }
                 case SureFootedTopic:
-                    if (state.Has(Special.SureFooted)) Glow(state.Chef, Special.SureFooted);
+                {
+                    // B = 1: the host saw wind held off (A = the special) that only it feels.
+                    Special which = message.B > 0.5f ? (Special)Mathf.RoundToInt(message.A) : Special.SureFooted;
+                    if (state.Has(which)) Glow(state.Chef, which);
                     return;
+                }
                 case SleepyTopic:
                 {
                     if (!state.Has(Special.Sleepy)) return;
@@ -943,6 +947,24 @@ namespace ChefSkills.Specials
             Send(state, SureFootedTopic, 0f, 0f);
         }
 
+        /// <summary>
+        /// Wind or a moving floor was held off (or sped up) a chef: glows here, and the host tells
+        /// everyone. Wind from bellows and water guns only exists on the host, and a moving floor
+        /// may not register under another player's chef on a third machine.
+        /// </summary>
+        internal static void WindHeld(GameObject chef, Special special)
+        {
+            Glow(chef, special);
+            if (!SpecialNet.IsServer || !SpecialNet.Online) return;
+            ChefState state = SpecialRuntime.StateOf(chef);
+            if (state == null || state.Id == 0) return;
+            float now = Time.unscaledTime;
+            string key = "Wind.SentAt" + (int)special;
+            if (now - state.Get(key, -100f) < 0.3f) return;
+            state.Set(key, now);
+            Send(state, SureFootedTopic, (int)special, 1f);
+        }
+
         internal static void Glow(GameObject chef, Special special)
         {
             if (chef == null) return;
@@ -1227,7 +1249,7 @@ namespace ChefSkills.Specials
                 Vector3 force = (Vector3)TotalForceField.GetValue(__instance);
                 if (force.sqrMagnitude < 1e-4f) return;
                 TotalForceField.SetValue(__instance, MovementSpecials.Filter(__instance.transform, force, rule));
-                if (force.sqrMagnitude > 0.04f) MovementSpecials.Glow(__instance.gameObject, MovementSpecials.SpecialOf(rule));
+                if (force.sqrMagnitude > 0.04f) MovementSpecials.WindHeld(__instance.gameObject, MovementSpecials.SpecialOf(rule));
             }
             catch (Exception error)
             {
@@ -1257,7 +1279,7 @@ namespace ChefSkills.Specials
                 Vector3 velocity = (Vector3)VelocityField.GetValue(__instance);
                 if (velocity.sqrMagnitude < 1e-4f) return;
                 VelocityField.SetValue(__instance, MovementSpecials.Filter(__instance.transform, velocity, rule));
-                if (velocity.sqrMagnitude > 0.04f) MovementSpecials.Glow(__instance.gameObject, MovementSpecials.SpecialOf(rule));
+                if (velocity.sqrMagnitude > 0.04f) MovementSpecials.WindHeld(__instance.gameObject, MovementSpecials.SpecialOf(rule));
             }
             catch (Exception error)
             {

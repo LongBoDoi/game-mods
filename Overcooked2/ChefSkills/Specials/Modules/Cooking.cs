@@ -134,8 +134,8 @@ namespace ChefSkills.Specials
 
         public void Register()
         {
-            SpecialRuntime.RegisterActive(Special.Rescue, new ActiveHandler { Execute = ExecuteRescue });
-            SpecialRuntime.RegisterActive(Special.Overclock, new ActiveHandler { Execute = ExecuteOverclock, Duration = OverclockSeconds });
+            SpecialRuntime.RegisterActive(Special.Rescue, new ActiveHandler { Execute = ExecuteRescue, Targets = RescueTargets });
+            SpecialRuntime.RegisterActive(Special.Overclock, new ActiveHandler { Execute = ExecuteOverclock, Duration = OverclockSeconds, Targets = OverclockTargets });
             SpecialRuntime.RegisterActive(Special.FireBlast, new ActiveHandler { Execute = ExecuteFireBlast });
             SpecialRuntime.RegisterActive(Special.GreaseTrail, new ActiveHandler { Execute = ExecuteGrease, Duration = GreaseSeconds });
             SpecialRuntime.Tick += OnTick;
@@ -539,6 +539,74 @@ namespace ChefSkills.Specials
             return distance + angle / 45f;
         }
 
+        // A chosen pot or station counts within this much of where it was chosen; the pot in hand
+        // when the chosen spot is this close to the chef.
+        private const float AimPick = 0.9f;
+        private const float HeldPick = 0.8f;
+
+        /// <summary>What to look through: around the target the player chose, else ahead of the chef.</summary>
+        private static Collider[] Candidates(ChefState state, Vector3 from, Vector3 forward)
+        {
+            return state.HasAimPoint ? Physics.OverlapSphere(state.AimPoint + Vector3.up * 0.5f, 1.1f) : Ahead(from, forward);
+        }
+
+        /// <summary>
+        /// Lower is better: for a chosen target how far it is from the chosen spot (in reach,
+        /// whichever way the chef faces), else <see cref="FacingScore"/>. MaxValue: not this one.
+        /// </summary>
+        private static float Score(ChefState state, Vector3 from, Vector3 forward, Component candidate, float range)
+        {
+            if (!state.HasAimPoint) return FacingScore(from, forward, candidate, range);
+            Vector3 offset = candidate.transform.position - from;
+            offset.y = 0f;
+            float off = state.AimDistance(candidate.transform.position);
+            return offset.magnitude <= range + 0.6f && off <= AimPick ? off : float.MaxValue;
+        }
+
+        // --- what RESCUE and OVERCLOCK can be aimed at (the player's machine) ----------------------
+
+        private static bool Ruined(ClientCookingHandler pot)
+        {
+            float time = pot.AccessCookingTime;
+            return pot.IsBurning() || (time > 0f && pot.GetCookingProgress() > time * 1.3f);
+        }
+
+        private static List<AimTarget> RescueTargets(ChefState state)
+        {
+            var targets = new List<AimTarget>();
+            ClientPlayerAttachmentCarrier carrier = state.Chef != null ? state.Chef.GetComponent<ClientPlayerAttachmentCarrier>() : null;
+            GameObject held = carrier != null ? carrier.InspectCarriedItem() : null;
+            ClientCookingHandler heldPot = held != null ? held.GetComponent<ClientCookingHandler>() : null;
+            foreach (ClientCookingHandler pot in Object.FindObjectsOfType<ClientCookingHandler>())
+            {
+                if (pot == null || pot == heldPot || !pot.gameObject.activeInHierarchy || !Ruined(pot)) continue;
+                Vector3 offset = pot.transform.position - state.Position;
+                offset.y = 0f;
+                if (offset.magnitude <= 2.4f) targets.Add(AimTarget.ForObject(pot.gameObject));
+            }
+            SpecialAim.FacedFirst(targets, state.Position, state.Forward, 75f);
+            // The pot in hand comes first, as when it isn't aimed.
+            if (heldPot != null && Ruined(heldPot)) targets.Insert(0, AimTarget.ForObject(held));
+            return targets;
+        }
+
+        private static List<AimTarget> OverclockTargets(ChefState state)
+        {
+            var targets = new List<AimTarget>();
+            var seen = new HashSet<GameObject>();
+            foreach (CookingStation station in Object.FindObjectsOfType<CookingStation>()) Add(targets, seen, state, station);
+            foreach (MixingStation station in Object.FindObjectsOfType<MixingStation>()) Add(targets, seen, state, station);
+            return SpecialAim.FacedFirst(targets, state.Position, state.Forward, 75f);
+        }
+
+        private static void Add(List<AimTarget> targets, HashSet<GameObject> seen, ChefState state, Component station)
+        {
+            if (station == null || !station.gameObject.activeInHierarchy || !seen.Add(station.gameObject)) return;
+            Vector3 offset = station.transform.position - state.Position;
+            offset.y = 0f;
+            if (offset.magnitude <= 2.4f) targets.Add(AimTarget.ForObject(station.gameObject));
+        }
+
         private static Collider[] Ahead(Vector3 from, Vector3 forward)
         {
             Vector3 centre = from + forward * 1.0f + Vector3.up * 0.5f;
@@ -572,7 +640,8 @@ namespace ChefSkills.Specials
             Vector3 from = state.RequestPosition, forward = Flat(state.RequestForward);
             ServerCookingHandler target = null;
             GameObject held = ServerHeld(state);
-            if (held != null)
+            // The pot in hand, unless the player chose one further away.
+            if (held != null && (!state.HasAimPoint || state.AimDistance(from) <= HeldPick))
             {
                 ServerCookingHandler pot = held.GetComponent<ServerCookingHandler>();
                 if (pot != null && IsRuined(pot)) target = pot;
@@ -581,11 +650,11 @@ namespace ChefSkills.Specials
             {
                 float best = float.MaxValue;
                 bool bestBurnt = false;
-                foreach (Collider collider in Ahead(from, forward))
+                foreach (Collider collider in Candidates(state, from, forward))
                 {
                     ServerCookingHandler pot = PotOf(collider.gameObject);
                     if (pot == null || pot.gameObject == held || !IsRuined(pot)) continue;
-                    float score = FacingScore(from, forward, pot, 2.4f);
+                    float score = Score(state, from, forward, pot, 2.4f);
                     if (score == float.MaxValue) continue;
                     bool burnt = pot.IsBurning();
                     // A burnt pot beats one that is only over-doing.
@@ -604,6 +673,12 @@ namespace ChefSkills.Specials
 
         private static void Rescue(ServerCookingHandler pot)
         {
+            // Its cooker's fire goes out first: the pot's state change below turns the cooker back
+            // on only if it isn't burning.
+            ServerCookingStation cooker = pot.GetComponentInParent<ServerCookingStation>();
+            ServerFlammable flame = cooker != null ? cooker.GetComponent<ServerFlammable>() : null;
+            if (flame != null && flame.OnFire()) flame.FightFire(0.001f, 1f, true);
+
             float done = pot.AccessCookingTime * DoneCap;
             var data = CookingDataField != null ? CookingDataField.GetValue(pot) as CookingStateMessage : null;
             if (data != null)
@@ -622,11 +697,6 @@ namespace ChefSkills.Specials
             int key = pot.gameObject.GetInstanceID();
             s_holds[key] = new Hold { Until = SpecialRuntime.Now + RescueHold, By = Special.Rescue };
 
-            // Its cooker's fire goes out too.
-            ServerCookingStation cooker = pot.GetComponentInParent<ServerCookingStation>();
-            ServerFlammable flame = cooker != null ? cooker.GetComponent<ServerFlammable>() : null;
-            if (flame != null && flame.OnFire()) flame.FightFire(0.001f, 1f, true);
-
             SpecialFx.MarkAll(pot.gameObject, Special.Rescue, RescueHold, null);
             SpecialFx.TextAll(pot.gameObject, Lang.Both("SAVED!", "CỨU KỊP!"), Special.Rescue);
         }
@@ -637,12 +707,12 @@ namespace ChefSkills.Specials
             Vector3 from = state.RequestPosition, forward = Flat(state.RequestForward);
             Component target = null;
             float best = float.MaxValue;
-            foreach (Collider collider in Ahead(from, forward))
+            foreach (Collider collider in Candidates(state, from, forward))
             {
                 Component station = collider.GetComponentInParent<ServerCookingStation>();
                 if (station == null) station = collider.GetComponentInParent<ServerMixingStation>();
                 if (station == null) continue;
-                float score = FacingScore(from, forward, station, 2.4f);
+                float score = Score(state, from, forward, station, 2.4f);
                 if (score < best)
                 {
                     best = score;

@@ -46,6 +46,7 @@ echo Building TiengViet.dll...
   /resource:"%~dp0vi.tsv",TiengViet.vi.tsv ^
   /resource:"%~dp0mods.tsv",TiengViet.mods.tsv ^
   /resource:"%~dp0fonts.bundle",TiengViet.fonts.bundle ^
+  /resource:"%~dp0title.bundle.lz4",TiengViet.title.bundle.lz4 ^
   "%~dp0*.cs"
 if errorlevel 1 (
     echo.

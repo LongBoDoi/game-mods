@@ -13,8 +13,9 @@ namespace TiengViet
     /// French or Spanish but not the Vietnamese ones made with a hook, a dot below or a horn
     /// (ả, ạ, ơ, ư, ấ, ộ...). Unity would borrow each missing letter from some other font, so a
     /// word comes out in two typefaces. Instead, a text in that font that needs one of those letters
-    /// is drawn entirely in a font that has them all (Coiny by default, see the TitleFont
-    /// setting); it gets its own font back as soon as its text no longer needs it. This
+    /// is drawn entirely in a font that has them all (by default Naughty Squirrel itself with the
+    /// letters added, see <see cref="GameTitleFont"/> and the TitleFont setting); it gets its own
+    /// font back as soon as its text no longer needs it. This
     /// covers every text in that font, the game's and any mod's, whichever language is chosen.
     /// </summary>
     internal static class HeaderFont
@@ -145,6 +146,7 @@ namespace TiengViet
                 {
                     if (choice == TitleFont.GameFont) substitute = null;
                     else if (choice == TitleFont.SegoeUI) substitute = WindowsFont();
+                    else if (choice == TitleFont.NaughtySquirrel) substitute = GameTitleFont.Get() ?? Bundled("coiny");
                     else substitute = Bundled(choice.ToString().ToLowerInvariant()) ?? WindowsFont();
                 }
                 catch (Exception error)
@@ -226,6 +228,7 @@ namespace TiengViet
             if (!(value is TitleFont)) return Convert.ToString(value);
             switch ((TitleFont)value)
             {
+                case TitleFont.NaughtySquirrel: return Plugin.Vietnamese ? "Phông của game, thêm chữ tiếng Việt" : "Game's font, with Vietnamese letters";
                 case TitleFont.Coiny: return "Coiny";
                 case TitleFont.Grandstander: return "Grandstander Black";
                 case TitleFont.Baloo2: return "Baloo 2 ExtraBold";

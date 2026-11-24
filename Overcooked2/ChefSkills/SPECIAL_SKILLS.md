@@ -6,7 +6,8 @@ Besides the nine skill levels, every chef picks **one active special, two passiv
 
 The four rows under the skills on each card are **ACTIVE**, **PASSIVE**, **PASSIVE** and **QUIRK**. Highlight one with Up/Down and step through the choices with Left/Right. Every row starts at "-" (none), so a chef who picks nothing plays the normal game.
 
-- **Active**: press your **skill key** in the kitchen to use it. It is the **EMOTE** button (Y on a controller) unless you change it on the card's **SKILL KEY** row (Select, then press any key or button: shoulders, triggers and the d-pad work too). The **skill bar** (at the bottom of the screen, over your chef, or hidden: your choice on the card's **DISPLAY** row) shows it as a round button: glowing when ready, otherwise a cooldown sweep with the seconds left, a ring while its effect lasts, and the key. When there's nothing to use it on, the button shakes and says why (for example **NO COUNTER IN FRONT**), and no cooldown starts.
+- **Active**: press your **skill key** in the kitchen to use it. It is the **EMOTE** button (Y on a controller) unless you change it on the card's **SKILL KEY** row (Select, then press any key or button: shoulders, triggers and the d-pad work too). The **skill bar** (at the bottom of the screen or wherever you put it, at the size you choose; small over your chef; or hidden: the card's **DISPLAY**, **BAR SIZE** and **BAR POSITION** rows) shows it as a round button: glowing when ready, otherwise a cooldown sweep with the seconds left, a ring while its effect lasts, and the key. When there's nothing to use it on, the button shakes, the reason floats up over your chef (for example **NO COUNTER IN FRONT**), and no cooldown starts.
+- **Choosing a target.** Actives that work on something in front of you (**Swap**, **Summon**, **Telekinesis**, **Hex**, **Power Chop**, **Wash Burst**, **Spare Pan**, **Rescue**, **Overclock**) and the jumps (**Vault**, **Blink**, **Grapple**) let you choose. **Hold** the skill key: rings show everything in reach (for a jump, where it would land each way round you), with the one it would pick anyway (the one you face, or the nearest) highlighted. Your chef stands still while you hold it. Move (keys or stick) to move the highlight to the next target that way; **let go** to use it on the highlighted one, even one behind you. A quick tap still uses it on the one in front, as before.
 - **Passive**: always on. Its small icon in the skill bar shows a recharge sweep or a count when it has one (Safety Net's 30 s, Double Dash charges, Hot Streak's streak...). Press **Tab** in the kitchen (change it, or set a controller button, on the card's **INFO KEY** row) for a card with all your picks and what they do; each player opens their own.
 - **Quirk**: a drawback that **frees skill points** (shown as **+1** or **+2**), so you can raise your skills further than you lower them.
 - **Picks that clash can't go together.** The card skips them:
@@ -34,9 +35,9 @@ Every special shows when it does something, to every player, in its group's colo
 
 ## Online
 
-Everyone needs Chef Skills 4.1.0. A machine on an older version counts as not having the mod, and then the level is played without skills or specials, as before.
+Everyone needs Chef Skills 4.2.0. A machine on an older version counts as not having the mod, and then the level is played without skills or specials, as before.
 
-The host decides what happens: items, orders, fire, scores and where every chef is. Each player's machine also predicts its own chef's movement, so specials that change speed or position are applied on both. To do that quickly, specials use their own Steam P2P channel (7) through the host, alongside the game's own connections. A press of the skill key carries where your chef stands and faces on your own PC, so the host aims from there rather than from its slightly late view of you. Things only your own PC sees (holding DASH for Sprinter or Charge Dash, a dash hitting someone for Shove or Pickpocket) are sent to the host from your PC.
+The host decides what happens: items, orders, fire, scores and where every chef is. Each player's machine also predicts its own chef's movement, so specials that change speed or position are applied on both. To do that quickly, specials use their own Steam P2P channel (7) through the host, alongside the game's own connections. A press of the skill key carries where your chef stands and faces on your own PC, and the target you chose, so the host aims from there rather than from its slightly late view of you. While you choose a target, every PC knows: your chef stands still on all of them, and your teammates see what you have chosen. Things only your own PC sees (holding DASH for Sprinter or Charge Dash, a dash hitting someone for Shove or Pickpocket) are sent to the host from your PC.
 
 ## Actives (SKILL KEY)
 
@@ -45,8 +46,8 @@ The host decides what happens: items, orders, fire, scores and where every chef 
 | **VAULT** | Hop over whatever is in front of you, walls too, landing up to 4 m away | 6 s |
 | **BLINK** | Teleport up to 6 m ahead, straight through counters and walls | 10 s |
 | **RECALL** | Plant a flag; use again within 20 s to teleport back to it (cooldown starts on return) | 25 s |
-| **SWAP** | Trade places with the teammate you face (or the nearest) | 20 s |
-| **SUMMON** | Pull the teammate you face (or the nearest) to your side | 25 s |
+| **SWAP** | Trade places with the teammate you face (or the nearest, or the one you choose). They see it coming: a ring and **SWAP?** while you choose, a short wind-up, then both of you fly across | 20 s |
+| **SUMMON** | Pull the teammate you face (or the nearest, or the one you choose) to your side; they see it coming and fly over | 25 s |
 | **GRAPPLE** | Pull yourself to the counter you face, up to 6 m away | 12 s |
 | **PACK MULE** | Carry a second item on your back; SKILL KEY swaps hand and back | 0.5 s |
 | **POCKET** | Pocket up to 3 ingredients, hidden; SKILL KEY stores or takes the last out | 0.5 s |

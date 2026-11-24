@@ -48,6 +48,7 @@ namespace ChefSkills
         private string _builtFor;
         // The players whose card is open (each player's own info key opens and closes theirs).
         private readonly HashSet<PlayerInputLookup.Player> _open = new HashSet<PlayerInputLookup.Player>();
+        private Canvas _sorting;
 
         internal SpecialDetails(RectTransform canvas)
         {
@@ -105,6 +106,11 @@ namespace ChefSkills
             }
             if (_root.gameObject.activeSelf != any) _root.gameObject.SetActive(any);
             if (!any) return;
+            // The cards are read, so they go over the kitchen's words (which go over the skill bar).
+            if (_sorting == null) _sorting = _root.gameObject.AddComponent<Canvas>();
+            if (!_sorting.overrideSorting) _sorting.overrideSorting = true;
+            int order = FxLabels.SortingOrder + 10;
+            if (_sorting.sortingOrder != order) _sorting.sortingOrder = order;
 
             // The open cards on each side stack, centred together; a closed one leaves no gap.
             for (int side = 0; side < 2; side++)

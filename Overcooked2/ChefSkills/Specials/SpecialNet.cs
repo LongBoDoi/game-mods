@@ -51,7 +51,10 @@ namespace ChefSkills
         /// <summary>Topics of the framework's own messages. Modules use (int)Special * 10 + n.</summary>
         internal static class Topic
         {
-            /// <summary>Client -> host: a player pressed their active special. Vector1 = position, Vector2 = facing, I = special.</summary>
+            /// <summary>
+            /// Client -> host: a player used their active special. Vector1 = position, Vector2 = facing, I = special;
+            /// a chosen target (SpecialAim): G = its distance along the facing, Text = its chef ID (if a chef).
+            /// </summary>
             internal const ushort ActivateRequest = 1;
             /// <summary>Host -> all: a special was used. I = special, A = cooldown, B = duration.</summary>
             internal const ushort Activated = 2;
@@ -61,11 +64,13 @@ namespace ChefSkills
             internal const ushort Buff = 4;
             /// <summary>Any -> all: a visual effect (see SpecialFx).</summary>
             internal const ushort Fx = 5;
+            /// <summary>Any -> all: a chef is choosing a target (see SpecialAim). I = special (0 = done), Vector1 = target, Text = its chef.</summary>
+            internal const ushort Aim = 6;
         }
 
         private const int Channel = 7;
         private const byte Magic = 0xC5;
-        private const byte Protocol = 2;
+        private const byte Protocol = 3;
         private const byte RouteToHost = 1;
         private const byte RouteToAll = 2;
         private const byte RouteRelay = 3;

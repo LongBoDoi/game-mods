@@ -66,6 +66,18 @@ namespace ChefSkills.Specials
             public Transform Root, Model;
             public Vector3 Offset;
             public float Start, Duration, Height;
+            // A flight: the model goes from From to To in the world, whatever its chef does
+            // meanwhile (on the other machines the chef itself only gets there with the game's sync),
+            // leaving rings on the floor behind it.
+            public bool Flight;
+            // This machine put the chef at To itself (the host, and the chef's own machine): the
+            // flight ends on the chef wherever it has gone since, never on a spot it has left.
+            public bool Settled;
+            public PlayerControls Controls;
+            public float SettleAt = -1f;
+            public Vector3 From, To;
+            public Color Trail;
+            public float NextTrail;
         }
 
         private sealed class Predicted
@@ -85,6 +97,11 @@ namespace ChefSkills.Specials
         internal static readonly ushort TopicProposal = (ushort)((int)Special.Vault * 10 + 0);
         /// <summary>Host -> all: the host moved a remote chef (Vector1 = feet, D = keep running, E = hop).</summary>
         internal static readonly ushort TopicMoved = (ushort)((int)Special.Vault * 10 + 1);
+        /// <summary>
+        /// Host -> all: the host flew a chef somewhere (Swap, Summon, a rescue): Vector1 = where to,
+        /// Vector2 = where from, G = seconds, I = special &lt;&lt; 10 | arc height in cm.
+        /// </summary>
+        internal static readonly ushort TopicFlight = (ushort)((int)Special.Vault * 10 + 2);
 
         private static bool s_masks;
         internal static int GroundMask, BlockMask, SolidMask, ArcMask, PlayersLayer = -1, WorktopLayer = -1;
@@ -464,6 +481,19 @@ namespace ChefSkills.Specials
         internal static void ServerMove(ChefState chef, Vector3 feet, bool keepRun, float hop)
         {
             if (chef == null || chef.Chef == null) return;
+            Vector3 from = Place(chef, feet, keepRun);
+            if (hop > 0f) StartHop(chef, from, feet, hop);
+            // To the owner (who follows at once) and, for a hop, to everyone else (who draw the arc).
+            if (chef.Id != 0 && SpecialNet.Online && (!chef.Local || hop > 0f))
+                SpecialNet.SendToAll(new SpecialMessage
+                {
+                    Topic = TopicMoved, Chef = chef.Id, Vector1 = feet, D = keepRun ? 1f : 0f, E = hop
+                });
+        }
+
+        /// <summary>Host: the chef's transform and rigidbody at <paramref name="feet"/>; returns where it was.</summary>
+        private static Vector3 Place(ChefState chef, Vector3 feet, bool keepRun)
+        {
             Transform root = chef.Chef.transform;
             Vector3 from = root.position;
             Rigidbody body = chef.Chef.GetComponent<Rigidbody>();
@@ -476,13 +506,63 @@ namespace ChefSkills.Specials
             }
             GroundCast ground = chef.Chef.GetComponent<GroundCast>();
             if (ground != null) ground.ForceUpdateNow();
-            if (hop > 0f) StartHop(chef, from, feet, hop);
-            // To the owner (who follows at once) and, for a hop, to everyone else (who draw the arc).
-            if (chef.Id != 0 && SpecialNet.Online && (!chef.Local || hop > 0f))
+            return from;
+        }
+
+        /// <summary>
+        /// Host: move the chef to <paramref name="feet"/>, seen on every machine as a flight from
+        /// where it was, over <paramref name="seconds"/>, along an arc <paramref name="height"/>
+        /// high, trailing rings in the special's colour. For a chef moved by someone else (Swap,
+        /// Summon) or rescued, so nobody loses track of where it went.
+        /// </summary>
+        internal static void ServerFlight(ChefState chef, Vector3 feet, Special special, float seconds, float height)
+        {
+            if (chef == null || chef.Chef == null) return;
+            Vector3 from = Place(chef, feet, false);
+            StartFlight(chef, from, feet, seconds, height, SpecialFx.ColourOf(special), true);
+            if (chef.Id != 0 && SpecialNet.Online)
                 SpecialNet.SendToAll(new SpecialMessage
                 {
-                    Topic = TopicMoved, Chef = chef.Id, Vector1 = feet, D = keepRun ? 1f : 0f, E = hop
+                    Topic = TopicFlight, Chef = chef.Id, Vector1 = feet, Vector2 = from, G = seconds,
+                    I = ((int)special << 10) | Mathf.Clamp(Mathf.RoundToInt(height * 100f), 0, 1023)
                 });
+        }
+
+        /// <summary>Clients: the host flew a chef. Its owner moves it there too; everyone draws the flight.</summary>
+        internal static void OnFlight(SpecialMessage message)
+        {
+            if (SpecialNet.IsServer) return;
+            ChefState chef = SpecialRuntime.StateById(message.Chef);
+            if (chef == null || chef.Chef == null || chef.Controls == null || chef.Controls.m_bRespawning) return;
+            Vector3 feet = message.Vector1;
+            // The chef's own machine flies it from where its player sees it (the host's view of it
+            // is a little behind), and moves it there at once like the host did.
+            Vector3 from = message.Vector2;
+            if (chef.Local)
+            {
+                from = chef.Position;
+                if (Vector3.Distance(chef.Position, feet) > 0.3f) PredictMove(chef, feet, false, 0f);
+            }
+            var special = (Special)(message.I >> 10);
+            StartFlight(chef, from, feet, message.G, (message.I & 1023) / 100f, SpecialFx.ColourOf(special), chef.Local);
+        }
+
+        private static void StartFlight(ChefState chef, Vector3 from, Vector3 to, float seconds, float height, Color trail, bool settled)
+        {
+            Transform model = chef.Chef.transform.Find("Chef");
+            if (model == null) return;
+            for (int i = s_hops.Count - 1; i >= 0; i--)
+                if (s_hops[i].Model == model)
+                {
+                    model.localPosition = Vector3.zero;
+                    s_hops.RemoveAt(i);
+                }
+            s_hops.Add(new Hop
+            {
+                Root = chef.Chef.transform, Model = model, Start = SpecialRuntime.Now, Duration = Mathf.Max(0.1f, seconds),
+                Height = height, Flight = true, Settled = settled, Controls = chef.Controls, From = from, To = to, Trail = trail
+            });
+            SpecialFx.Burst(from, trail, 1.1f, 0.45f);
         }
 
         /// <summary>Owner machine (not the host): move its own chef now, ahead of the host.</summary>
@@ -654,6 +734,59 @@ namespace ChefSkills.Specials
             });
         }
 
+        // Other machines: after landing, the model eases from the landing spot onto the chef (still
+        // arriving with the game's sync) over this long, rather than waiting there or jumping.
+        private const float FlightSettleSeconds = 0.25f;
+        private const float FlightWaitSeconds = 0.5f;
+
+        private static void Fly(Hop hop, float t, float now)
+        {
+            // Fell again or respawning: the model goes back on the chef at once.
+            if (hop.Controls != null && hop.Controls.m_bRespawning)
+            {
+                hop.Model.localPosition = Vector3.zero;
+                hop.Model = null;
+                return;
+            }
+            if (t < 1f)
+            {
+                // Eased: off quickly, slowing into the landing. Where the chef was put by this
+                // machine, it lands on the chef as it is now (it may have moved on).
+                float e = 1f - (1f - t) * (1f - t);
+                Vector3 end = hop.Settled ? hop.Root.position : hop.To;
+                Vector3 floor = Vector3.Lerp(hop.From, end, e);
+                hop.Model.position = floor + Vector3.up * (hop.Height * 4f * t * (1f - t));
+                if (now >= hop.NextTrail)
+                {
+                    hop.NextTrail = now + 0.06f;
+                    SpecialFx.Burst(floor, hop.Trail, 0.45f, 0.35f);
+                }
+                return;
+            }
+            if (!hop.Settled)
+            {
+                float landed = (t - 1f) * hop.Duration;
+                // Waits on the spot while the chef is still on its way (briefly: a chef that ran
+                // on meanwhile never gets there), then eases onto it.
+                if (hop.SettleAt < 0f && (Warp.FlatDistance(hop.Root.position, hop.To) <= 0.6f || landed >= FlightWaitSeconds))
+                    hop.SettleAt = now;
+                if (hop.SettleAt < 0f)
+                {
+                    hop.Model.position = hop.To;
+                    return;
+                }
+                float settle = (now - hop.SettleAt) / FlightSettleSeconds;
+                if (settle < 1f)
+                {
+                    hop.Model.position = Vector3.Lerp(hop.To, hop.Root.position, settle * settle);
+                    return;
+                }
+            }
+            hop.Model.localPosition = Vector3.zero;
+            SpecialFx.Burst(hop.Settled ? hop.Root.position : hop.To, hop.Trail, 1.3f, 0.5f);
+            hop.Model = null;
+        }
+
         /// <summary>Every frame, every machine.</summary>
         internal static void Update()
         {
@@ -667,6 +800,12 @@ namespace ChefSkills.Specials
                     continue;
                 }
                 float t = (now - hop.Start) / hop.Duration;
+                if (hop.Flight)
+                {
+                    Fly(hop, t, now);
+                    if (hop.Model == null) s_hops.RemoveAt(i);
+                    continue;
+                }
                 if (t >= 1f)
                 {
                     hop.Model.localPosition = Vector3.zero;
@@ -726,6 +865,8 @@ namespace ChefSkills.Specials
         private const float GrappleRange = 6f;
         private const float RecallSeconds = 20f;
         private const float SafetyNetCooldown = 30f;
+        // Safety Net and Lifeguard: how long the chef flies back up.
+        private const float RescueFlightSeconds = 0.4f;
         private const float LifeguardRange = 4.5f;
         private const float HoverRecharge = 10f;
         private const float HoverSeconds = 0.6f;
@@ -792,18 +933,19 @@ namespace ChefSkills.Specials
 
         public void Register()
         {
-            SpecialRuntime.RegisterActive(Special.Vault, new ActiveHandler { Execute = VaultExecute, Predict = VaultPredict });
-            SpecialRuntime.RegisterActive(Special.Blink, new ActiveHandler { Execute = BlinkExecute, Predict = BlinkPredict });
-            SpecialRuntime.RegisterActive(Special.Grapple, new ActiveHandler { Execute = GrappleExecute, Predict = GrapplePredict });
+            SpecialRuntime.RegisterActive(Special.Vault, new ActiveHandler { Execute = VaultExecute, Predict = VaultPredict, Targets = VaultTargets });
+            SpecialRuntime.RegisterActive(Special.Blink, new ActiveHandler { Execute = BlinkExecute, Predict = BlinkPredict, Targets = BlinkTargets });
+            SpecialRuntime.RegisterActive(Special.Grapple, new ActiveHandler { Execute = GrappleExecute, Predict = GrapplePredict, Targets = GrappleTargets });
             SpecialRuntime.RegisterActive(Special.Recall, new ActiveHandler
             {
                 Execute = RecallExecute, Predict = RecallPredict, OnActivated = RecallActivated
             });
-            SpecialRuntime.RegisterActive(Special.Swap, new ActiveHandler { Execute = SwapExecute });
-            SpecialRuntime.RegisterActive(Special.Summon, new ActiveHandler { Execute = SummonExecute });
+            SpecialRuntime.RegisterActive(Special.Swap, new ActiveHandler { Execute = SwapExecute, Targets = MateTargets });
+            SpecialRuntime.RegisterActive(Special.Summon, new ActiveHandler { Execute = SummonExecute, Targets = MateTargets });
 
             SpecialNet.Register(Warp.TopicProposal, Warp.OnProposal);
             SpecialNet.Register(Warp.TopicMoved, Warp.OnMoved);
+            SpecialNet.Register(Warp.TopicFlight, Warp.OnFlight);
             SpecialNet.Register(TopicRecall, OnRecallMessage);
             SpecialNet.Register(TopicSafetyNet, OnSafetyNetMessage);
             SpecialNet.Register(TopicHover, OnHoverMessage);
@@ -824,6 +966,8 @@ namespace ChefSkills.Specials
             foreach (KeyValuePair<ChefState, Flag> pair in s_flags)
                 if (pair.Value.Marker != null) UnityEngine.Object.Destroy(pair.Value.Marker);
             s_flags.Clear();
+            s_transfers.Clear();
+            s_landings.Clear();
             s_nextSafeSample = 0f;
             CannonState.Clear();
             PortalState.Clear();
@@ -841,6 +985,11 @@ namespace ChefSkills.Specials
         private static void OnTick(float dt)
         {
             Warp.Update();
+            if (SpecialNet.IsServer && (s_transfers.Count > 0 || s_landings.Count > 0))
+            {
+                RunTransfers(SpecialRuntime.Now);
+                RunLandings(SpecialRuntime.Now);
+            }
             float now = SpecialRuntime.Now;
 
             // Recall flags run out on every machine.
@@ -944,6 +1093,19 @@ namespace ChefSkills.Specials
             return true;
         }
 
+        /// <summary>Where a vault could land, each way round the chef (the way it faces first).</summary>
+        private static List<AimTarget> VaultTargets(ChefState chef)
+        {
+            if (!Warp.Movable(chef)) return null;
+            Vector3 from = chef.Position;
+            return SpecialAim.Directions(chef, delegate(Vector3 direction)
+            {
+                Vector3 landing;
+                string reason;
+                return FindVault(chef, from, direction, out landing, out reason) ? (Vector3?)landing : null;
+            });
+        }
+
         private static void VaultPredict(ChefState chef)
         {
             Vector3 landing = chef.Position;
@@ -965,7 +1127,7 @@ namespace ChefSkills.Specials
             return FindBlink(chef, origin, forward, out landing, out reason);
         }
 
-        private static bool FindBlink(ChefState chef, Vector3 origin, Vector3 forward, out Vector3 landing, out string reason)
+        private static bool FindBlink(ChefState chef, Vector3 origin, Vector3 forward, out Vector3 landing, out string reason, bool log = true)
         {
             Warp.InitMasks();
             forward = Warp.Flat(forward);
@@ -990,7 +1152,7 @@ namespace ChefSkills.Specials
                 }
             }
             landing = origin;
-            Plugin.Log.LogInfo(string.Format(
+            if (log) Plugin.Log.LogInfo(string.Format(
                 "BLINK: không có chỗ đáp (không có sàn {0}, bị chắn {1}, vùng chết {2}, ngoài bếp {3}, chỗ kẹt {4})",
                 noFloor, blocked, deadly, outside, pocket));
             int most = Mathf.Max(Mathf.Max(blocked, deadly), Mathf.Max(outside, pocket));
@@ -1016,6 +1178,18 @@ namespace ChefSkills.Specials
                     SpecialFx.BurstAll(p, Special.Blink);
                 });
             return true;
+        }
+
+        private static List<AimTarget> BlinkTargets(ChefState chef)
+        {
+            if (!Warp.Movable(chef)) return null;
+            Vector3 from = chef.Position;
+            return SpecialAim.Directions(chef, delegate(Vector3 direction)
+            {
+                Vector3 landing;
+                string reason;
+                return FindBlink(chef, from, direction, out landing, out reason, false) ? (Vector3?)landing : null;
+            });
         }
 
         private static void BlinkPredict(ChefState chef)
@@ -1091,6 +1265,18 @@ namespace ChefSkills.Specials
                     SpecialFx.BurstAll(p, Special.Grapple);
                 });
             return true;
+        }
+
+        private static List<AimTarget> GrappleTargets(ChefState chef)
+        {
+            if (!Warp.Movable(chef)) return null;
+            Vector3 from = chef.Position;
+            return SpecialAim.Directions(chef, delegate(Vector3 direction)
+            {
+                Vector3 landing, anchor;
+                string reason;
+                return FindGrapple(chef, from, direction, out landing, out anchor, out reason) ? (Vector3?)landing : null;
+            });
         }
 
         private static void GrapplePredict(ChefState chef)
@@ -1243,7 +1429,39 @@ namespace ChefSkills.Specials
             chef.Set(FlagModeKey, 0);
         }
 
-        // --- Swap and Summon (host; the moved chefs' owners follow at once with TopicMoved) ----
+        // --- Swap and Summon -------------------------------------------------------------------
+        // Nobody is moved without warning. While the caster holds the skill key, the teammate they
+        // have chosen is ringed with "SWAP?" on every screen. Once used, both chefs stand still for
+        // a moment while a beam joins them and "SWAP!" shows over the teammate (the wind-up); then
+        // they fly to their new places in an arc, leaving rings behind, and land with a burst and
+        // "SWAPPED!" over the moved teammate. The host checks again before the flight, so a
+        // teammate who fell or got busy meanwhile isn't moved.
+
+        private const float WindUpSeconds = 0.45f;
+        private const float FlightSeconds = 0.45f;
+        private const float FlightHeight = 1.1f;
+
+        private sealed class Transfer
+        {
+            public ChefState Caster, Mate;
+            public Special Special;
+            public Vector3 Forward;
+            public float At;
+        }
+
+        // Host: swaps and summons in their wind-up.
+        private static readonly List<Transfer> s_transfers = new List<Transfer>();
+
+        /// <summary>Teammates to swap with or summon, the one faced (or the nearest) first.</summary>
+        private static List<AimTarget> MateTargets(ChefState chef)
+        {
+            var targets = new List<AimTarget>();
+            // Only what this machine knows for sure about another player's chef (the host checks the rest).
+            foreach (ChefState other in SpecialRuntime.Teammates(chef))
+                if (other.Chef != null && other.Chef.activeInHierarchy && other.Controls != null && !other.Controls.m_bRespawning)
+                    targets.Add(AimTarget.ForChef(other));
+            return SpecialAim.FacedFirst(targets, chef.Position, chef.Forward, 35f);
+        }
 
         private static bool CanBeMoved(ChefState mate)
         {
@@ -1263,6 +1481,13 @@ namespace ChefSkills.Specials
             float facedDistance = float.MaxValue, nearestDistance = float.MaxValue;
             forward = Warp.Flat(forward);
             anyMate = false;
+            // The teammate the player chose, if they did.
+            if (chef.HasAimPoint && chef.AimChef != null)
+            {
+                anyMate = true;
+                ChefState chosen = chef.AimChef;
+                return chosen != chef && chosen.Team == chef.Team && CanBeMoved(chosen) ? chosen : null;
+            }
             foreach (ChefState other in SpecialRuntime.Teammates(chef))
             {
                 if (other.Chef == null) continue;
@@ -1294,13 +1519,105 @@ namespace ChefSkills.Specials
             if (mate == null) return chef.Refuse(anyMate ? Lang.Both("TEAMMATE CAN'T MOVE NOW", "ĐỒNG ĐỘI CHƯA ĐI ĐƯỢC") : Lang.Both("NO TEAMMATE", "KHÔNG CÓ ĐỒNG ĐỘI"));
             Vector3 mine = chef.RequestPosition, theirs = mate.Position;
             if (Warp.FlatDistance(mine, theirs) < 0.6f) return chef.Refuse(Lang.Both("TEAMMATE TOO CLOSE", "ĐỒNG ĐỘI Ở QUÁ GẦN"));
-            Warp.ServerMove(chef, theirs, false, 0f);
-            Warp.ServerMove(mate, mine, false, 0f);
-            SpecialFx.BeamAll(mine, theirs, Special.Swap, 0.6f);
-            SpecialFx.BurstAll(mine, Special.Swap);
-            SpecialFx.BurstAll(theirs, Special.Swap);
-            SpecialFx.TextAllAt(mine + Vector3.up * 2.1f, Lang.Both("SWAPPED!", "ĐỔI CHỖ!"), Special.Swap);
+            WindUp(chef, mate, Special.Swap);
             return true;
+        }
+
+        /// <summary>Host: the warning before a swap or summon (both chefs stand still, a beam joins them).</summary>
+        private static void WindUp(ChefState chef, ChefState mate, Special special)
+        {
+            float still = WindUpSeconds + FlightSeconds + 0.1f;
+            // From nobody, so Lone Wolf doesn't shrug it off: it is the move itself.
+            SpecialRuntime.BroadcastBuff(chef, BuffId.Frozen, still, 1f, null);
+            SpecialRuntime.BroadcastBuff(mate, BuffId.Frozen, still, 1f, null);
+            SpecialFx.BeamAll(chef.RequestPosition, mate.Position, special, WindUpSeconds + 0.1f);
+            SpecialFx.MarkAll(mate.Chef, special, WindUpSeconds + 0.15f, SpecialFx.NameBoth(special, "!", "!"));
+            if (special == Special.Swap) SpecialFx.MarkAll(chef.Chef, special, WindUpSeconds + 0.15f, null);
+            for (int i = s_transfers.Count - 1; i >= 0; i--)
+                if (s_transfers[i].Caster == chef || s_transfers[i].Mate == mate) s_transfers.RemoveAt(i);
+            s_transfers.Add(new Transfer
+            {
+                Caster = chef, Mate = mate, Special = special, Forward = chef.RequestForward,
+                At = SpecialRuntime.Now + WindUpSeconds
+            });
+        }
+
+        /// <summary>Host, every frame: swaps and summons whose wind-up is over fly.</summary>
+        private static void RunTransfers(float now)
+        {
+            for (int i = s_transfers.Count - 1; i >= 0; i--)
+            {
+                Transfer transfer = s_transfers[i];
+                if (now < transfer.At) continue;
+                s_transfers.RemoveAt(i);
+                try
+                {
+                    Fly(transfer);
+                }
+                catch (Exception error)
+                {
+                    SpecialRuntime.Fail(transfer.Special + ".Fly", error);
+                }
+            }
+        }
+
+        private static void Fly(Transfer transfer)
+        {
+            ChefState chef = transfer.Caster, mate = transfer.Mate;
+            Special special = transfer.Special;
+            if (chef.Chef == null || mate.Chef == null) return;
+            if (Warp.Blocked(chef) != null || !CanBeMoved(mate))
+            {
+                SpecialFx.TextAll(chef.Chef, Lang.Both("MISSED!", "TRƯỢT RỒI!"), special);
+                return;
+            }
+            if (special == Special.Swap)
+            {
+                Vector3 mine = chef.Position, theirs = mate.Position;
+                Warp.ServerFlight(chef, theirs, special, FlightSeconds, FlightHeight);
+                Warp.ServerFlight(mate, mine, special, FlightSeconds, FlightHeight);
+                SpecialFx.BeamAll(mine, theirs, special, FlightSeconds + 0.2f);
+                Landed(mate, mine, Lang.Both("SWAPPED!", "ĐÃ ĐỔI CHỖ!"), special);
+                return;
+            }
+            Vector3 from = mate.Position, spot;
+            if (!Warp.SpotNear(chef.Position, transfer.Forward, mate, out spot))
+            {
+                SpecialFx.TextAll(chef.Chef, Lang.Both("NO ROOM NEXT TO YOU", "CẠNH BẠN HẾT CHỖ"), special);
+                return;
+            }
+            Warp.ServerFlight(mate, spot, special, FlightSeconds, FlightHeight);
+            SpecialFx.BeamAll(from, spot, special, FlightSeconds + 0.2f);
+            Landed(mate, spot, Lang.Both("SUMMONED!", "ĐÃ TRIỆU HỒI!"), special);
+        }
+
+        /// <summary>Host: once the moved teammate lands, a ring under them and a word over them.</summary>
+        private static void Landed(ChefState mate, Vector3 spot, string word, Special special)
+        {
+            s_landings.Add(new Landing { Mate = mate, Spot = spot, Word = word, Special = special, At = SpecialRuntime.Now + FlightSeconds });
+        }
+
+        private sealed class Landing
+        {
+            public ChefState Mate;
+            public Vector3 Spot;
+            public string Word;
+            public Special Special;
+            public float At;
+        }
+
+        private static readonly List<Landing> s_landings = new List<Landing>();
+
+        private static void RunLandings(float now)
+        {
+            for (int i = s_landings.Count - 1; i >= 0; i--)
+            {
+                Landing landing = s_landings[i];
+                if (now < landing.At) continue;
+                s_landings.RemoveAt(i);
+                SpecialFx.TextAllAt(landing.Spot + Vector3.up * 2.1f, landing.Word, landing.Special);
+                if (landing.Mate.Chef != null) SpecialFx.MarkAll(landing.Mate.Chef, landing.Special, 1.2f, null);
+            }
         }
 
         private static bool SummonExecute(ChefState chef)
@@ -1314,11 +1631,7 @@ namespace ChefSkills.Specials
             if (Warp.FlatDistance(from, chef.RequestPosition) < 1.6f) return chef.Refuse(Lang.Both("TEAMMATE ALREADY HERE", "ĐỒNG ĐỘI ĐÃ Ở ĐÂY"));
             Vector3 spot;
             if (!Warp.SpotNear(chef.RequestPosition, chef.RequestForward, mate, out spot)) return chef.Refuse(Lang.Both("NO ROOM NEXT TO YOU", "CẠNH BẠN HẾT CHỖ"));
-            Warp.ServerMove(mate, spot, false, 0f);
-            SpecialFx.BeamAll(from, spot, Special.Summon, 0.6f);
-            SpecialFx.BurstAll(from, Special.Summon);
-            SpecialFx.BurstAll(spot, Special.Summon);
-            SpecialFx.TextAllAt(spot + Vector3.up * 2.1f, Lang.Both("SUMMONED!", "TRIỆU HỒI!"), Special.Summon);
+            WindUp(chef, mate, Special.Summon);
             return true;
         }
 
@@ -1449,7 +1762,10 @@ namespace ChefSkills.Specials
 
             Vector3 fellAt = chef.Position;
             chef.Set(CaughtKey, now);
-            Warp.ServerMove(chef, back, false, 0f);
+            // Flown back up from where it fell, so everyone (the chef too) sees where it went; it
+            // can't run off while it is in the air.
+            SpecialRuntime.BroadcastBuff(chef, BuffId.Frozen, RescueFlightSeconds + 0.1f, 1f, null);
+            Warp.ServerFlight(chef, back, net ? Special.SafetyNet : Special.Lifeguard, RescueFlightSeconds, 1.4f);
             if (net)
             {
                 chef.Set(NetReadyKey, now + SafetyNetCooldown);
@@ -1592,10 +1908,14 @@ namespace ChefSkills.Specials
                     // The spawn routine reads these right after this; put back a few seconds later.
                     behaviour.m_startParent = null;
                     behaviour.m_startLocation = spot;
-                    Color colour = SpecialFx.ColourOf(Special.Medic);
-                    SpecialFx.Beam(medic.Position, spot, colour, 0.6f);
-                    SpecialFx.Burst(spot, colour, 1.4f, 0.6f);
-                    SpecialFx.Text(spot + Vector3.up * 2.1f, SpecialCatalog.NameOf(Special.Medic) + "!", colour);
+                    // Each machine picks from its own view of where the medic is, but the chef ends
+                    // up at the host's spot: the host shows it there, for everyone.
+                    if (SpecialNet.IsServer)
+                    {
+                        SpecialFx.BeamAll(medic.Position, spot, Special.Medic, 0.6f);
+                        SpecialFx.BurstAll(spot, Special.Medic);
+                        SpecialFx.TextAllAt(spot + Vector3.up * 2.1f, SpecialFx.NameBoth(Special.Medic, "!", "!"), Special.Medic);
+                    }
                     return;
                 }
             }
