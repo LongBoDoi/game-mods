@@ -77,6 +77,9 @@ $Targets = @(
     [pscustomobject]@{ Key = 'DIYChefFix'; Kind = 'Mod'
         Blurb = 'fixes the default chef + chef grid of the third-party DIYChef FastInit'
         Id = 'com.manhl.overcooked2.diycheffix'; LegacyId = $null; Files = @(); Requires = 'DIYChefFastInit.dll' }
+    [pscustomobject]@{ Key = 'RandomLevel'; Kind = 'Mod'
+        Blurb = 'random DIY levels; F8 skips, Continue plays the next random level'
+        Id = 'com.manhl.overcooked2.randomlevel'; LegacyId = $null; Files = @(); Requires = 'OC2DIYLevel.dll' }
     [pscustomobject]@{ Key = 'ModUpdater'; Kind = 'Mod'
         Blurb = 'asks to update when a new release is out, then updates in game'
         Id = 'com.manhl.overcooked2.modupdater'; LegacyId = $null; Files = @('ModUpdater.ps1'); Requires = $null }
@@ -107,11 +110,11 @@ function Remove-RenamedMod($key) {
 }
 
 <#
-    Mods no longer in this collection. Release 4.3.0 installed OC2Tweaks and RandomLevel for
-    everyone it updated, so every install takes them back out: the plugin DLL (and its folder
-    when nothing else is in it) and the Relay Kitchen level. Their settings are left alone.
+    Mods no longer in this collection. Release 4.3.0 installed OC2Tweaks for everyone it
+    updated, so every install takes it back out: the plugin DLL (and its folder when nothing
+    else is in it) and the Relay Kitchen level. Their settings are left alone.
 #>
-$RetiredMods = @('OC2Tweaks', 'RandomLevel')
+$RetiredMods = @('OC2Tweaks')
 $RetiredLevel = 'OC2DIYLevel\levels\manhl_relay_kitchen'
 
 function Remove-RetiredMods {
@@ -904,6 +907,10 @@ function Invoke-Install($selected) {
     }
     if ($installedNames -contains $PackName) {
         Write-Note "$PackName : custom levels. Everyone in the match needs the same pack."
+    }
+    if ($installedNames -contains 'RandomLevel') {
+        Write-Note 'RandomLevel : More Levels -> Choi ngau nhien. F8 = skip round, Continue = next random level,'
+        Write-Note '              Restart = same level, F7 = main menu from the results. Host only.'
     }
     if ($installedNames -contains 'ModUpdater' -and -not $Update) {
         Write-Note 'ModUpdater : new releases now download by themselves and install when you close the game.'

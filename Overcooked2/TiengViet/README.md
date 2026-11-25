@@ -28,8 +28,8 @@ What changes:
   Most text on screen redraws in the new language when you switch. A few texts the game builds
   from several pieces, such as score lines, switch the next time the game rewrites them.
 - **The mods in this collection**: ChefSkills (the skill screen, all 112 special skills, the
-  skill bar and its status chips), EmoteSync, DIYChefFix and ModUpdater all follow the same
-  choice. Each mod shows its own text in English or Vietnamese to match.
+  skill bar and its status chips), EmoteSync, DIYChefFix, RandomLevel and ModUpdater all follow
+  the same choice. Each mod shows its own text in English or Vietnamese to match.
 - **Titles**: the game's title font (Naughty Squirrel) has letters such as é and â, but not the
   Vietnamese letters with a hook, a dot below or a horn (ả, ạ, ơ, ư, ộ…). Unity would fill in only
   the missing letters from another font, leaving one word in two typefaces. So while Vietnamese is
@@ -122,7 +122,7 @@ TiengViet writes `"vi"` or `"en"` into one AppDomain slot,
 `com.manhl.overcooked2.language` (nothing for Default (Steam)). Each mod in the collection has a small `Lang.cs` that reads
 that slot when it builds text, through `Lang.T("English", "Tiếng Việt")`. No mod references
 another, so each one still works on its own. Without TiengViet installed, each mod keeps the
-language it always had: ChefSkills, EmoteSync and DIYChefFix in English, ModUpdater in Vietnamese.
+language it always had: ChefSkills, EmoteSync and DIYChefFix in English, RandomLevel and ModUpdater in Vietnamese.
 
 To make a new mod follow the setting, copy any mod's `Lang.cs`, change its namespace and
 `Default`, and wrap each visible string in `Lang.T(...)`. Read the value when text is built

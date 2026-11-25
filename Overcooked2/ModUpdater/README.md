@@ -12,7 +12,7 @@ Keeps this repo's Overcooked! 2 mods on the newest GitHub release, so players do
    - **Later** (Để sau): keeps what you have. Nothing is installed, and you are asked again the next time the game starts.
 
    The dialog waits until you are on the main menu, outside an online room, with no other dialog open.
-4. **When you close the game after Update now**, it runs that release's own `Install.ps1 -Update`, which replaces the files so the next launch loads them from disk. This upgrades the mods that are installed and adds the release's other mods, so a mod that is new in that release reaches you too. It does not bring back a mod you uninstalled (the installer lists those in `BepInEx\config\com.manhl.overcooked2.removed.txt`), and it adds DIYChefFix only when DIYChef is installed.
+4. **When you close the game after Update now**, it runs that release's own `Install.ps1 -Update`, which replaces the files so the next launch loads them from disk. This upgrades the mods that are installed and adds the release's other mods, so a mod that is new in that release reaches you too. It does not bring back a mod you uninstalled (the installer lists those in `BepInEx\config\com.manhl.overcooked2.removed.txt`), and it adds DIYChefFix or RandomLevel only when the third-party mod they extend (DIYChef, OC2DIYLevel) is installed.
 
 All network and file work happens in Windows PowerShell. GitHub requires TLS 1.2, which this game's old Mono can't do. The files can only be replaced after the game exits, because Windows won't let anything replace a DLL the game has loaded.
 
