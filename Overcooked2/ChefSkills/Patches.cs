@@ -13,11 +13,16 @@ namespace ChefSkills
         // Pot/pan/mixing bowl (GameObject instance ID) -> the chef who last filled or placed it.
         internal static readonly Dictionary<int, GameObject> ContainerOwners = new Dictionary<int, GameObject>();
 
-        // Workable item instance ID -> fractional chop strokes carried over between chops: one
-        // table for the host's real progress and one for the progress bar every machine draws.
-        // Both see the same chops, so they stay in step.
-        internal static readonly Dictionary<int, float> ChopCredit = new Dictionary<int, float>();
-        internal static readonly Dictionary<int, float> ClientChopCredit = new Dictionary<int, float>();
+        // Chef -> fractional chop strokes carried over between chops, kept per chef (not per
+        // item) so the leftover of a finished item counts on the next one: one table for the
+        // host's real progress and one for the progress bar every machine draws. Both see the
+        // same chops, so they stay in step.
+        internal static readonly Dictionary<GameObject, float> ChopCredit = new Dictionary<GameObject, float>();
+        internal static readonly Dictionary<GameObject, float> ClientChopCredit = new Dictionary<GameObject, float>();
+
+        // Above zero while a special adds strokes of its own (ECHO KNIFE, LUCKY CHARM, DASH-CHOP,
+        // MULTITASK): those count one for one, and neither use nor add CHOPPING credit.
+        internal static int RawStrokes;
 
         // The chef whose placement is being handled right now on the server (null otherwise).
         internal static GameObject CurrentPlacer;
@@ -27,22 +32,35 @@ namespace ChefSkills
             ContainerOwners.Clear();
             ChopCredit.Clear();
             ClientChopCredit.Clear();
+            RawStrokes = 0;
             CurrentPlacer = null;
             StationFx.Reset();
         }
 
         /// <summary>
         /// How many chop strokes this chop is worth: the chopper's multiplier added to what was
-        /// left over from the item's last chop, e.g. 1.36 counts 1, then 1, then 2...
+        /// left over from their last chop (on any item), e.g. 1.36 counts 1, then 1, then 2...
         /// </summary>
-        internal static int Strokes(Dictionary<int, float> credits, int item, float multiplier)
+        internal static int Strokes(Dictionary<GameObject, float> credits, GameObject chef, float multiplier)
         {
+            if (chef == null) return Mathf.Max(0, Mathf.RoundToInt(multiplier));
             float credit;
-            credits.TryGetValue(item, out credit);
+            credits.TryGetValue(chef, out credit);
             credit += multiplier;
             int strokes = (int)credit;
-            credits[item] = credit - strokes;
+            credits[chef] = credit - strokes;
             return strokes;
+        }
+
+        /// <summary>
+        /// Host: a chop that a special turned into something else (ZEN, LUCKY KNIFE finishing the
+        /// item). Every machine's progress bar still counted it, so the host's credit counts it too.
+        /// </summary>
+        internal static void SkipChop(GameObject chef)
+        {
+            if (chef == null) return;
+            float multiplier = Plugin.Skills.Multiplier(chef, Skill.Chopping);
+            if (!Mathf.Approximately(multiplier, 1f)) Strokes(ChopCredit, chef, multiplier);
         }
 
         internal static GameObject OwnerOf(GameObject container)
@@ -93,7 +111,7 @@ namespace ChefSkills
 
     /// <summary>
     /// CHOPPING on the host, which decides when the item is chopped: a fractional stroke counter
-    /// per item, so 1.36x chops count 1 or 2.
+    /// per chef, so 1.36x chops count 1 or 2 and the leftover carries on to the next item.
     /// </summary>
     [HarmonyPatch(typeof(ServerWorkableItem), "DoWork", new Type[] { typeof(ServerAttachStation), typeof(GameObject) })]
     internal static class ChopPatch
@@ -102,11 +120,11 @@ namespace ChefSkills
 
         private static bool Prefix(ServerWorkableItem __instance, ServerAttachStation _station, GameObject _worker)
         {
-            if (_reentered) return true;
+            if (_reentered || LevelState.RawStrokes > 0) return true;
             float multiplier = Plugin.Skills.Multiplier(_worker, Skill.Chopping);
             if (Mathf.Approximately(multiplier, 1f)) return true;
 
-            int strokes = LevelState.Strokes(LevelState.ChopCredit, __instance.GetInstanceID(), multiplier);
+            int strokes = LevelState.Strokes(LevelState.ChopCredit, _worker, multiplier);
 
             _reentered = true;
             try
@@ -137,11 +155,11 @@ namespace ChefSkills
 
         private static bool Prefix(ClientWorkableItem __instance, ClientAttachStation _station, GameObject _worker)
         {
-            if (_reentered) return true;
+            if (_reentered || LevelState.RawStrokes > 0) return true;
             float multiplier = Plugin.Skills.Multiplier(_worker, Skill.Chopping);
             if (Mathf.Approximately(multiplier, 1f)) return true;
 
-            int strokes = LevelState.Strokes(LevelState.ClientChopCredit, __instance.GetInstanceID(), multiplier);
+            int strokes = LevelState.Strokes(LevelState.ClientChopCredit, _worker, multiplier);
 
             _reentered = true;
             try
@@ -217,8 +235,25 @@ namespace ChefSkills
             GameObject heldAfter = carrier != null ? carrier.InspectCarriedItem() : null;
             if (heldAfter == __state) return; // the placement didn't happen
 
-            MarkContainer(__state, _control.gameObject);  // carried a pot/bowl and put it down (e.g. on the stove)
-            MarkContainer(_target, _control.gameObject);  // put food into a pot/bowl (directly or sitting on a station)
+            Credit(_control.gameObject, __state, _target);
+        }
+
+        /// <summary>
+        /// A chef put <paramref name="placed"/> onto or into <paramref name="target"/> (by hand, or a
+        /// Strong Arm toss that came down there): whose pot, pan or bowl it now is.
+        /// </summary>
+        internal static void Credit(GameObject chef, GameObject placed, GameObject target)
+        {
+            if (chef == null || !Plugin.Enabled.Value) return;
+            MarkContainer(placed, chef);  // carried a pot/bowl and put it down (e.g. on the stove)
+            MarkContainer(target, chef);  // put food into a pot/bowl (directly or sitting on a station)
+        }
+
+        /// <summary>Food thrown into a pot, pan or bowl: the thrower filled it.</summary>
+        internal static void CreditCatch(GameObject container, GameObject thrower)
+        {
+            if (thrower == null || !Plugin.Enabled.Value) return;
+            MarkContainer(container, thrower);
         }
 
         [HarmonyFinalizer]
@@ -249,8 +284,33 @@ namespace ChefSkills
     }
 
     /// <summary>
-    /// SERVING: when a chef hands a dish in at the pass, the dirty plate for that delivery comes
-    /// back sooner or later. Thrown or conveyor-delivered dishes use the normal time.
+    /// COOKING and SLOW BURN for food thrown into a pot, pan or bowl (on a station or in someone's
+    /// hands): the thrower filled it, exactly as if they had put the food in by hand.
+    /// </summary>
+    [HarmonyPatch(typeof(ServerIngredientCatcher), "HandleCatch")]
+    internal static class CatchFillPatch
+    {
+        private static void Prefix(ServerIngredientCatcher __instance, ICatchable _object)
+        {
+            try
+            {
+                if (__instance == null || _object == null) return;
+                GameObject food = _object.AccessGameObject();
+                IThrowable throwable = food != null ? food.RequestInterface<IThrowable>() : null;
+                MonoBehaviour thrower = throwable != null ? throwable.GetThrower() as MonoBehaviour : null;
+                if (thrower != null) PlacementPatch.CreditCatch(__instance.gameObject, thrower.gameObject);
+            }
+            catch (Exception error)
+            {
+                Plugin.Log.LogDebug("CatchFill: " + error.Message);
+            }
+        }
+    }
+
+    /// <summary>
+    /// SERVING: when a chef hands a dish in at the pass (or a Strong Arm toss lands on it), the
+    /// dirty plate for that delivery comes back sooner or later. Conveyor-delivered dishes use
+    /// the normal time.
     /// </summary>
     [HarmonyPatch(typeof(PlateReturnController), "FoodDelivered")]
     internal static class ServePatch

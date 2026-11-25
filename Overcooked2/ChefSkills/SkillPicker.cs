@@ -66,6 +66,8 @@ namespace ChefSkills
 
         internal readonly PlayerInputLookup.Player Player;
         internal readonly SpecialSlot Slot;
+        /// <summary>The player plays alone with two chefs: a quirk then applies to both.</summary>
+        internal bool Solo;
         private readonly GameArt _art;
         private readonly RectTransform _panel, _viewport, _content;
         private readonly Sprite _panelSprite;
@@ -589,6 +591,7 @@ namespace ChefSkills
                 tag += info.Cooldown >= 999f ? Lang.T("  -  ONCE PER LEVEL", "  -  MỖI MÀN MỘT LẦN") : (Lang.Vi ? "  -  HỒI CHIÊU " + Mathf.RoundToInt(info.Cooldown) + " S" : "  -  " + Mathf.RoundToInt(info.Cooldown) + " S COOLDOWN");
             if (info.Kind == SpecialKind.Quirk && info.Refund > 0) tag += Lang.Vi ? "  -  THÊM " + info.Refund + " ĐIỂM" : "  -  FREES " + info.Refund + (info.Refund == 1 ? " POINT" : " POINTS");
             if (info.TeamWide) tag += Lang.T("  -  WHOLE TEAM, ONE PER KITCHEN", "  -  CẢ ĐỘI, MỖI BẾP MỘT NGƯỜI");
+            if (info.Kind == SpecialKind.Quirk && Solo) tag += Lang.T("  -  SOLO: BOTH CHEFS", "  -  CHƠI MỘT MÌNH: CẢ HAI ĐẦU BẾP");
             return tag;
         }
 

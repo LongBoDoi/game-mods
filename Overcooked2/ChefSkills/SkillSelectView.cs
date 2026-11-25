@@ -1155,10 +1155,13 @@ namespace ChefSkills
 
                 // Points still to spend (or overspent); a build can only be locked in at exactly 0.
                 int free = known ? info.FreePoints : UnknownPoints;
-                if (!card.Initialised || card.ShownFree != free)
+                // Lowering skills past the cap frees nothing more: say so once it's reached.
+                bool capped = known && info.Levels != null && LoweredBy(info.Levels) >= SkillStats.MaxPointsFreed;
+                string pointsText = PointsText(free, capped);
+                if (!card.Initialised || card.ShownFree != free || card.Points.text != pointsText)
                 {
                     card.ShownFree = free;
-                    card.Points.text = PointsText(free);
+                    card.Points.text = pointsText;
                 }
                 float denied = now - info.DeniedAt;
                 bool flash = denied >= 0f && denied < DeniedSeconds;
@@ -1243,7 +1246,7 @@ namespace ChefSkills
             {
                 int max = SkillStats.MaxLevel;
                 int level = info.Levels[selected];
-                canLower = level > -max;
+                canLower = level > SkillStats.MinLevel((Skill)selected, info.Specials);
                 canRaise = level < max;
             }
             // They fade where there's no further to go: the bottom level, or the top one.
@@ -1272,12 +1275,25 @@ namespace ChefSkills
             row.Percent.color = percent > 0 ? BuffColour : NerfColour;
         }
 
-        private static string PointsText(int free)
+        private static string PointsText(int free, bool capped)
         {
             if (free == UnknownPoints) return "";
-            if (free == 0) return Lang.T("BALANCED", "ĐÃ CÂN BẰNG");
-            if (free > 0) return Lang.Vi ? "CÒN " + free + " ĐIỂM ĐỂ CỘNG" : free == 1 ? "1 POINT TO SPEND" : free + " POINTS TO SPEND";
-            return Lang.Vi ? "LỐ " + -free + " ĐIỂM" : free == -1 ? "1 POINT OVER" : -free + " POINTS OVER";
+            string text;
+            if (free == 0) text = Lang.T("BALANCED", "ĐÃ CÂN BẰNG");
+            else if (free > 0) text = Lang.Vi ? "CÒN " + free + " ĐIỂM ĐỂ CỘNG" : free == 1 ? "1 POINT TO SPEND" : free + " POINTS TO SPEND";
+            else text = Lang.Vi ? "LỐ " + -free + " ĐIỂM" : free == -1 ? "1 POINT OVER" : -free + " POINTS OVER";
+            if (!capped) return text;
+            int max = SkillStats.MaxPointsFreed;
+            return text + (Lang.Vi ? "  ·  HẠ TỐI ĐA " + max + " ĐIỂM" : "  ·  MAX " + max + " FREED");
+        }
+
+        /// <summary>How many levels below 0 the build has in all (before the cap on freed points).</summary>
+        private static int LoweredBy(int[] levels)
+        {
+            int lowered = 0;
+            for (int i = 0; i < levels.Length; i++)
+                if (levels[i] < 0) lowered -= levels[i];
+            return lowered;
         }
 
         /// <summary>What SELECT does on the highlighted row, or null where it does nothing (skill rows).</summary>

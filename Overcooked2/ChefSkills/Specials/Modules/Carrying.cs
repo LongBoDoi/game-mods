@@ -38,14 +38,19 @@ namespace ChefSkills.Specials
         // Host -> all: Chef = chef that refused raw meat or fish, I = what it refused (entity, 0 = none).
         internal const ushort TopicVegetarian = (ushort)((int)Special.Vegetarian * 10 + 0);
 
-        private const int PocketSize = 3;
+        private const int PocketSize = 2;
         private const float TelekinesisRange = 6f;
         private const float TelekinesisArc = 30f;
         private const float TelekinesisWideArc = 60f;
-        private const float HandOffRange = 1.7f;
-        private const float HandOffArc = 50f;
+        private const float HandOffRange = 3f;
+        private const float HandOffArc = 30f;
         private const float PickpocketRange = 3f;
-        private const float TossCatchRadius = 1.1f;
+        private const float TossCatchRadius = 1.8f;
+        private const float TossCatchRadiusWide = 2.5f;
+        private const float TossForce = 1f;            // of the chef's own throw force (times THROWING)
+        // A toss is put onto a station once its underside is this close to the station's top.
+        private const float StationProbeUp = 0.3f;
+        private const float StationProbeDown = 0.45f;
         private const float TossSeconds = 2.5f;
         private const float TickSeconds = 0.2f;
 
@@ -59,6 +64,21 @@ namespace ChefSkills.Specials
             public ServerLimitedQuantityItem Limited;
             public Transform[] Parts;
             public int[] Layers;
+            public List<AnimatorSnapshot> Animators;
+        }
+
+        /// <summary>
+        /// An animator's parameters at the moment its item was taken out of play. Unity resets an
+        /// animator when its object is switched back on, so a cooked pot's soup (driven by a
+        /// "progress" parameter) would come back out of the stash looking empty or raw.
+        /// </summary>
+        private sealed class AnimatorSnapshot
+        {
+            public Animator Animator;
+            public AnimatorControllerParameter[] Parameters;
+            public float[] Floats;
+            public int[] Ints;
+            public bool[] Bools;
         }
 
         private sealed class Flight
@@ -67,6 +87,8 @@ namespace ChefSkills.Specials
             public ChefState Thrower;
             public Vector3 From;
             public float StartedAt;
+            // The station it came down on was tried once (placed or not): don't try again.
+            public bool StationTried;
         }
 
         // Every stashed item (every machine), in the order it was stashed.
@@ -239,6 +261,7 @@ namespace ChefSkills.Specials
                 record.Parts = item.GetComponentsInChildren<Transform>(true);
                 record.Layers = new int[record.Parts.Length];
                 for (int i = 0; i < record.Parts.Length; i++) record.Layers[i] = record.Parts[i].gameObject.layer;
+                record.Animators = SnapshotAnimators(item);
                 // Copy the look while it is still visible, then take it out of play.
                 if (record.Visual == null && kind != Special.Pocket) record.Visual = BuildVisual(ChefObject(chef), item, kind);
                 item.SetActive(false);
@@ -252,17 +275,92 @@ namespace ChefSkills.Specials
             if (item == null) return 0;
             Stashed record = RecordOf(item);
             uint chef = 0;
+            List<AnimatorSnapshot> animators = null;
             if (record != null)
             {
                 chef = record.Chef;
+                animators = record.Animators;
                 if (record.Parts != null)
                     for (int i = 0; i < record.Parts.Length; i++)
                         if (record.Parts[i] != null && record.Parts[i].gameObject.layer != record.Layers[i])
                             record.Parts[i].gameObject.layer = record.Layers[i];
                 Forget(record);
             }
-            if (!item.activeSelf) item.SetActive(true);
+            if (!item.activeSelf)
+            {
+                item.SetActive(true);
+                RestoreAnimators(animators);
+            }
             return chef;
+        }
+
+        private static List<AnimatorSnapshot> SnapshotAnimators(GameObject item)
+        {
+            List<AnimatorSnapshot> list = null;
+            try
+            {
+                foreach (Animator animator in item.GetComponentsInChildren<Animator>(true))
+                {
+                    if (animator == null || animator.runtimeAnimatorController == null || !animator.isActiveAndEnabled) continue;
+                    AnimatorControllerParameter[] parameters = animator.parameters;
+                    if (parameters == null || parameters.Length == 0) continue;
+                    var snapshot = new AnimatorSnapshot
+                    {
+                        Animator = animator,
+                        Parameters = parameters,
+                        Floats = new float[parameters.Length],
+                        Ints = new int[parameters.Length],
+                        Bools = new bool[parameters.Length]
+                    };
+                    for (int i = 0; i < parameters.Length; i++)
+                    {
+                        int hash = parameters[i].nameHash;
+                        switch (parameters[i].type)
+                        {
+                            case AnimatorControllerParameterType.Float: snapshot.Floats[i] = animator.GetFloat(hash); break;
+                            case AnimatorControllerParameterType.Int: snapshot.Ints[i] = animator.GetInteger(hash); break;
+                            case AnimatorControllerParameterType.Bool: snapshot.Bools[i] = animator.GetBool(hash); break;
+                        }
+                    }
+                    if (list == null) list = new List<AnimatorSnapshot>();
+                    list.Add(snapshot);
+                }
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("PackMule.Animators", error);
+            }
+            return list;
+        }
+
+        private static void RestoreAnimators(List<AnimatorSnapshot> list)
+        {
+            if (list == null) return;
+            try
+            {
+                for (int s = 0; s < list.Count; s++)
+                {
+                    AnimatorSnapshot snapshot = list[s];
+                    Animator animator = snapshot.Animator;
+                    if (animator == null || !animator.isActiveAndEnabled || animator.runtimeAnimatorController == null) continue;
+                    for (int i = 0; i < snapshot.Parameters.Length; i++)
+                    {
+                        int hash = snapshot.Parameters[i].nameHash;
+                        switch (snapshot.Parameters[i].type)
+                        {
+                            case AnimatorControllerParameterType.Float: animator.SetFloat(hash, snapshot.Floats[i]); break;
+                            case AnimatorControllerParameterType.Int: animator.SetInteger(hash, snapshot.Ints[i]); break;
+                            case AnimatorControllerParameterType.Bool: animator.SetBool(hash, snapshot.Bools[i]); break;
+                        }
+                    }
+                    // Jump straight to the pose those values give, rather than animating back to it.
+                    animator.Update(1f);
+                }
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("PackMule.Animators", error);
+            }
         }
 
         /// <summary>The local player's skill bar: how many items are stored, and what.</summary>
@@ -367,7 +465,7 @@ namespace ChefSkills.Specials
         }
 
         /// <summary>
-        /// PACK MULE (one item of any kind, shown on the back) and POCKET (up to three ingredients,
+        /// PACK MULE (one item of any kind, shown on the back) and POCKET (up to two ingredients,
         /// hidden): EMOTE stores what the hands hold, or takes the last stored item out into empty
         /// hands; when full, it swaps.
         /// </summary>
@@ -455,25 +553,31 @@ namespace ChefSkills.Specials
                 root.transform.localRotation = Quaternion.identity;
                 root.transform.localScale = Vector3.one * scale;
 
-                Transform reference = item.transform;
-                Vector3 referenceScale = reference.lossyScale;
-                foreach (MeshRenderer renderer in item.GetComponentsInChildren<MeshRenderer>(false))
+                // A copy of the whole item exactly as it looks now: every child (the food in a pot,
+                // the dish on a plate, the contents' colour, burnt bits), skinned and animated
+                // parts frozen in their current pose, the same materials. Copied under an inactive
+                // holder so none of its scripts ever wake up (no entity, no physics, no sync), then
+                // stripped down to what draws it.
+                GameObject holder = new GameObject("ChefSkills Stash Holder");
+                holder.SetActive(false);
+                try
                 {
-                    if (renderer == null || !renderer.enabled) continue;
-                    MeshFilter filter = renderer.GetComponent<MeshFilter>();
-                    if (filter == null || filter.sharedMesh == null) continue;
-                    GameObject part = new GameObject("part");
-                    part.layer = renderer.gameObject.layer;
-                    part.transform.SetParent(root.transform, false);
-                    part.transform.localPosition = reference.InverseTransformPoint(renderer.transform.position);
-                    part.transform.localRotation = Quaternion.Inverse(reference.rotation) * renderer.transform.rotation;
-                    Vector3 lossy = renderer.transform.lossyScale;
-                    part.transform.localScale = new Vector3(
-                        lossy.x / Mathf.Max(0.0001f, referenceScale.x),
-                        lossy.y / Mathf.Max(0.0001f, referenceScale.y),
-                        lossy.z / Mathf.Max(0.0001f, referenceScale.z));
-                    part.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
-                    part.AddComponent<MeshRenderer>().sharedMaterials = renderer.sharedMaterials;
+                    GameObject copy = Object.Instantiate(item, holder.transform, false);
+                    copy.name = "look";
+                    StripToLook(copy);
+                    Vector3 itemScale = item.transform.lossyScale, chefScale = chef.lossyScale;
+                    copy.transform.SetParent(root.transform, false);
+                    copy.transform.localPosition = Vector3.zero;
+                    copy.transform.localRotation = Quaternion.identity;
+                    // The item's own size in the hand, times the back's scale.
+                    copy.transform.localScale = new Vector3(
+                        itemScale.x / Mathf.Max(0.0001f, chefScale.x),
+                        itemScale.y / Mathf.Max(0.0001f, chefScale.y),
+                        itemScale.z / Mathf.Max(0.0001f, chefScale.z));
+                }
+                finally
+                {
+                    Object.Destroy(holder);
                 }
                 return root;
             }
@@ -481,6 +585,54 @@ namespace ChefSkills.Specials
             {
                 SpecialRuntime.Fail("PackMule.Visual", error);
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Removes everything but transforms, mesh filters and mesh/skinned renderers from a copy
+        /// that has never been active. Dependent components come after what they need on an
+        /// object, so each object is stripped back to front; a few passes catch the rest.
+        /// </summary>
+        private static void StripToLook(GameObject copy)
+        {
+            for (int pass = 0; pass < 4; pass++)
+            {
+                bool left = false;
+                foreach (Transform part in copy.GetComponentsInChildren<Transform>(true))
+                {
+                    Component[] components = part.GetComponents<Component>();
+                    for (int i = components.Length - 1; i >= 0; i--)
+                    {
+                        Component component = components[i];
+                        if (component == null || component is Transform || component is MeshFilter ||
+                            component is MeshRenderer || component is SkinnedMeshRenderer) continue;
+                        // Scripts first: they are what the engine's own components are required by.
+                        if (pass == 0 && !(component is MonoBehaviour)) { left = true; continue; }
+                        try
+                        {
+                            Object.DestroyImmediate(component);
+                        }
+                        catch (Exception)
+                        {
+                        }
+                        if (component != null) left = true;
+                    }
+                }
+                if (!left) break;
+            }
+            // Anything that still couldn't be removed must never wake up: hide that part instead.
+            foreach (Transform part in copy.GetComponentsInChildren<Transform>(true))
+            {
+                if (part == null) continue;
+                Component[] components = part.GetComponents<Component>();
+                for (int i = 0; i < components.Length; i++)
+                {
+                    Component component = components[i];
+                    if (component == null || component is Transform || component is MeshFilter ||
+                        component is MeshRenderer || component is SkinnedMeshRenderer) continue;
+                    part.gameObject.SetActive(false);
+                    break;
+                }
             }
         }
 
@@ -603,7 +755,11 @@ namespace ChefSkills.Specials
             return null;
         }
 
-        /// <summary>Host, after a dish went onto the pass: hand in the stashed dish too.</summary>
+        /// <summary>
+        /// Host, after a dish went onto the pass: hand in the stashed dish too, but only if it
+        /// matches a live order (a wrong dish would cost the combo); otherwise it comes down into
+        /// the hands.
+        /// </summary>
         internal static void WaiterDeliverSecond(ChefState state, PlayerControls controls, GameObject target)
         {
             List<Stashed> stored = StashOf(state.Id, Special.Waiter);
@@ -611,11 +767,49 @@ namespace ChefSkills.Specials
             ServerPlayerAttachmentCarrier carrier = ServerCarrier(state);
             if (carrier == null || carrier.InspectCarriedItem() != null) return;
             GameObject dish = stored[0].Item;
+            bool wanted = WouldBeOrdered(dish, target);
             uint revealed = ServerGiveBack(carrier, stored[0]);
             BroadcastStash(state.Id, 0, Special.Waiter, revealed);
             if (carrier.InspectCarriedItem() != dish) return;
+            if (!wanted)
+            {
+                SpecialFx.TextAll(state.Chef, Lang.Both("NOT ORDERED", "KHÔNG AI GỌI"), Special.Waiter);
+                return;
+            }
             PlayerControlsHelper.PlaceHeldItem_Server(controls, target);
             if (carrier.InspectCarriedItem() == null) SpecialFx.TextAll(state.Chef, Lang.Both("x2 SERVED!", "x2 ĐÃ GIAO!"), Special.Waiter);
+        }
+
+        /// <summary>
+        /// Host: would this dish, handed in at this pass now, be taken as an order? The same rule
+        /// as the game's (ServerOrderControllerBase.Matches) over the pass's team's live orders
+        /// (not decoys), or CLOSE ENOUGH ready to take a dish of the level.
+        /// </summary>
+        private static bool WouldBeOrdered(GameObject dish, GameObject target)
+        {
+            ServerPlate plate = dish != null ? dish.GetComponent<ServerPlate>() : null;
+            ServerPlateStation pass = target != null ? target.GetComponentInParent<ServerPlateStation>() : null;
+            if (plate == null || pass == null || !OrdersModule.ServerFlowReady()) return false;
+            TeamID team = OrdersModule.Versus && pass.GetTeamID() == TeamID.Two ? TeamID.Two : TeamID.One;
+            List<OrderController.ServerOrderData> orders = OrdersModule.ServerOrders(OrdersModule.ServerController(team));
+            if (orders == null || orders.Count == 0) return false;
+            AssembledDefinitionNode composition = plate.GetOrderComposition();
+            PlatingStepData plating = plate.GetPlatingStep();
+            if (composition == null) return false;
+            int t = OrdersModule.Idx(team);
+            for (int i = 0; i < orders.Count; i++)
+            {
+                OrderController.ServerOrderData order = orders[i];
+                if (order == null || order.RecipeListEntry == null) continue;
+                OrderDefinitionNode recipe = order.RecipeListEntry.m_order;
+                if (recipe == null || recipe.m_platingStep != plating) continue;
+                if (OrdersModule.IsDecoy(t, order.ID.m_id)) continue;
+                bool match = recipe is WildcardOrderNode
+                    ? AssembledDefinitionNode.Matching(recipe, composition)
+                    : AssembledDefinitionNode.Matching(composition, recipe);
+                if (match) return true;
+            }
+            return OrdersModule.CloseEnoughReady(team) && OrdersModule.IsLevelRecipe(composition, plating);
         }
 
         // --- TELEKINESIS --------------------------------------------------------------------------
@@ -783,8 +977,9 @@ namespace ChefSkills.Specials
 
         /// <summary>
         /// Host: a Strong Arm chef "throws" something the game won't throw (pot, pan, plate, dish,
-        /// filled wrap): it leaves the hands as a loose item flying at throw speed. A teammate it
-        /// flies into (with empty hands) catches it; otherwise it lands where it lands.
+        /// filled wrap): it leaves the hands as a loose item flying at throw speed, steered to a
+        /// teammate it was aimed at. A teammate it flies into (with empty hands) catches it;
+        /// otherwise it lands where it lands.
         /// </summary>
         private static void OnTossRequest(SpecialMessage message)
         {
@@ -807,7 +1002,7 @@ namespace ChefSkills.Specials
             AttachmentThrower config = state.Chef.GetComponent<AttachmentThrower>();
             float force = config != null && config.m_throwForce > 0f ? config.m_throwForce : 10f;
             float inclination = config != null ? config.m_throwInclination : 20f;
-            force *= Plugin.Skills.Multiplier(state.Chef, Skill.Throwing) * 0.85f;
+            force *= Plugin.Skills.Multiplier(state.Chef, Skill.Throwing) * TossForce;
             Vector3 velocity = new Vector3(direction.x * force, Mathf.Tan(inclination * Mathf.Deg2Rad) * force, direction.y * force);
 
             Vector3 from = item.transform.position;
@@ -816,6 +1011,11 @@ namespace ChefSkills.Specials
             s_flights.Add(new Flight { Item = item, Thrower = state, From = from, StartedAt = SpecialRuntime.Now });
             SpecialFx.MarkAll(item, Special.StrongArm, 1.2f, null);
             SpecialFx.BurstAll(state.Position, Special.StrongArm);
+            // The thrower's other throwing specials (Juggler, Homing Throw, Lob, Rebound) shape a
+            // toss exactly as they shape a normal throw. Without Homing Throw (or with nobody in
+            // its reach), a teammate the toss was aimed at within 8 m gets it steered to them the
+            // same way.
+            ThrowingModule.OnTossed(state, item, attachment);
         }
 
         /// <summary>Host, every frame while something tossed is in the air: catches and landings.</summary>
@@ -833,6 +1033,11 @@ namespace ChefSkills.Specials
                 }
                 float age = SpecialRuntime.Now - flight.StartedAt;
                 if (age > 0.12f && TryCatch(flight, item))
+                {
+                    s_flights.RemoveAt(i);
+                    continue;
+                }
+                if (age > 0.1f && !flight.StationTried && TryLandOnStation(flight, item, attachment))
                 {
                     s_flights.RemoveAt(i);
                     continue;
@@ -857,7 +1062,10 @@ namespace ChefSkills.Specials
                 Vector3 offset = at - mate.Position;
                 if (offset.y < -0.6f || offset.y > 2.4f) continue;
                 offset.y = 0f;
-                if (offset.magnitude > TossCatchRadius) continue;
+                // Catcher's Mitt, and the teammate an aimed toss (Strong Arm's own aim or Homing
+                // Throw) is flying to, reach further (as they do for a normal throw).
+                bool wide = mate.Has(Special.CatchersMitt) || ThrowingModule.AimedAt(item, mate.Chef);
+                if (offset.magnitude > (wide ? TossCatchRadiusWide : TossCatchRadius)) continue;
                 ServerPlayerAttachmentCarrier carrier = ServerCarrier(mate);
                 if (carrier == null || carrier.InspectCarriedItem() != null || Busy(mate)) continue;
                 if (mate.Has(Special.Vegetarian) && IsRawMeat(item)) continue;
@@ -867,8 +1075,154 @@ namespace ChefSkills.Specials
                 if (carrier.InspectCarriedItem() != item) continue;
                 SpecialFx.BeamAll(flight.From, mate.Position, Special.StrongArm, 0.6f);
                 SpecialFx.TextAll(mate.Chef, Lang.Both("CAUGHT!", "BẮT ĐƯỢC!"), Special.StrongArm);
+                // Juggler's window, the aimed throw's arrival burst.
+                ThrowingModule.OnTossCaught(mate, item);
                 return true;
             }
+            return false;
+        }
+
+        /// <summary>
+        /// Host: a toss coming down onto a station (counter, cooker, mixer, sink, the pass...) is
+        /// put there, as if the thrower had put it down by hand: the game's own placement (so a
+        /// dish on the pass is handed in, a pot on a cooker cooks), and every effect that cares
+        /// who put it there (COOKING, SERVING, whose pot, tips and deliveries) credits the thrower.
+        /// </summary>
+        private static bool TryLandOnStation(Flight flight, GameObject item, IAttachment attachment)
+        {
+            ChefState thrower = flight.Thrower;
+            if (thrower == null || thrower.Chef == null) return false;
+            RigidbodyMotion motion = attachment.AccessMotion();
+            if (motion == null) return false;
+            Vector3 velocity = motion.GetVelocity();
+            // Still rising: it is going over whatever is below it. Flying to a teammate (Homing
+            // Throw): it is meant for them, not for the counters next to them.
+            if (velocity.y > 0.5f || ThrowingModule.HomingOnSomeone(item)) return false;
+
+            Vector3 at = item.transform.position;
+            RaycastHit[] hits = Physics.RaycastAll(at + Vector3.up * StationProbeUp, Vector3.down,
+                StationProbeUp + StationProbeDown, ~0, QueryTriggerInteraction.Collide);
+            if (hits == null || hits.Length == 0) return false;
+            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            for (int i = 0; i < hits.Length; i++)
+            {
+                Collider collider = hits[i].collider;
+                if (collider == null || collider.transform.IsChildOf(item.transform)) continue;
+                GameObject target = PlacementObjectOf(collider.transform);
+                if (target == null)
+                {
+                    // Something solid that takes nothing (floor, wall, a chef): it lands there.
+                    if (!collider.isTrigger) return false;
+                    continue;
+                }
+                IHandlePlacement handler = PlayerControlsHelper.GetControllingPlacementHandler_Server(target);
+                if (handler == null) continue;
+                Vector2 direction = FlatForward(new Vector3(velocity.x, 0f, velocity.z));
+                var hands = new TossCarrier(item, thrower.Chef);
+                var context = new PlacementContext(PlacementContext.Source.Player);
+                if (!handler.CanHandlePlacement(hands, direction, context)) return false;
+                flight.StationTried = true;
+
+                GameObject placer = LevelState.CurrentPlacer;
+                LevelState.CurrentPlacer = thrower.Chef;
+                try
+                {
+                    handler.HandlePlacement(hands, direction, context);
+                }
+                finally
+                {
+                    LevelState.CurrentPlacer = placer;
+                }
+                // The station may have used it without taking it (food poured onto a plate): then
+                // it keeps flying, as a pot stays in the hands when a chef does that.
+                if (hands.InspectCarriedItem() == item) return false;
+                PlacementPatch.Credit(thrower.Chef, item, target);
+                CookingPlacementPatch.Credit(thrower.Chef, item, target);
+                Vector3 where = item != null && item.activeInHierarchy ? item.transform.position : at;
+                SpecialFx.BeamAll(flight.From, where, Special.StrongArm, 0.5f);
+                SpecialFx.BurstAll(where, Special.StrongArm);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>The object a placement onto this collider would be aimed at (null: none, or part of a chef).</summary>
+        private static GameObject PlacementObjectOf(Transform transform)
+        {
+            for (int depth = 0; transform != null && depth < 6; depth++, transform = transform.parent)
+            {
+                if (transform.GetComponent<PlayerControls>() != null) return null;
+                if (transform.GetComponent<IHandlePlacement>() != null || transform.GetComponent<ServerHandlePlacementReferral>() != null)
+                    return transform.gameObject;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The "hands" a landing toss is put down from: it holds the flying item until a station
+        /// takes it, and stands for the thrower (stations that ask who placed it get the thrower).
+        /// </summary>
+        private sealed class TossCarrier : ICarrier
+        {
+            private GameObject m_item;
+            private readonly GameObject m_chef;
+
+            public TossCarrier(GameObject item, GameObject chef)
+            {
+                m_item = item;
+                m_chef = chef;
+            }
+
+            public GameObject InspectCarriedItem()
+            {
+                return m_item;
+            }
+
+            public GameObject TakeItem()
+            {
+                GameObject item = m_item;
+                m_item = null;
+                return item;
+            }
+
+            public void DestroyCarriedItem()
+            {
+                // As the game's own hands do: the item and every entity under it (a plate stack's plates).
+                GameObject item = TakeItem();
+                if (item != null) NetworkUtils.DestroyObjectsRecursive(item);
+            }
+
+            public void CarryItem(GameObject _object)
+            {
+                m_item = _object;
+            }
+
+            public GameObject AccessGameObject()
+            {
+                return m_chef;
+            }
+
+            public void RegisterCarriedItemChangeCallback(VoidGeneric<GameObject, GameObject> _callback)
+            {
+            }
+
+            public void UnregisterCarriedItemChangeCallback(VoidGeneric<GameObject, GameObject> _callback)
+            {
+            }
+        }
+
+        /// <summary>
+        /// Host: does this chef carry anything at all: in its hands, in its POCKET or on its PACK
+        /// MULE back? (Medic only brings back chefs who fell empty-handed.)
+        /// </summary>
+        internal static bool CarriesAnything(ChefState state)
+        {
+            if (state == null || state.Chef == null) return false;
+            ServerPlayerAttachmentCarrier carrier = ServerCarrier(state);
+            if (carrier != null && carrier.InspectCarriedItem() != null) return true;
+            // Anything stashed counts (Pocket, Pack Mule, and Waiter's second dish on the arm).
+            for (int i = 0; i < s_stashed.Count; i++)
+                if (s_stashed[i].Chef == state.Id && s_stashed[i].Item != null) return true;
             return false;
         }
 
@@ -946,18 +1300,17 @@ namespace ChefSkills.Specials
                 DenyHandOff(state, Lang.Both("CAN'T HAND OFF", "KHÔNG TRAO ĐƯỢC"));
                 return;
             }
-            bool taking = mine.InspectCarriedItem() == null;
-            GameObject item = taking ? theirs.InspectCarriedItem() : mine.InspectCarriedItem();
-            bool moved = taking ? Transfer(theirs, mine, state) : theirs.InspectCarriedItem() == null && Transfer(mine, theirs, mate);
-            if (!moved)
+            // Give only: a hand-off never takes from a teammate (that was too easy to do by accident).
+            GameObject item = mine.InspectCarriedItem();
+            if (item == null) return;
+            if (theirs.InspectCarriedItem() != null || !Transfer(mine, theirs, mate))
             {
                 DenyHandOff(state, Lang.Both("CAN'T HAND OFF", "KHÔNG TRAO ĐƯỢC"));
                 return;
             }
-            ChefState giver = taking ? mate : state, receiver = taking ? state : mate;
-            SpecialFx.BeamAll(giver.Position, receiver.Position, Special.HandOff, 0.5f);
+            SpecialFx.BeamAll(state.Position, mate.Position, Special.HandOff, 0.5f);
             SpecialFx.MarkAll(item, Special.HandOff, 0.8f, null);
-            SpecialFx.TextAll(receiver.Chef, SpecialFx.NameBoth(Special.HandOff, "", ""), Special.HandOff);
+            SpecialFx.TextAll(mate.Chef, SpecialFx.NameBoth(Special.HandOff, "", ""), Special.HandOff);
         }
 
         private static void DenyHandOff(ChefState state, string reason)
@@ -989,6 +1342,8 @@ namespace ChefSkills.Specials
             ChefState state = SpecialRuntime.StateById(message.Chef);
             ChefState victim = SpecialRuntime.StateById((uint)message.I);
             if (state == null || victim == null || state == victim || !state.Has(Special.Pickpocket)) return;
+            // Versus: only the rival team's chefs (co-op party play still lets you rob anyone).
+            if (OrdersModule.Versus && victim.Team == state.Team) return;
             if (Respawning(state) || Respawning(victim)) return;
             Vector3 offset = victim.Position - message.Vector1;
             offset.y = 0f;
@@ -1083,7 +1438,7 @@ namespace ChefSkills.Specials
     /// <summary>
     /// WAITER, on the host. Putting a dish down onto another dish (which the game refuses) puts the
     /// held dish up on the arm and picks the other one up. Handing a dish in at the pass hands in
-    /// the dish on the arm right after it, through the same placement.
+    /// the dish on the arm right after it, through the same placement, if it is ordered.
     /// </summary>
     [HarmonyPatch(typeof(PlayerControlsHelper), "PlaceHeldItem_Server")]
     internal static class WaiterPatch
@@ -1149,8 +1504,8 @@ namespace ChefSkills.Specials
     }
 
     /// <summary>
-    /// HAND-OFF, on the player's own machine: PICK UP facing a teammate within reach gives or
-    /// takes the item (only when exactly one of the two has something). The host does the move.
+    /// HAND-OFF, on the player's own machine: PICK UP facing a teammate within reach gives them
+    /// the held item (only when their hands are empty; it never takes). The host does the move.
     /// </summary>
     [HarmonyPatch(typeof(ClientPlayerControlsImpl_Default), "Update_Carry")]
     internal static class HandOffPatch
@@ -1178,9 +1533,8 @@ namespace ChefSkills.Specials
                 ClientPlayerAttachmentCarrier mine = controls.GetComponent<ClientPlayerAttachmentCarrier>();
                 ClientPlayerAttachmentCarrier theirs = mate.Chef.GetComponent<ClientPlayerAttachmentCarrier>();
                 if (mine == null || theirs == null) return true;
-                bool mineEmpty = mine.InspectCarriedItem() == null;
-                bool theirsEmpty = theirs.InspectCarriedItem() == null;
-                if (mineEmpty == theirsEmpty) return true; // nothing to hand over: the usual PICK UP
+                // Nothing to give, or nowhere to put it: the usual PICK UP / put down.
+                if (mine.InspectCarriedItem() == null || theirs.InspectCarriedItem() != null) return true;
                 button.ClaimPressEvent();
                 SpecialNet.SendToHost(new SpecialMessage
                 {
@@ -1210,28 +1564,84 @@ namespace ChefSkills.Specials
         {
             try
             {
-                if (!SpecialRuntime.InLevel || !justReleased || isSuppressed || ControlsField == null) return;
-                if (!SpecialRuntime.AnyHas(Special.StrongArm)) return;
-                if (!SpecialNet.IsServer && !SpecialNet.Online) return;
+                if (!justReleased || isSuppressed || ControlsField == null) return;
                 PlayerControls controls = ControlsField.GetValue(__instance) as PlayerControls;
-                if (controls == null || controls.m_bRespawning) return;
-                ChefState state = SpecialRuntime.StateOf(controls.gameObject);
-                if (state == null || !state.Local || !state.Has(Special.StrongArm)) return;
-                ClientPlayerAttachmentCarrier carrier = controls.GetComponent<ClientPlayerAttachmentCarrier>();
-                GameObject item = carrier != null ? carrier.InspectCarriedItem() : null;
-                if (item == null || item.GetComponent<UsableItem>() != null) return;
-                IClientThrowable throwable = item.GetComponent<IClientThrowable>();
-                if (throwable != null)
-                {
-                    Vector3 forward = controls.transform.forward;
-                    Vector2 direction = new Vector2(forward.x, forward.z).normalized;
-                    if (throwable.CanHandleThrow(controls.GetComponent<ClientAttachmentThrower>(), direction)) return;
-                }
-                CarryingModule.RequestToss(state, item);
+                ChefState state;
+                GameObject item = Tossable(controls, true, out state);
+                if (item != null) CarryingModule.RequestToss(state, item);
             }
             catch (Exception error)
             {
                 SpecialRuntime.Fail("StrongArm.Release", error);
+            }
+        }
+
+        /// <summary>
+        /// What this Strong Arm chef would toss on letting go of USE (an item the game itself won't
+        /// throw), or null. <paramref name="request"/>: the player's own machine, about to ask the
+        /// host for the toss. Otherwise (aiming): the player's own machine, or the host for a
+        /// remote chef, since the host moves every chef from its player's input and must stand it
+        /// still while it aims, as the game does for a normal throw.
+        /// </summary>
+        internal static GameObject Tossable(PlayerControls controls, bool request, out ChefState state)
+        {
+            state = null;
+            if (!SpecialRuntime.InLevel || controls == null || controls.m_bRespawning) return null;
+            if (!SpecialRuntime.AnyHas(Special.StrongArm)) return null;
+            // A client whose host can't read our channel: the request would go nowhere.
+            if (!SpecialNet.IsServer && !SpecialNet.Online) return null;
+            state = SpecialRuntime.StateOf(controls.gameObject);
+            if (state == null || !state.Has(Special.StrongArm)) return null;
+            if (request ? !state.Local : !state.Local && !SpecialNet.IsServer) return null;
+            ClientPlayerAttachmentCarrier carrier = controls.GetComponent<ClientPlayerAttachmentCarrier>();
+            GameObject item = carrier != null ? carrier.InspectCarriedItem() : null;
+            if (item == null || item.GetComponent<UsableItem>() != null) return null;
+            if (item.GetComponent<ClientBackpack>() != null) return null;
+            IClientThrowable throwable = item.GetComponent<IClientThrowable>();
+            if (throwable != null)
+            {
+                Vector3 forward = controls.transform.forward;
+                Vector2 direction = new Vector2(forward.x, forward.z).normalized;
+                if (throwable.CanHandleThrow(controls.GetComponent<ClientAttachmentThrower>(), direction)) return null;
+            }
+            return item;
+        }
+    }
+
+    /// <summary>
+    /// STRONG ARM, on the player's own machine: holding USE with something only Strong Arm can
+    /// throw aims it like a normal throw. The chef stands and turns, and the game's own throw
+    /// arrow shows where it will go (the game draws it only for things it can throw itself).
+    /// </summary>
+    [HarmonyPatch(typeof(ClientPlayerControlsImpl_Default), "Update_Aim")]
+    internal static class StrongArmAimPatch
+    {
+        private static readonly FieldInfo ControlsField =
+            AccessTools.Field(typeof(ClientPlayerControlsImpl_Default), "m_controls");
+        private static readonly FieldInfo AimingField =
+            AccessTools.Field(typeof(ClientPlayerControlsImpl_Default), "m_aimingThrow");
+
+        private static void Postfix(ClientPlayerControlsImpl_Default __instance, bool isUsePressed)
+        {
+            try
+            {
+                if (!isUsePressed || ControlsField == null || AimingField == null) return;
+                if (!SpecialRuntime.InLevel || !SpecialRuntime.AnyHas(Special.StrongArm)) return;
+                if ((bool)AimingField.GetValue(__instance)) return; // the game is already aiming a throw
+                PlayerControls controls = ControlsField.GetValue(__instance) as PlayerControls;
+                if (controls == null) return;
+                ChefState state;
+                if (StrongArmPatch.Tossable(controls, false, out state) == null) return;
+                // Read by the game's movement on this same frame: stand still and turn, as when
+                // aiming (on the host for a remote chef too, so both agree where it stands).
+                AimingField.SetValue(__instance, true);
+                // The arrow, like the game's, only for the player's own chef.
+                if (state.Local && controls.GetDirectlyUnderPlayerControl() && controls.ThrowIndicator != null)
+                    controls.ThrowIndicator.Show(true);
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("StrongArm.Aim", error);
             }
         }
     }
@@ -1263,6 +1673,7 @@ namespace ChefSkills.Specials
                 if (state == null || !state.Local || !state.Has(Special.Pickpocket)) return;
                 ChefState victim = SpecialRuntime.StateOf(_otherPlayer.gameObject);
                 if (victim == null || victim == state) return;
+                if (OrdersModule.Versus && victim.Team == state.Team) return; // versus: rivals only
                 // What this machine sees; the host checks again before moving anything.
                 ClientPlayerAttachmentCarrier mine = controls.GetComponent<ClientPlayerAttachmentCarrier>();
                 ClientPlayerAttachmentCarrier theirs = _otherPlayer.GetComponent<ClientPlayerAttachmentCarrier>();

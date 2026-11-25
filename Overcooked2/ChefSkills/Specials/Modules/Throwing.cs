@@ -26,29 +26,36 @@ namespace ChefSkills.Specials
     internal sealed class ThrowingModule : ISpecialModule
     {
         // --- tuning -----------------------------------------------------------------------------
-        private const float BulkCooldown = 12f;
-        private const float QuartermasterCooldown = 10f;
+        private const float BulkCooldown = 8f;
+        private const float QuartermasterCooldown = 5f;
         private const float SpareRange = 4f;           // how far from the crate a spare may be put
-        private const float QuartermasterRange = 3.5f; // crate to the quartermaster
-        private const float MagnetRange = 4f;
+        private const float SpareBoardRange = 6f;      // Bulk Buyer: an empty board for a choppable spare
+        private const float QuartermasterRange = 5f;   // crate to the quartermaster
+        private const float MagnetRange = 6f;
         private const float MagnetStop = 0.9f;         // don't push items into the chef's feet
-        private const float MagnetSpeed = 3.5f;
-        private const float JugglerWindow = 1f;        // host time: covers the round trip online
+        private const float MagnetSpeed = 6f;
+        private const float MagnetGrab = 1.3f;         // empty hands take a pulled item from this close
+        private const float MagnetOthers = 1.5f;       // items this close to another chef are theirs
+        private const float MagnetOwnSeconds = 3f;     // the chef's own dropped/thrown item isn't pulled back
+        private const float JugglerWindow = 2f;        // host time: covers the round trip online
         private const float JugglerVelocity = 1.2247f; // sqrt(1.5): range grows with speed squared
         private const float LobAngle = 60f;
-        private const float HomingRange = 14f;
-        private const float HomingArc = 50f;
-        private const float AssemblyRange = 12f;
-        private const float AssemblyArc = 35f;
-        private const float AssemblyWindow = 1.5f;     // after taking from a crate, turn to a teammate
+        private const float LobVelocity = 1.14f;       // ~1.3x the range (range grows with speed squared)
+        private const float HomingRange = 10f;         // times THROWING
+        private const float HomingArc = 30f;
+        private const float StrongArmRange = 8f;       // a toss aimed at a teammate
+        private const float AssemblyRange = 10f;       // times THROWING
+        private const float AssemblyArc = 45f;
+        private const float AssemblyWindow = 2.5f;     // after taking from a crate, turn to a teammate
         private const float AssemblySettle = 0.15f;    // let the pickup settle before the throw
         private const float FlightMinTime = 0.35f;     // aimed throws: seconds in the air
         private const float FlightMaxTime = 1.6f;
         private const float SteerAcceleration = 30f;   // m/s^2 of sideways correction in flight
         private const float CatchHeight = 0.6f;        // aimed throws arrive this far over the feet
-        private const float ReboundNear = 3f;
-        private const float ReboundAimed = 5f;
+        private const float ReboundNear = 4.5f;
+        private const float ReboundAimed = 6f;
         private const float ReboundCounterRange = 4.5f;
+        private const float ReboundFall = 1.5f;        // this far under its launch height: it has landed (a pit)
         private const float FlightMarkSeconds = 0.4f;
 
         // Network topics: (Special * 10 + n). Each carries a skill-bar timer for that special.
@@ -59,6 +66,7 @@ namespace ChefSkills.Specials
         // Client -> host: my Shove dash hit this chef (Chef = dasher, I = victim, Vector1 = dasher position).
         private static readonly ushort TopicShove = (ushort)((int)Special.Shove * 10 + 1);
         private const float ShoveRange = 3f;
+        private const float ShoveDropCooldown = 3f;    // the same chef can't be made to drop again sooner
 
         private sealed class Flight
         {
@@ -72,7 +80,10 @@ namespace ChefSkills.Specials
             public Special Mark;
             public ChefState Aimed;
             public float Started;
+            public float LaunchHeight;
             public float MaxHorizontal;
+            /// <summary>A STRONG ARM toss (no throwable part: it flies until it settles or is caught).</summary>
+            public bool Toss;
         }
 
         private sealed class Armed
@@ -88,6 +99,7 @@ namespace ChefSkills.Specials
         private static readonly List<Armed> s_armed = new List<Armed>();
         private static readonly Dictionary<int, float> s_oops = new Dictionary<int, float>();
         private static readonly Dictionary<int, float> s_shoved = new Dictionary<int, float>();
+        private static readonly Dictionary<int, float> s_shoveDropped = new Dictionary<int, float>();
         private static readonly Dictionary<int, float> s_magnetMarked = new Dictionary<int, float>();
 
         private static ServerAttachStation[] s_stations;
@@ -131,6 +143,7 @@ namespace ChefSkills.Specials
             s_armed.Clear();
             s_oops.Clear();
             s_shoved.Clear();
+            s_shoveDropped.Clear();
             s_magnetMarked.Clear();
             s_stations = null;
             s_stationsAt = -100f;
@@ -297,7 +310,7 @@ namespace ChefSkills.Specials
             bool spare = false;
             if (taker.Has(Special.BulkBuyer) && now >= taker.Get("Throwing.BulkNext", 0f))
             {
-                if (SpawnSpare(crate, held, Special.BulkBuyer))
+                if (SpawnSpare(crate, held, Special.BulkBuyer, true))
                 {
                     taker.Set("Throwing.BulkNext", now + BulkCooldown);
                     ShareTimer(taker, Special.BulkBuyer, BulkCooldown);
@@ -312,12 +325,19 @@ namespace ChefSkills.Specials
                     if (mate.Chef == null || !mate.Has(Special.Quartermaster)) continue;
                     if (now < mate.Get("Throwing.QuartermasterNext", 0f)) continue;
                     if (FlatDistance(mate.Position, crate.transform.position) > QuartermasterRange) continue;
-                    if (!SpawnSpare(crate, held, Special.Quartermaster)) break;
+                    if (!SpawnSpare(crate, held, Special.Quartermaster, false)) break;
                     mate.Set("Throwing.QuartermasterNext", now + QuartermasterCooldown);
                     ShareTimer(mate, Special.Quartermaster, QuartermasterCooldown);
                     SpecialFx.TextAll(mate.Chef, Lang.Both("SPARE!", "DỰ PHÒNG!"), Special.Quartermaster);
                     break;
                 }
+            }
+
+            // JUGGLER: taking from a crate opens the quick re-throw window too.
+            if (taker.Has(Special.Juggler) && held != null)
+            {
+                taker.Set("Throwing.CaughtAt", now);
+                ShareTimer(taker, Special.Juggler, JugglerWindow);
             }
 
             if (taker.Has(Special.AssemblyLine) && held != null && held.GetComponent<ServerThrowableItem>() != null)
@@ -329,19 +349,46 @@ namespace ChefSkills.Specials
             }
         }
 
-        /// <summary>Host: spawns another of the crate's item (the crate's own spawn path) on the nearest free counter.</summary>
-        private static bool SpawnSpare(ServerPickupItemSpawner crate, GameObject sample, Special special)
+        /// <summary>
+        /// Host: spawns another of the crate's item (the crate's own spawn path) on the nearest free
+        /// counter. <paramref name="board"/> (BULK BUYER): something to chop goes onto the nearest
+        /// empty chopping board first, if there is one in reach.
+        /// </summary>
+        private static bool SpawnSpare(ServerPickupItemSpawner crate, GameObject sample, Special special, bool board)
         {
             GameObject prefab = crate.GetItemPrefab();
             if (prefab == null) return false;
             Vector3 cratePosition = crate.transform.position;
-            ServerAttachStation station = NearestFreeStation(cratePosition, SpareRange, sample);
+            ServerAttachStation station = null;
+            bool onBoard = false;
+            if (board && prefab.GetComponent<WorkableItem>() != null)
+            {
+                // The held one may be chopped already (Prep Cook): only a raw one says what a board takes.
+                GameObject raw = sample != null && sample.GetComponent<WorkableItem>() != null ? sample : null;
+                station = NearestFreeStation(cratePosition, SpareBoardRange, raw, true);
+                onBoard = station != null;
+            }
+            if (station == null) station = NearestFreeStation(cratePosition, SpareRange, sample, false);
             if (station == null) return false;
             Transform point = station.GetAttachPoint(prefab);
             Vector3 position = point != null ? point.position : station.transform.position;
             GameObject spare = NetworkUtils.ServerSpawnPrefab(crate.gameObject, prefab, position, Quaternion.identity);
             if (spare == null) return false;
-            station.AddItem(spare, Flat(station.transform.position - cratePosition), new PlacementContext(PlacementContext.Source.Game));
+            var context = new PlacementContext(PlacementContext.Source.Game);
+            if (onBoard && !station.CanAttachToSelf(spare, context))
+            {
+                // The board won't take it after all: the nearest free counter, as before.
+                station = NearestFreeStation(cratePosition, SpareRange, spare, false);
+                if (station == null)
+                {
+                    NetworkUtils.DestroyObject(spare);
+                    return false;
+                }
+                point = station.GetAttachPoint(spare);
+                position = point != null ? point.position : station.transform.position;
+                spare.transform.position = position;
+            }
+            station.AddItem(spare, Flat(station.transform.position - cratePosition), context);
             // By position: the new item may reach other machines after this effect does.
             SpecialFx.BeamAll(cratePosition, position, special, 0.5f);
             SpecialFx.BurstAll(position, special);
@@ -373,7 +420,8 @@ namespace ChefSkills.Specials
                 // A ring under the chef while a turn towards a teammate would still pass it.
                 SpecialFx.MarkAll(chef.Chef, Special.AssemblyLine, 0.5f, null);
                 if (now < armed.From) continue;
-                ChefState target = FacedTeammate(chef, chef.Position, chef.Forward, AssemblyRange, AssemblyArc, 1.2f);
+                // Only a teammate free to catch it: empty hands, not chopping or washing.
+                ChefState target = FacedTeammate(chef, chef.Position, chef.Forward, AssemblyRange * ThrowReach(chef), AssemblyArc, 1.2f, FreeToCatch);
                 if (target == null) continue;
                 s_armed.RemoveAt(i);
                 ShareTimer(chef, Special.AssemblyLine, 0f);
@@ -408,6 +456,14 @@ namespace ChefSkills.Specials
             Flight flight;
             return s_flights.TryGetValue(item.GetInstanceID(), out flight) && flight.Target != null &&
                    flight.Target.Chef == chef && !flight.Target.Has(Special.LoneWolf);
+        }
+
+        /// <summary>Is this item flying to a teammate right now (Homing Throw, Assembly Line)?</summary>
+        internal static bool HomingOnSomeone(GameObject item)
+        {
+            if (item == null || s_flights.Count == 0) return false;
+            Flight flight;
+            return s_flights.TryGetValue(item.GetInstanceID(), out flight) && flight.Target != null && flight.Target.Chef != null;
         }
 
         /// <summary>Is something flying to this chef right now?</summary>
@@ -445,12 +501,24 @@ namespace ChefSkills.Specials
         {
             ChefState state = SpecialRuntime.StateOf(catcher.gameObject);
             if (state == null) return;
+            Caught(state, item, s_assistCatcher == catcher.gameObject && s_assistFrame == Time.frameCount);
+        }
+
+        /// <summary>Host: a teammate caught a STRONG ARM toss (Carrying's own catch).</summary>
+        internal static void OnTossCaught(ChefState state, GameObject item)
+        {
+            if (state == null) return;
+            Caught(state, item, false);
+        }
+
+        private static void Caught(ChefState state, GameObject item, bool mittAssist)
+        {
             if (state.Has(Special.Juggler))
             {
                 state.Set("Throwing.CaughtAt", SpecialRuntime.Now);
                 ShareTimer(state, Special.Juggler, JugglerWindow);
             }
-            if (s_assistCatcher == catcher.gameObject && s_assistFrame == Time.frameCount)
+            if (mittAssist)
             {
                 s_assistCatcher = null;
                 SpecialFx.TextAll(state.Chef, Lang.Both("CAUGHT!", "BẮT ĐƯỢC!"), Special.CatchersMitt);
@@ -476,6 +544,31 @@ namespace ChefSkills.Specials
             ChefState state = SpecialRuntime.StateOf(thrower.gameObject);
             if (state == null) return;
             IAttachment attachment = item.RequestInterface<IAttachment>();
+            ServerThrowableItem throwable = item.GetComponent<ServerThrowableItem>();
+            if (throwable == null) return;
+            Launched(state, item, attachment, throwable);
+        }
+
+        /// <summary>
+        /// Host, right after a STRONG ARM toss left the hands with its velocity: the same specials
+        /// as a normal throw (Juggler, Homing Throw, Lob, Rebound), on the toss's velocity.
+        /// </summary>
+        internal static void OnTossed(ChefState state, GameObject item, IAttachment attachment)
+        {
+            if (state == null || item == null) return;
+            try
+            {
+                Launched(state, item, attachment, null);
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("StrongArm.Shape", error);
+            }
+        }
+
+        /// <summary>A throw (<paramref name="throwable"/> set) or a toss (null) just left the hands.</summary>
+        private static void Launched(ChefState state, GameObject item, IAttachment attachment, ServerThrowableItem throwable)
+        {
             RigidbodyMotion motion = attachment != null ? attachment.AccessMotion() : null;
             if (motion == null) return;
 
@@ -503,11 +596,21 @@ namespace ChefSkills.Specials
                 target = s_aimTarget;
                 aim = Special.AssemblyLine;
             }
-            else if (state.Has(Special.HomingThrow))
+            else
             {
-                // The teammate the throw is heading for (the game throws along the chef's facing).
-                target = FacedTeammate(state, origin, new Vector3(velocity.x, 0f, velocity.z), HomingRange, HomingArc, 0.8f);
-                if (target != null) aim = Special.HomingThrow;
+                Vector3 heading = new Vector3(velocity.x, 0f, velocity.z);
+                if (state.Has(Special.HomingThrow))
+                {
+                    // The teammate the throw is heading for (the game throws along the chef's facing).
+                    target = FacedTeammate(state, origin, heading, HomingRange * ThrowReach(state), HomingArc, 0.8f, null);
+                    if (target != null) aim = Special.HomingThrow;
+                }
+                if (target == null && throwable == null && state.Has(Special.StrongArm))
+                {
+                    // STRONG ARM's own aim: a toss aimed at a teammate (not a Lone Wolf) flies to them.
+                    target = FacedTeammate(state, origin, heading, StrongArmRange, HomingArc, 0.8f, NotLoneWolf);
+                    if (target != null) aim = Special.StrongArm;
+                }
             }
 
             if (target != null)
@@ -519,7 +622,11 @@ namespace ChefSkills.Specials
             }
             else if (lob)
             {
-                // Same range on flat ground (range ~ H * V), but launched at LobAngle.
+                // A little faster (about 30% further), then the same range on flat ground
+                // (range ~ H * V), but launched at LobAngle.
+                velocity *= LobVelocity;
+                changed = true;
+                if (mark == Special.None) mark = Special.Lob;
                 float horizontal = new Vector2(velocity.x, velocity.z).magnitude;
                 float steep = Mathf.Tan(LobAngle * Mathf.Deg2Rad);
                 float current = horizontal > 0.01f ? velocity.y / horizontal : 0f;
@@ -539,13 +646,13 @@ namespace ChefSkills.Specials
             ChefState aimed = AimedRebounder(state, origin, velocity);
             if (target == null && mark == Special.None && aimed == null && !SpecialRuntime.AnyHas(Special.Rebound)) return;
 
-            ServerThrowableItem throwable = item.GetComponent<ServerThrowableItem>();
-            if (throwable == null) return;
             float flat = new Vector2(velocity.x, velocity.z).magnitude;
             s_flights[item.GetInstanceID()] = new Flight
             {
                 Item = item, Throwable = throwable, Attachment = attachment, Thrower = state, Target = target,
-                Mark = mark, Aimed = aimed, Started = SpecialRuntime.Now, MaxHorizontal = Mathf.Max(2.2f * flat, 8f)
+                Mark = mark, Aimed = aimed, Started = SpecialRuntime.Now, LaunchHeight = origin.y,
+                MaxHorizontal = Mathf.Max(2.2f * flat, 8f),
+                Toss = throwable == null
             };
             if (mark != Special.None) SpecialFx.MarkAll(item, mark, FlightMarkSeconds, null);
         }
@@ -609,12 +716,18 @@ namespace ChefSkills.Specials
             foreach (KeyValuePair<int, Flight> pair in s_flights)
             {
                 Flight flight = pair.Value;
-                if (flight.Item == null || flight.Throwable == null || now - flight.Started > 6f)
+                if (flight.Item == null || (flight.Throwable == null && !flight.Toss) || now - flight.Started > 6f)
                 {
                     s_done.Add(pair.Key);
                     continue;
                 }
-                if (flight.Throwable.IsFlying())
+                bool flying = flight.Toss ? TossFlying(flight, now) : flight.Throwable.IsFlying();
+                // REBOUND: a throw (not flying to a teammate) dropping well under where it was
+                // thrown from is going into a pit: it counts as landed while it still can be saved.
+                if (flying && flight.Target == null && flight.Item.activeInHierarchy &&
+                    flight.Item.transform.position.y < flight.LaunchHeight - ReboundFall && SpecialRuntime.AnyHas(Special.Rebound))
+                    flying = false;
+                if (flying)
                 {
                     if (flight.Target != null) Steer(flight, dt);
                     if (flight.Mark != Special.None) SpecialFx.MarkAll(flight.Item, flight.Mark, FlightMarkSeconds, null);
@@ -624,6 +737,17 @@ namespace ChefSkills.Specials
                 Landed(flight);
             }
             for (int i = 0; i < s_done.Count; i++) s_flights.Remove(s_done[i]);
+        }
+
+        /// <summary>A toss is in the air until something takes it or it comes to rest.</summary>
+        private static bool TossFlying(Flight flight, float now)
+        {
+            if (flight.Attachment == null || flight.Attachment.IsAttached() || !flight.Item.activeInHierarchy) return false;
+            float age = now - flight.Started;
+            if (age < 0.35f) return true;
+            if (age > 2.5f) return false;
+            RigidbodyMotion motion = flight.Attachment.AccessMotion();
+            return motion != null && motion.GetVelocity().sqrMagnitude >= 0.25f;
         }
 
         /// <summary>
@@ -659,7 +783,10 @@ namespace ChefSkills.Specials
             motion.SetVelocity(new Vector3(turned.x, velocity.y, turned.z));
         }
 
-        /// <summary>Rebound: a throw nobody caught, landing near a Rebound chef, goes onto a counter.</summary>
+        /// <summary>
+        /// Rebound: a throw nobody caught (the Rebound chef's own too), landing near a Rebound chef
+        /// or dropping into a pit there, goes onto a counter.
+        /// </summary>
         private static void Landed(Flight flight)
         {
             if (flight.Attachment == null || flight.Attachment.IsAttached()) return;
@@ -671,7 +798,8 @@ namespace ChefSkills.Specials
             for (int i = 0; i < chefs.Count; i++)
             {
                 ChefState chef = chefs[i];
-                if (chef == flight.Thrower || chef.Chef == null || !chef.Has(Special.Rebound)) continue;
+                // The thrower's own throws too.
+                if (chef.Chef == null || !chef.Has(Special.Rebound)) continue;
                 if (chef.Controls != null && chef.Controls.m_bRespawning) continue;
                 float distance = FlatDistance(chef.Position, position);
                 float limit = chef == flight.Aimed ? ReboundAimed : ReboundNear;
@@ -682,7 +810,7 @@ namespace ChefSkills.Specials
                 }
             }
             if (keeper == null) return;
-            ServerAttachStation station = NearestFreeStation(keeper.Position, ReboundCounterRange, flight.Item);
+            ServerAttachStation station = NearestFreeStation(keeper.Position, ReboundCounterRange, flight.Item, false);
             if (station == null) return;
             station.AddItem(flight.Item, Flat(station.transform.position - position), new PlacementContext(PlacementContext.Source.Game));
             Vector3 onCounter = flight.Item.transform.position;
@@ -715,19 +843,40 @@ namespace ChefSkills.Specials
                 if (chef.Chef == null || !chef.Has(Special.Magnet)) continue;
                 if (chef.Controls != null && chef.Controls.m_bRespawning) continue;
                 Vector3 home = chef.Position;
+                ServerPlayerAttachmentCarrier hands = chef.Chef.GetComponent<ServerPlayerAttachmentCarrier>();
+                GameObject holding = hands != null ? hands.InspectCarriedItem() : null;
+                // What it just put down or threw stays where it was put, for a moment.
+                if (holding != null)
+                {
+                    chef.Set("Throwing.MagnetHeld", holding);
+                    chef.Set("Throwing.MagnetHeldAt", now);
+                }
+                GameObject own = now - chef.Get("Throwing.MagnetHeldAt", -100f) < MagnetOwnSeconds
+                    ? chef.Get<GameObject>("Throwing.MagnetHeld", null) : null;
+                // Empty hands (not chopping or washing): what arrives goes straight into them.
+                bool grab = hands != null && holding == null && chef.Controls != null && chef.Controls.GetCurrentlyInteracting() == null;
                 for (int j = 0; j < s_loose.Length; j++)
                 {
                     ServerPhysicalAttachment item = s_loose[j];
                     if (item == null || !item.isActiveAndEnabled || item.IsAttached()) continue;
+                    if (own != null && item.gameObject == own) continue;
                     Rigidbody body = item.AccessRigidbody();
                     if (body == null || body.isKinematic) continue;
                     Vector3 offset = home - body.position;
                     if (Mathf.Abs(offset.y) > 0.8f) continue;
                     offset.y = 0f;
                     float distance = offset.magnitude;
-                    if (distance > MagnetRange || distance < MagnetStop) continue;
+                    if (distance > MagnetRange || (distance < MagnetStop && !grab)) continue;
                     ServerThrowableItem throwable = item.GetComponent<ServerThrowableItem>();
                     if (throwable != null && throwable.IsFlying()) continue;
+                    // Food a teammate has put down by them to stage is theirs.
+                    if (NearOtherChef(chef, body.position)) continue;
+                    if (grab && distance <= MagnetGrab && MagnetTake(chef, hands, item.gameObject, offset))
+                    {
+                        grab = false;
+                        continue;
+                    }
+                    if (distance < MagnetStop) continue;
                     RigidbodyMotion motion = item.AccessMotion();
                     if (motion == null) continue;
                     Vector3 velocity = motion.GetVelocity();
@@ -747,6 +896,37 @@ namespace ChefSkills.Specials
             }
         }
 
+        /// <summary>Is another chef (not respawning) standing within MagnetOthers of this spot?</summary>
+        private static bool NearOtherChef(ChefState chef, Vector3 at)
+        {
+            IList<ChefState> chefs = SpecialRuntime.Chefs;
+            for (int i = 0; i < chefs.Count; i++)
+            {
+                ChefState other = chefs[i];
+                if (other == chef || other.Chef == null) continue;
+                if (other.Controls != null && other.Controls.m_bRespawning) continue;
+                Vector3 offset = other.Position - at;
+                if (Mathf.Abs(offset.y) > 1.5f) continue;
+                offset.y = 0f;
+                if (offset.magnitude < MagnetOthers) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Host: a pulled item reached a Magnet chef's empty hands: the game's own pickup of a loose item.</summary>
+        private static bool MagnetTake(ChefState chef, ServerPlayerAttachmentCarrier hands, GameObject item, Vector3 offset)
+        {
+            if (chef.Has(Special.Vegetarian) && CarryingModule.IsRawMeat(item)) return false;
+            IHandlePickup handler = PlayerControlsHelper.GetControllingPickupHandler_Server(item);
+            if (handler == null || !handler.CanHandlePickup(hands)) return false;
+            Vector3 from = item.transform.position;
+            handler.HandlePickup(hands, Flat(offset));
+            if (hands.InspectCarriedItem() != item) return false;
+            SpecialFx.BeamAll(from, chef.Position, Special.Magnet, 0.3f);
+            SpecialFx.MarkAll(item, Special.Magnet, 0.6f, null);
+            return true;
+        }
+
         // --- Shove, Sticky Fingers -------------------------------------------------------------------
 
         /// <summary>
@@ -758,6 +938,7 @@ namespace ChefSkills.Specials
             ChefState state = SpecialRuntime.StateOf(shover);
             ChefState target = SpecialRuntime.StateOf(victim.gameObject);
             if (state == null || target == null || state == target || !state.Local || !state.Has(Special.Shove)) return;
+            if (SameSideInVersus(state, target)) return;
             if (SpecialNet.IsServer)
             {
                 ShoveHit(shover, victim);
@@ -785,10 +966,20 @@ namespace ChefSkills.Specials
             ShoveHit(state.Chef, victim.Controls);
         }
 
-        /// <summary>Host: a Shove dash hit a chef: it lets go of what it holds (unless Sticky Fingers).</summary>
+        /// <summary>Versus: are these two on the same team (Shove and Pickpocket only hit rivals there)?</summary>
+        internal static bool SameSideInVersus(ChefState a, ChefState b)
+        {
+            return OrdersModule.Versus && a != null && b != null && a.Team == b.Team;
+        }
+
+        /// <summary>
+        /// Host: a Shove dash hit a chef: it lets go of what it holds (unless Sticky Fingers), at
+        /// most once every few seconds for the same chef.
+        /// </summary>
         internal static void ShoveHit(GameObject shover, PlayerControls victim)
         {
             if (victim == null || shover == null || victim.gameObject == shover || victim.m_bRespawning) return;
+            if (SameSideInVersus(SpecialRuntime.StateOf(shover), SpecialRuntime.StateOf(victim.gameObject))) return;
             int key = victim.gameObject.GetInstanceID();
             float now = SpecialRuntime.Now, last;
             if (s_shoved.TryGetValue(key, out last) && now - last < 0.4f) return;
@@ -796,7 +987,9 @@ namespace ChefSkills.Specials
             SpecialFx.BurstAll(victim.transform.position, Special.Shove);
 
             ServerPlayerAttachmentCarrier hands = victim.GetComponent<ServerPlayerAttachmentCarrier>();
-            if (hands == null || hands.InspectCarriedItem() == null)
+            float dropped;
+            bool recently = s_shoveDropped.TryGetValue(key, out dropped) && now - dropped < ShoveDropCooldown;
+            if (hands == null || hands.InspectCarriedItem() == null || recently)
             {
                 SpecialFx.TextAll(victim.gameObject, Lang.Both("SHOVED!", "BỊ XÔ!"), Special.Shove);
                 return;
@@ -808,6 +1001,7 @@ namespace ChefSkills.Specials
             }
             GameObject item = hands.TakeItem();
             if (item == null) return;
+            s_shoveDropped[key] = now;
             SpecialFx.TextAll(victim.gameObject, Lang.Both("DROPPED!", "RƠI ĐỒ!"), Special.Shove);
             IAttachment attachment = item.RequestInterface<IAttachment>();
             RigidbodyMotion motion = attachment != null ? attachment.AccessMotion() : null;
@@ -831,10 +1025,11 @@ namespace ChefSkills.Specials
         /// <summary>
         /// The teammate (not respawning) within <paramref name="arc"/> degrees of
         /// <paramref name="direction"/> from <paramref name="from"/>, between
-        /// <paramref name="minDistance"/> and <paramref name="range"/> metres: the smallest angle wins.
+        /// <paramref name="minDistance"/> and <paramref name="range"/> metres, and passing
+        /// <paramref name="accept"/> (null: any): the smallest angle wins.
         /// </summary>
         internal static ChefState FacedTeammate(ChefState chef, Vector3 from, Vector3 direction, float range, float arc,
-            float minDistance)
+            float minDistance, Func<ChefState, bool> accept)
         {
             direction.y = 0f;
             if (direction.sqrMagnitude < 1e-4f) return null;
@@ -844,6 +1039,7 @@ namespace ChefSkills.Specials
             {
                 if (other.Chef == null) continue;
                 if (other.Controls != null && other.Controls.m_bRespawning) continue;
+                if (accept != null && !accept(other)) continue;
                 Vector3 offset = other.Position - from;
                 offset.y = 0f;
                 float distance = offset.magnitude;
@@ -856,8 +1052,30 @@ namespace ChefSkills.Specials
             return best;
         }
 
-        /// <summary>Host: the nearest empty counter (not a crate or a conveyor) that would take this item.</summary>
-        private static ServerAttachStation NearestFreeStation(Vector3 around, float range, GameObject sample)
+        /// <summary>How far this chef's aimed throws reach, as a share of the base range (THROWING).</summary>
+        private static float ThrowReach(ChefState chef)
+        {
+            return chef != null && chef.Chef != null ? Mathf.Max(0.1f, Plugin.Skills.Multiplier(chef.Chef, Skill.Throwing)) : 1f;
+        }
+
+        /// <summary>Assembly Line: a teammate who can catch now (empty hands, not chopping or washing).</summary>
+        private static bool FreeToCatch(ChefState chef)
+        {
+            if (chef.Controls == null || chef.Controls.GetCurrentlyInteracting() != null) return false;
+            ServerPlayerAttachmentCarrier hands = chef.Chef.GetComponent<ServerPlayerAttachmentCarrier>();
+            return hands != null && hands.InspectCarriedItem() == null;
+        }
+
+        private static bool NotLoneWolf(ChefState chef)
+        {
+            return !chef.Has(Special.LoneWolf);
+        }
+
+        /// <summary>
+        /// Host: the nearest empty counter (not a crate or a conveyor) that would take this item.
+        /// <paramref name="boards"/>: only empty chopping boards.
+        /// </summary>
+        private static ServerAttachStation NearestFreeStation(Vector3 around, float range, GameObject sample, bool boards)
         {
             float now = SpecialRuntime.Now;
             if (s_stations == null || now - s_stationsAt > 5f)
@@ -878,6 +1096,7 @@ namespace ChefSkills.Specials
                 if (distance > bestDistance) continue;
                 if (station.GetComponent<ServerPickupItemSpawner>() != null) continue;
                 if (station.GetComponent<ServerConveyorStation>() != null) continue;
+                if (boards && station.GetComponent<ServerWorkstation>() == null) continue;
                 if (sample != null && !station.CanAttachToSelf(sample, context)) continue;
                 best = station;
                 bestDistance = distance;
@@ -1070,7 +1289,7 @@ namespace ChefSkills.Specials
     /// <summary>
     /// The arc scan both of the above use. Long Arms: one tile more radius (the scan's aim point is
     /// kept where it was, so nearer things still win) plus the tile beyond on grid levels.
-    /// Catch scan: 3 m all the way round instead of 2 m in front.
+    /// Catch scan: 4 m all the way round instead of 2 m in front.
     /// </summary>
     [HarmonyPatch(typeof(InteractWithItemHelper), "GetCollidersInArc")]
     internal static class ArcScanPatch
@@ -1090,7 +1309,8 @@ namespace ChefSkills.Specials
                 }
                 else if (scanner == ThrowingModule.CatchScan)
                 {
-                    detectionRadius = Mathf.Max(detectionRadius, 3f);
+                    // As far as Catcher's Mitt reaches (the catch check itself sets each one's distance).
+                    detectionRadius = Mathf.Max(detectionRadius, 4f);
                     arc = 2f * Mathf.PI;
                 }
             }
@@ -1142,7 +1362,7 @@ namespace ChefSkills.Specials
                 var catcher = CatcherField.GetValue(__instance) as AttachmentCatcher;
                 if (catcher == null) return;
                 __state = new Vector2(catcher.m_catchDistance, catcher.m_catchAngleMax);
-                catcher.m_catchDistance = mitt ? Mathf.Max(catcher.m_catchDistance + 1f, 3.2f) : Mathf.Max(catcher.m_catchDistance, 2.5f);
+                catcher.m_catchDistance = mitt ? Mathf.Max(catcher.m_catchDistance + 1.5f, 4f) : Mathf.Max(catcher.m_catchDistance, 2.5f);
                 catcher.m_catchAngleMax = 180f;
             }
             catch (Exception error)
@@ -1351,9 +1571,9 @@ namespace ChefSkills.Specials
         private static PlayerControls.ImpactData _changed;
         private static float _multiplier;
 
-        private const float ShoveStrength = 1.75f;
+        private const float ShoveStrength = 1.4f;
 
-        private static void Prefix(ClientPlayerControlsImpl_Default __instance, out bool __state)
+        private static void Prefix(ClientPlayerControlsImpl_Default __instance, PlayerControls _otherPlayer, out bool __state)
         {
             __state = false;
             if (!SpecialRuntime.InLevel || ControlsField == null) return;
@@ -1362,6 +1582,9 @@ namespace ChefSkills.Specials
                 if (!__instance.IsDashing()) return;
                 var controls = ControlsField.GetValue(__instance) as PlayerControls;
                 if (controls == null || controls.Movement == null || !SpecialRuntime.Has(controls.gameObject, Special.Shove)) return;
+                // Versus: a teammate gets the usual bump.
+                if (_otherPlayer != null && ThrowingModule.SameSideInVersus(SpecialRuntime.StateOf(controls.gameObject),
+                        SpecialRuntime.StateOf(_otherPlayer.gameObject))) return;
                 __state = true;
                 PlayerControls.ImpactData impact = controls.Movement.DashImpactData;
                 if (impact == null) return;

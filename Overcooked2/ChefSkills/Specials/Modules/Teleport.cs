@@ -852,7 +852,8 @@ namespace ChefSkills.Specials
 
     /// <summary>
     /// Specials that move chefs around: Vault, Blink, Recall, Swap, Summon, Grapple (actives),
-    /// Quick Respawn, Safety Net, Hover, Medic, Portal Pro, Cannoneer, Driver, Lifeguard
+    /// Quick Respawn, Safety Net, Hover, Medic, Transit Pro (Special.PortalPro, which also does
+    /// what the retired Cannoneer and Driver did), Lifeguard, Sticky Fingers' respawn time
     /// (passives) and Fragile (quirk).
     /// </summary>
     internal sealed class TeleportSpecials : ISpecialModule
@@ -862,17 +863,28 @@ namespace ChefSkills.Specials
         private const float VaultReach = 1.6f;
         private const float VaultRange = 4f;
 
-        private const float GrappleRange = 6f;
+        private const float GrappleRange = 7f;
         private const float RecallSeconds = 20f;
         private const float SafetyNetCooldown = 30f;
         // Safety Net and Lifeguard: how long the chef flies back up.
         private const float RescueFlightSeconds = 0.4f;
-        private const float LifeguardRange = 4.5f;
+        private const float LifeguardRange = 7f;
         private const float HoverRecharge = 10f;
         private const float HoverSeconds = 0.6f;
-        private const float QuickRespawnTime = 1.5f;
+        // Respawn times, in seconds; each only ever shortens the level's own respawn time.
+        private const float QuickRespawnTime = 1f;
+        // A teammate of a Medic who fell empty-handed.
         private const float MedicRespawnTime = 1f;
+        // The Medic itself.
+        private const float MedicOwnRespawnTime = 2.5f;
+        // Sticky Fingers, falling while holding something.
+        private const float StickyRespawnTime = 3f;
+        // Fragile adds this, after everything else.
+        private const float FragileExtraTime = 5f;
+        // Transit Pro: steering speed, and how long the burst after a teleporter, a cannon or a
+        // steered platform lasts.
         internal const float DriverSpeed = 1.5f;
+        internal const float TransitSeconds = 4f;
 
         private static readonly float[] VaultAngles = { 0f, 15f, -15f, 30f, -30f };
         private static readonly float[] GrappleAngles = { 0f, 8f, -8f, 16f, -16f };
@@ -880,6 +892,11 @@ namespace ChefSkills.Specials
         private static readonly ushort TopicRecall = (ushort)((int)Special.Recall * 10 + 0);
         private static readonly ushort TopicSafetyNet = (ushort)((int)Special.SafetyNet * 10 + 0);
         private static readonly ushort TopicHover = (ushort)((int)Special.Hover * 10 + 0);
+        /// <summary>
+        /// Host -> all: a chef fell (or was hit) and starts respawning. I = 1 if it carried anything
+        /// (hands, Pocket, Pack Mule back), | 2 if Vector1 is its Quick Respawn spot.
+        /// </summary>
+        private static readonly ushort TopicFell = (ushort)((int)Special.Medic * 10 + 0);
 
         private const int RecallPlanted = 1, RecallReturned = 2;
 
@@ -909,6 +926,14 @@ namespace ChefSkills.Specials
             public float Until;
         }
 
+        /// <summary>What the host saw as a chef fell: the respawn rules depend on it.</summary>
+        private sealed class Fall
+        {
+            public bool Carrying, Holding, HasSpot;
+            public Vector3 Spot;
+            public float At;
+        }
+
         private sealed class Flag
         {
             public GameObject Marker;
@@ -930,6 +955,8 @@ namespace ChefSkills.Specials
         private static readonly Dictionary<int, Special> s_quickFor = new Dictionary<int, Special>();
         private static readonly List<SpawnOverride> s_overrides = new List<SpawnOverride>();
         private static readonly Dictionary<ChefState, Flag> s_flags = new Dictionary<ChefState, Flag>();
+        // Every machine: the host's word on each chef's latest fall (TopicFell).
+        private static readonly Dictionary<ChefState, Fall> s_falls = new Dictionary<ChefState, Fall>();
 
         public void Register()
         {
@@ -949,6 +976,7 @@ namespace ChefSkills.Specials
             SpecialNet.Register(TopicRecall, OnRecallMessage);
             SpecialNet.Register(TopicSafetyNet, OnSafetyNetMessage);
             SpecialNet.Register(TopicHover, OnHoverMessage);
+            SpecialNet.Register(TopicFell, OnFellMessage);
             SpecialNet.Register(SpecialNet.Topic.Denied, OnDenied);
 
             SpecialRuntime.Tick += OnTick;
@@ -966,6 +994,8 @@ namespace ChefSkills.Specials
             foreach (KeyValuePair<ChefState, Flag> pair in s_flags)
                 if (pair.Value.Marker != null) UnityEngine.Object.Destroy(pair.Value.Marker);
             s_flags.Clear();
+            s_falls.Clear();
+            s_unsure.Clear();
             s_transfers.Clear();
             s_landings.Clear();
             s_nextSafeSample = 0f;
@@ -1019,7 +1049,8 @@ namespace ChefSkills.Specials
                 }
 
             if (SpecialNet.IsServer && now >= s_nextSafeSample &&
-                (SpecialRuntime.AnyHas(Special.SafetyNet) || SpecialRuntime.AnyHas(Special.Lifeguard)))
+                (SpecialRuntime.AnyHas(Special.SafetyNet) || SpecialRuntime.AnyHas(Special.Lifeguard) ||
+                 SpecialRuntime.AnyHas(Special.QuickRespawn)))
             {
                 s_nextSafeSample = now + 0.1f;
                 SampleSafePoints(now);
@@ -1203,13 +1234,13 @@ namespace ChefSkills.Specials
 
         // --- Grapple ---------------------------------------------------------------------------
 
-        /// <summary>The floor just in front of the counter the chef faces, up to 6 m away.</summary>
+        /// <summary>The floor just in front of the counter the chef faces, up to 7 m away.</summary>
         private static bool FindGrapple(ChefState chef, Vector3 origin, Vector3 forward, out Vector3 landing,
             out Vector3 anchor, out string reason)
         {
             Warp.InitMasks();
             landing = anchor = origin;
-            reason = Lang.Both("NO COUNTER WITHIN 6 M", "KHÔNG CÓ BÀN TRONG 6 M");
+            reason = Lang.Both("NO COUNTER WITHIN 7 M", "KHÔNG CÓ BÀN TRONG 7 M");
             forward = Warp.Flat(forward);
             for (int a = 0; a < GrappleAngles.Length; a++)
             {
@@ -1437,8 +1468,8 @@ namespace ChefSkills.Specials
         // "SWAPPED!" over the moved teammate. The host checks again before the flight, so a
         // teammate who fell or got busy meanwhile isn't moved.
 
-        private const float WindUpSeconds = 0.45f;
-        private const float FlightSeconds = 0.45f;
+        private const float WindUpSeconds = 0.25f;
+        private const float FlightSeconds = 0.3f;
         private const float FlightHeight = 1.1f;
 
         private sealed class Transfer
@@ -1458,7 +1489,8 @@ namespace ChefSkills.Specials
             var targets = new List<AimTarget>();
             // Only what this machine knows for sure about another player's chef (the host checks the rest).
             foreach (ChefState other in SpecialRuntime.Teammates(chef))
-                if (other.Chef != null && other.Chef.activeInHierarchy && other.Controls != null && !other.Controls.m_bRespawning)
+                if (other.Chef != null && other.Chef.activeInHierarchy && other.Controls != null && !other.Controls.m_bRespawning &&
+                    !other.Has(Special.LoneWolf))
                     targets.Add(AimTarget.ForChef(other));
             return SpecialAim.FacedFirst(targets, chef.Position, chef.Forward, 35f);
         }
@@ -1466,6 +1498,8 @@ namespace ChefSkills.Specials
         private static bool CanBeMoved(ChefState mate)
         {
             if (mate == null || mate.Chef == null || mate.Controls == null || !mate.Chef.activeInHierarchy) return false;
+            // Lone Wolf: teammates' specials don't move them (the host decides, whatever was aimed at).
+            if (mate.Has(Special.LoneWolf)) return false;
             if (mate.Controls.m_bRespawning || !mate.Controls.enabled) return false;
             if (SpecialNet.IsServer)
             {
@@ -1475,23 +1509,31 @@ namespace ChefSkills.Specials
             return true;
         }
 
-        private static ChefState PickTeammate(ChefState chef, Vector3 position, Vector3 forward, out bool anyMate)
+        /// <summary>
+        /// Host: the teammate to swap with or summon, or null. <paramref name="refusal"/> then says
+        /// why (null: no teammate at all).
+        /// </summary>
+        private static ChefState PickTeammate(ChefState chef, Vector3 position, Vector3 forward, out string refusal)
         {
             ChefState faced = null, nearest = null;
             float facedDistance = float.MaxValue, nearestDistance = float.MaxValue;
             forward = Warp.Flat(forward);
-            anyMate = false;
+            refusal = Lang.Both("NO TEAMMATE", "KHÔNG CÓ ĐỒNG ĐỘI");
+            string cantMove = Lang.Both("TEAMMATE CAN'T MOVE NOW", "ĐỒNG ĐỘI CHƯA ĐI ĐƯỢC");
+            string lonely = SpecialFx.NameBoth(Special.LoneWolf, " IGNORES IT", " PHỚT LỜ");
             // The teammate the player chose, if they did.
             if (chef.HasAimPoint && chef.AimChef != null)
             {
-                anyMate = true;
                 ChefState chosen = chef.AimChef;
+                refusal = chosen.Has(Special.LoneWolf) ? lonely : cantMove;
                 return chosen != chef && chosen.Team == chef.Team && CanBeMoved(chosen) ? chosen : null;
             }
+            bool onlyLoners = true;
             foreach (ChefState other in SpecialRuntime.Teammates(chef))
             {
                 if (other.Chef == null) continue;
-                anyMate = true;
+                if (!other.Has(Special.LoneWolf)) onlyLoners = false;
+                refusal = onlyLoners ? lonely : cantMove;
                 if (!CanBeMoved(other)) continue;
                 Vector3 offset = other.Position - position;
                 offset.y = 0f;
@@ -1514,9 +1556,9 @@ namespace ChefSkills.Specials
         {
             string why = Warp.Blocked(chef);
             if (why != null) return chef.Refuse(why);
-            bool anyMate;
-            ChefState mate = PickTeammate(chef, chef.RequestPosition, chef.RequestForward, out anyMate);
-            if (mate == null) return chef.Refuse(anyMate ? Lang.Both("TEAMMATE CAN'T MOVE NOW", "ĐỒNG ĐỘI CHƯA ĐI ĐƯỢC") : Lang.Both("NO TEAMMATE", "KHÔNG CÓ ĐỒNG ĐỘI"));
+            string refusal;
+            ChefState mate = PickTeammate(chef, chef.RequestPosition, chef.RequestForward, out refusal);
+            if (mate == null) return chef.Refuse(refusal);
             Vector3 mine = chef.RequestPosition, theirs = mate.Position;
             if (Warp.FlatDistance(mine, theirs) < 0.6f) return chef.Refuse(Lang.Both("TEAMMATE TOO CLOSE", "ĐỒNG ĐỘI Ở QUÁ GẦN"));
             WindUp(chef, mate, Special.Swap);
@@ -1624,9 +1666,9 @@ namespace ChefSkills.Specials
         {
             string why = Warp.Blocked(chef);
             if (why != null) return chef.Refuse(why);
-            bool anyMate;
-            ChefState mate = PickTeammate(chef, chef.RequestPosition, chef.RequestForward, out anyMate);
-            if (mate == null) return chef.Refuse(anyMate ? Lang.Both("TEAMMATE CAN'T MOVE NOW", "ĐỒNG ĐỘI CHƯA ĐI ĐƯỢC") : Lang.Both("NO TEAMMATE", "KHÔNG CÓ ĐỒNG ĐỘI"));
+            string refusal;
+            ChefState mate = PickTeammate(chef, chef.RequestPosition, chef.RequestForward, out refusal);
+            if (mate == null) return chef.Refuse(refusal);
             Vector3 from = mate.Position;
             if (Warp.FlatDistance(from, chef.RequestPosition) < 1.6f) return chef.Refuse(Lang.Both("TEAMMATE ALREADY HERE", "ĐỒNG ĐỘI ĐÃ Ở ĐÂY"));
             Vector3 spot;
@@ -1709,6 +1751,8 @@ namespace ChefSkills.Specials
         {
             ChefState best = null;
             float bestDistance = float.MaxValue;
+            // Lone Wolf: no teammate's rescue.
+            if (chef.Has(Special.LoneWolf)) return null;
             foreach (ChefState mate in SpecialRuntime.Teammates(chef))
             {
                 if (!mate.Has(Special.Lifeguard) || mate.Chef == null || mate.Controls == null || mate.Controls.m_bRespawning) continue;
@@ -1747,6 +1791,7 @@ namespace ChefSkills.Specials
             bool lifeguardNear = false;
             if (!net)
             {
+                if (chef.Has(Special.LoneWolf)) return false;
                 foreach (ChefState mate in SpecialRuntime.Teammates(chef))
                     if (mate.Has(Special.Lifeguard))
                     {
@@ -1795,19 +1840,117 @@ namespace ChefSkills.Specials
         }
 
         // --- respawn time and place (every machine runs the respawn itself) ---------------------
+        // Each machine runs a chef's respawn on its own, but a client only lets the chef back in
+        // once the host has respawned it (the game waits for the host's resume), and the host's
+        // place wins. So the host decides. As the chef falls, before the game takes what it holds,
+        // the host tells everyone whether it carried anything (TopicFell): Medic, Sticky Fingers
+        // and Quick Respawn depend on it. A machine that hasn't heard yet when the game's respawn
+        // starts takes the shortest time the respawn could have, so it never keeps the chef away
+        // longer than the host does, and follows the place once the word arrives.
 
         private static readonly FieldInfo BehaviourField =
             AccessTools.Field(typeof(ClientPlayerRespawnBehaviour), "m_PlayerRespawnBehaviour");
 
+        // Every machine: respawns that started before the host's word on the fall arrived
+        // (respawn behaviour instance ID -> when the respawn ends).
+        private static readonly Dictionary<int, float> s_unsure = new Dictionary<int, float>();
+
+        // How old the host's word on a fall may be when the game's respawn starts.
+        private const float FallFreshSeconds = 1.5f;
+
         internal static bool AnyRespawnSpecial()
         {
             return SpecialRuntime.AnyHas(Special.QuickRespawn) || SpecialRuntime.AnyHas(Special.Medic) ||
-                SpecialRuntime.AnyHas(Special.Fragile) || s_baseRespawn.Count > 0;
+                SpecialRuntime.AnyHas(Special.Fragile) || SpecialRuntime.AnyHas(Special.StickyFingers) || s_baseRespawn.Count > 0;
         }
 
         internal static bool AnySpawnPending()
         {
             return s_medicFor.Count > 0 || s_quickFor.Count > 0;
+        }
+
+        /// <summary>Does any respawn rule depend on how a chef fell?</summary>
+        internal static bool AnyFallSpecial()
+        {
+            return SpecialRuntime.AnyHas(Special.QuickRespawn) || SpecialRuntime.AnyHas(Special.Medic) ||
+                SpecialRuntime.AnyHas(Special.StickyFingers);
+        }
+
+        /// <summary>Host: something in the chef's hands (not counting Pocket or a Pack Mule back).</summary>
+        private static bool HoldsInHands(ChefState chef)
+        {
+            ServerPlayerAttachmentCarrier hands = chef.Chef != null ? chef.Chef.GetComponent<ServerPlayerAttachmentCarrier>() : null;
+            return hands != null && hands.InspectCarriedItem() != null;
+        }
+
+        /// <summary>
+        /// Host: a chef starts respawning, before the game takes what it holds. Tells every machine
+        /// what it carried and, for Quick Respawn, the last spot it stood on safely.
+        /// </summary>
+        internal static void OnFell(GameObject fallen)
+        {
+            if (!SpecialNet.IsServer) return;
+            ChefState chef = SpecialRuntime.StateOf(fallen);
+            if (chef == null) return;
+            bool holding = HoldsInHands(chef);
+            bool carrying = holding || CarryingModule.CarriesAnything(chef);
+            Vector3 spot = Vector3.zero;
+            bool hasSpot = chef.Has(Special.QuickRespawn) && SafeSpot(chef, out spot);
+            if (chef.Id == 0)
+            {
+                // Offline without an entity ID: just this machine.
+                RememberFall(chef, new Fall { Carrying = carrying, Holding = holding, HasSpot = hasSpot, Spot = spot });
+                return;
+            }
+            SpecialNet.SendToAll(new SpecialMessage
+            {
+                Topic = TopicFell, Chef = chef.Id, Vector1 = spot,
+                I = (carrying ? 1 : 0) | (hasSpot ? 2 : 0) | (holding ? 4 : 0)
+            });
+        }
+
+        private static void OnFellMessage(SpecialMessage message)
+        {
+            ChefState chef = SpecialRuntime.StateById(message.Chef);
+            if (chef == null) return;
+            RememberFall(chef, new Fall
+            {
+                Carrying = (message.I & 1) != 0, HasSpot = (message.I & 2) != 0, Holding = (message.I & 4) != 0, Spot = message.Vector1
+            });
+        }
+
+        private static void RememberFall(ChefState chef, Fall fall)
+        {
+            fall.At = SpecialRuntime.Now;
+            if (chef.Chef == null || chef.Controls == null || !chef.Controls.m_bRespawning)
+            {
+                // Before the game's respawn starts here (the usual order): it reads this.
+                s_falls[chef] = fall;
+                return;
+            }
+            // The game's respawn started first: the time is already set (the shortest it could
+            // be), but the chef can still come back in the right place.
+            PlayerRespawnBehaviour behaviour = chef.Chef.GetComponent<PlayerRespawnBehaviour>();
+            float until;
+            if (behaviour == null || !s_unsure.TryGetValue(behaviour.GetInstanceID(), out until)) return;
+            s_unsure.Remove(behaviour.GetInstanceID());
+            PlaceRespawn(chef, behaviour, fall, Mathf.Max(0f, until - SpecialRuntime.Now));
+        }
+
+        /// <summary>
+        /// How long a respawn takes: the level's own time, shortened by the specials that apply
+        /// (the shortest wins), then Fragile's 5 s on top.
+        /// </summary>
+        private static float RespawnTime(ChefState chef, float baseTime, bool carrying, bool holding)
+        {
+            float time = baseTime;
+            if (chef.Has(Special.QuickRespawn)) time = Mathf.Min(time, QuickRespawnTime);
+            // A Medic only brings back teammates who fell empty-handed.
+            if (!carrying && FindMedic(chef) != null) time = Mathf.Min(time, MedicRespawnTime);
+            if (chef.Has(Special.Medic)) time = Mathf.Min(time, MedicOwnRespawnTime);
+            if (holding && chef.Has(Special.StickyFingers)) time = Mathf.Min(time, StickyRespawnTime);
+            if (chef.Has(Special.Fragile)) time += FragileExtraTime;
+            return time;
         }
 
         /// <summary>A chef starts respawning on this machine: set how long it takes.</summary>
@@ -1830,47 +1973,61 @@ namespace ChefSkills.Specials
             }
             s_medicFor.Remove(key);
             s_quickFor.Remove(key);
+            s_unsure.Remove(key);
             float time = baseTime;
             ChefState chef = SpecialRuntime.StateOf(client.gameObject);
             if (chef != null)
             {
                 float now = SpecialRuntime.Now;
-                Special by = Special.None;
-                if (chef.Has(Special.QuickRespawn) && QuickRespawnTime < time)
+                Fall fall;
+                if (s_falls.TryGetValue(chef, out fall)) s_falls.Remove(chef);
+                if (fall != null && now - fall.At > FallFreshSeconds) fall = null;
+                // The host always knows (it told everyone just before); this is only a fallback.
+                if (fall == null && SpecialNet.IsServer)
                 {
-                    time = QuickRespawnTime;
-                    by = Special.QuickRespawn;
+                    bool holding = HoldsInHands(chef);
+                    fall = new Fall { Carrying = holding || CarryingModule.CarriesAnything(chef), Holding = holding, At = now };
                 }
-                ChefState medic = FindMedic(chef);
-                if (medic != null)
+                if (fall != null) time = RespawnTime(chef, baseTime, fall.Carrying, fall.Holding);
+                else
                 {
-                    if (MedicRespawnTime < time)
-                    {
-                        time = MedicRespawnTime;
-                        by = Special.Medic;
-                    }
-                    s_medicFor[key] = medic;
+                    time = Mathf.Min(RespawnTime(chef, baseTime, false, false),
+                        Mathf.Min(RespawnTime(chef, baseTime, true, false), RespawnTime(chef, baseTime, true, true)));
+                    s_unsure[key] = now + time;
                 }
                 if (chef.Has(Special.Fragile))
                 {
-                    time *= 2f;
                     chef.SetTimer(Special.Fragile, now + time, time);
                     SpecialFx.Text(chef.Chef, SpecialCatalog.NameOf(Special.Fragile), SpecialFx.ColourOf(Special.Fragile));
                 }
-                if (by == Special.QuickRespawn) s_quickFor[key] = by;
                 if (chef.Has(Special.QuickRespawn)) chef.SetTimer(Special.QuickRespawn, now + time, time);
-                if (medic != null)
-                {
-                    // Everyone sees where the chef will come back.
-                    SpecialFx.Mark(medic.Chef, Special.Medic, time + 0.4f, SpecialCatalog.NameOf(Special.Medic));
-                    medic.SetTimer(Special.Medic, now + time, time);
-                }
+                if (fall != null) PlaceRespawn(chef, behaviour, fall, time);
             }
             behaviour.m_respawnTime = time;
         }
 
+        /// <summary>Where the chef will come back, once this machine knows how it fell.</summary>
+        private static void PlaceRespawn(ChefState chef, PlayerRespawnBehaviour behaviour, Fall fall, float time)
+        {
+            int key = behaviour.GetInstanceID();
+            ChefState medic = fall.Carrying ? null : FindMedic(chef);
+            if (medic != null)
+            {
+                s_medicFor[key] = medic;
+                // Everyone sees where the chef will come back.
+                SpecialFx.Mark(medic.Chef, Special.Medic, time + 0.4f, SpecialCatalog.NameOf(Special.Medic));
+                medic.SetTimer(Special.Medic, SpecialRuntime.Now + time, time);
+            }
+            if (!chef.Has(Special.QuickRespawn)) return;
+            s_quickFor[key] = Special.QuickRespawn;
+            // The countdown shows over the safe spot; the host looks for it again as the chef comes back.
+            if (medic == null && fall.HasSpot) MoveSpawn(behaviour, fall.Spot, time + 4f);
+        }
+
         private static ChefState FindMedic(ChefState chef)
         {
+            // Lone Wolf: no teammate's rescue.
+            if (chef.Has(Special.LoneWolf)) return null;
             ChefState best = null;
             foreach (ChefState mate in SpecialRuntime.Teammates(chef))
             {
@@ -1881,33 +2038,30 @@ namespace ChefSkills.Specials
             return best;
         }
 
-        /// <summary>A chef is about to reappear on this machine: next to its medic, if it has one.</summary>
+        /// <summary>
+        /// A chef is about to reappear on this machine: next to its medic if it has one, else at
+        /// its last safe spot for Quick Respawn.
+        /// </summary>
         internal static void OnSpawn(ClientPlayerRespawnBehaviour client)
         {
             PlayerRespawnBehaviour behaviour = BehaviourField != null ? BehaviourField.GetValue(client) as PlayerRespawnBehaviour : null;
             if (behaviour == null) return;
             int key = behaviour.GetInstanceID();
-            Special by;
-            bool quick = s_quickFor.TryGetValue(key, out by) && by == Special.QuickRespawn;
+            s_unsure.Remove(key);
+            bool quick = s_quickFor.ContainsKey(key);
             s_quickFor.Remove(key);
+            ChefState chef = SpecialRuntime.StateOf(client.gameObject);
             ChefState medic;
             if (s_medicFor.TryGetValue(key, out medic))
             {
                 s_medicFor.Remove(key);
-                ChefState chef = SpecialRuntime.StateOf(client.gameObject);
                 Vector3 spot;
                 // World axes rather than the medic's facing, so every machine picks the same spot.
                 if (medic != null && medic.Chef != null && medic.Controls != null && !medic.Controls.m_bRespawning &&
                     Warp.SpotNear(medic.Position, Vector3.forward, chef, out spot))
                 {
-                    s_overrides.Add(new SpawnOverride
-                    {
-                        Behaviour = behaviour, Location = behaviour.m_startLocation, Parent = behaviour.m_startParent, Spot = spot,
-                        Until = SpecialRuntime.Now + 4f
-                    });
-                    // The spawn routine reads these right after this; put back a few seconds later.
-                    behaviour.m_startParent = null;
-                    behaviour.m_startLocation = spot;
+                    // The spawn routine reads it right after this; put back a few seconds later.
+                    MoveSpawn(behaviour, spot, 4f);
                     // Each machine picks from its own view of where the medic is, but the chef ends
                     // up at the host's spot: the host shows it there, for everyone.
                     if (SpecialNet.IsServer)
@@ -1921,6 +2075,10 @@ namespace ChefSkills.Specials
             }
             if (quick)
             {
+                // The host looks again now (the floor may have moved, or someone stands there);
+                // the others keep the spot it named as the chef fell, and the host's place wins.
+                Vector3 safe;
+                if (SpecialNet.IsServer && chef != null && SafeSpot(chef, out safe)) MoveSpawn(behaviour, safe, 4f);
                 Vector3 at = behaviour.m_startParent != null
                     ? behaviour.m_startParent.TransformPoint(behaviour.m_startLocation)
                     : behaviour.m_startLocation;
@@ -1928,6 +2086,36 @@ namespace ChefSkills.Specials
                 SpecialFx.Burst(at, colour, 1.4f, 0.6f);
                 SpecialFx.Text(at + Vector3.up * 2.1f, SpecialCatalog.NameOf(Special.QuickRespawn) + "!", colour);
             }
+        }
+
+        /// <summary>
+        /// This respawn brings the chef back at <paramref name="spot"/>; the level's own respawn
+        /// point is put back <paramref name="seconds"/> later.
+        /// </summary>
+        private static void MoveSpawn(PlayerRespawnBehaviour behaviour, Vector3 spot, float seconds)
+        {
+            SpawnOverride entry = null;
+            for (int i = 0; i < s_overrides.Count; i++)
+                if (s_overrides[i].Behaviour == behaviour)
+                {
+                    entry = s_overrides[i];
+                    break;
+                }
+            if (entry == null)
+            {
+                entry = new SpawnOverride { Behaviour = behaviour, Location = behaviour.m_startLocation, Parent = behaviour.m_startParent };
+                s_overrides.Add(entry);
+            }
+            else if (behaviour.m_startParent != null || behaviour.m_startLocation != entry.Spot)
+            {
+                // The level moved its respawn point meanwhile: that is the one to put back.
+                entry.Location = behaviour.m_startLocation;
+                entry.Parent = behaviour.m_startParent;
+            }
+            entry.Spot = spot;
+            entry.Until = Mathf.Max(entry.Until, SpecialRuntime.Now + seconds);
+            behaviour.m_startParent = null;
+            behaviour.m_startLocation = spot;
         }
 
         private static void RestoreSpawn(SpawnOverride entry)
@@ -2030,24 +2218,38 @@ namespace ChefSkills.Specials
             body.velocity = velocity;
         }
 
-        // --- Driver (host: vehicles only move on the host) -------------------------------------
+        // --- Transit Pro (host: portals, cannons and vehicles are all run by the host) ----------
+        // Out of a teleporter, out of a cannon flight, or off a platform or cart it steered: a
+        // burst of speed with dashes that don't recharge. It also does what Cannoneer (no fuse)
+        // and Driver (steering 50% faster) did, now that those two are retired.
 
+        /// <summary>Host: the Transit Pro chef steering with these controls, or null.</summary>
         internal static ChefState DriverOf(PlayerControls.ControlSchemeData scheme)
         {
             if (scheme == null) return null;
             IList<ChefState> chefs = SpecialRuntime.Chefs;
             for (int i = 0; i < chefs.Count; i++)
                 if (chefs[i].Controls != null && chefs[i].Controls.ControlScheme == scheme)
-                    return chefs[i].Has(Special.Driver) ? chefs[i] : null;
+                    return chefs[i].Has(Special.PortalPro) ? chefs[i] : null;
             return null;
         }
 
-        /// <summary>Host: a ring under a Driver while their vehicle is moving (throttled).</summary>
+        /// <summary>Host: a ring under a Transit Pro chef while their vehicle is moving (throttled).</summary>
         internal static void MarkDriver(ChefState driver)
         {
-            // MarkAll holds back repeats per chef, so two Drivers at once both keep their ring.
+            // MarkAll holds back repeats per chef, so two drivers at once both keep their ring.
             if (driver.Chef == null) return;
-            SpecialFx.MarkAll(driver.Chef, Special.Driver, 1f, null);
+            SpecialFx.MarkAll(driver.Chef, Special.PortalPro, 1f, null);
+        }
+
+        /// <summary>Host: the burst of speed, on every machine.</summary>
+        internal static void TransitBoost(ChefState chef)
+        {
+            if (chef == null || chef.Chef == null) return;
+            SpecialRuntime.BroadcastBuff(chef, BuffId.NoDashCooldown, TransitSeconds, 1f, chef);
+            SpecialRuntime.BroadcastBuff(chef, BuffId.RunSpeed, TransitSeconds, 0.4f, chef);
+            SpecialFx.MarkAll(chef.Chef, Special.PortalPro, TransitSeconds, null);
+            SpecialFx.TextAll(chef.Chef, Lang.Both("SPEED UP!", "TĂNG TỐC!"), Special.PortalPro);
         }
     }
 
@@ -2090,7 +2292,28 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>Every machine: Quick Respawn, Fragile and Medic change the respawn time.</summary>
+    /// <summary>
+    /// Host: a chef starts respawning. Called before the coroutine's body runs, so before the game
+    /// takes what the chef holds (DropOrDestroyHeldItems) and before it tells the machines.
+    /// </summary>
+    [HarmonyPatch(typeof(ServerPlayerRespawnBehaviour), "RespawnCoroutine")]
+    internal static class RespawnFallPatch
+    {
+        private static void Prefix(ServerPlayerRespawnBehaviour __instance)
+        {
+            try
+            {
+                if (!SpecialRuntime.InLevel || !TeleportSpecials.AnyFallSpecial()) return;
+                TeleportSpecials.OnFell(__instance.gameObject);
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("Medic.RespawnCoroutine", error);
+            }
+        }
+    }
+
+    /// <summary>Every machine: Quick Respawn, Medic, Sticky Fingers and Fragile change the respawn time.</summary>
     [HarmonyPatch(typeof(ClientPlayerRespawnBehaviour), "ApplyServerEvent")]
     internal static class RespawnTimePatch
     {
@@ -2197,14 +2420,19 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>Portal Pro: which chef each portal exit is bringing out (host).</summary>
+    /// <summary>
+    /// Transit Pro (host): which chef each portal exit is bringing out, and the steered platforms
+    /// a Transit Pro chef has moved since taking the controls (instance IDs: host only).
+    /// </summary>
     internal static class PortalState
     {
         internal static readonly Dictionary<int, GameObject> Arriving = new Dictionary<int, GameObject>();
+        internal static readonly HashSet<int> Steered = new HashSet<int>();
 
         internal static void Clear()
         {
             Arriving.Clear();
+            Steered.Clear();
         }
     }
 
@@ -2227,12 +2455,10 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>Portal Pro: out of the portal, a 2 s burst of speed with dashes that don't recharge.</summary>
+    /// <summary>Transit Pro: out of the portal, a 4 s burst of speed with dashes that don't recharge.</summary>
     [HarmonyPatch(typeof(ServerTeleportalPlayerReceiver), "OnAnimationFinished")]
     internal static class PortalExitPatch
     {
-        private const float Seconds = 2f;
-
         private static void Postfix(ServerTeleportalPlayerReceiver __instance, string _animName)
         {
             try
@@ -2244,10 +2470,7 @@ namespace ChefSkills.Specials
                 PortalState.Arriving.Remove(key);
                 ChefState chef = SpecialRuntime.StateOf(chefObject);
                 if (chef == null || !chef.Has(Special.PortalPro)) return;
-                SpecialRuntime.BroadcastBuff(chef, BuffId.NoDashCooldown, Seconds, 1f, chef);
-                SpecialRuntime.BroadcastBuff(chef, BuffId.RunSpeed, Seconds, 0.4f, chef);
-                SpecialFx.MarkAll(chef.Chef, Special.PortalPro, Seconds, null);
-                SpecialFx.TextAll(chef.Chef, Lang.Both("SPEED UP!", "TĂNG TỐC!"), Special.PortalPro);
+                TeleportSpecials.TransitBoost(chef);
             }
             catch (Exception error)
             {
@@ -2256,7 +2479,7 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>Cannoneer: cannons the host fires early, whose late launch trigger is then ignored.</summary>
+    /// <summary>Transit Pro: cannons the host fires early, whose late launch trigger is then ignored.</summary>
     internal static class CannonState
     {
         internal static readonly Dictionary<int, float> Swallow = new Dictionary<int, float>();
@@ -2270,8 +2493,8 @@ namespace ChefSkills.Specials
     }
 
     /// <summary>
-    /// Cannoneer (host): when the button is pressed with a Cannoneer chef loaded and the cannon
-    /// ready, it fires at once instead of after the fuse.
+    /// Transit Pro (host; was Cannoneer): when the button is pressed with a Transit Pro chef
+    /// loaded and the cannon ready, it fires at once instead of after the fuse.
     /// </summary>
     [HarmonyPatch(typeof(ServerCannon), "ButtonInteractCallback")]
     internal static class CannonFirePatch
@@ -2285,10 +2508,10 @@ namespace ChefSkills.Specials
         {
             try
             {
-                if (!SpecialRuntime.InLevel || !SpecialRuntime.AnyHas(Special.Cannoneer)) return;
+                if (!SpecialRuntime.InLevel || !SpecialRuntime.AnyHas(Special.PortalPro)) return;
                 if (LoadedField == null || FlyingField == null || ReadyField == null || CannonField == null) return;
                 GameObject loaded = LoadedField.GetValue(__instance) as GameObject;
-                if (loaded == null || !SpecialRuntime.Has(loaded, Special.Cannoneer)) return;
+                if (loaded == null || !SpecialRuntime.Has(loaded, Special.PortalPro)) return;
                 if ((bool)FlyingField.GetValue(__instance) || !(bool)ReadyField.GetValue(__instance)) return;
                 Cannon cannon = CannonField.GetValue(__instance) as Cannon;
                 if (cannon == null || string.IsNullOrEmpty(cannon.m_launchTrigger)) return;
@@ -2304,18 +2527,44 @@ namespace ChefSkills.Specials
                 if ((bool)FlyingField.GetValue(__instance))
                 {
                     CannonState.Swallow[__instance.GetInstanceID()] = SpecialRuntime.Now + 4f;
-                    SpecialFx.BurstAll(__instance.transform.position, Special.Cannoneer);
-                    SpecialFx.TextAllAt(__instance.transform.position + Vector3.up * 2.2f, Lang.Both("FIRE!", "BẮN!"), Special.Cannoneer);
+                    SpecialFx.BurstAll(__instance.transform.position, Special.PortalPro);
+                    SpecialFx.TextAllAt(__instance.transform.position + Vector3.up * 2.2f, Lang.Both("FIRE!", "BẮN!"), Special.PortalPro);
                 }
             }
             catch (Exception error)
             {
-                SpecialRuntime.Fail("Cannoneer.ButtonInteractCallback", error);
+                SpecialRuntime.Fail("TransitPro.ButtonInteractCallback", error);
             }
         }
     }
 
-    /// <summary>Cannoneer (host): the fuse's own launch trigger, arriving later, is dropped once.</summary>
+    /// <summary>
+    /// Transit Pro (host): a chef the cannon flew lands (EndCannonRoutine also ends a cannon left
+    /// without firing; only a landing finds the cannon still flying).
+    /// </summary>
+    [HarmonyPatch(typeof(ServerCannon), "EndCannonRoutine")]
+    internal static class CannonLandPatch
+    {
+        private static readonly FieldInfo FlyingField = AccessTools.Field(typeof(ServerCannon), "m_flying");
+
+        private static void Prefix(ServerCannon __instance, GameObject _obj)
+        {
+            try
+            {
+                if (!SpecialRuntime.InLevel || _obj == null || FlyingField == null || !SpecialRuntime.AnyHas(Special.PortalPro)) return;
+                if (!(bool)FlyingField.GetValue(__instance)) return;
+                ChefState chef = SpecialRuntime.StateOf(_obj);
+                if (chef == null || !chef.Has(Special.PortalPro)) return;
+                TeleportSpecials.TransitBoost(chef);
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("TransitPro.EndCannonRoutine", error);
+            }
+        }
+    }
+
+    /// <summary>Transit Pro (host): the fuse's own launch trigger, arriving later, is dropped once.</summary>
     [HarmonyPatch(typeof(ServerCannon), "OnTrigger")]
     internal static class CannonTriggerPatch
     {
@@ -2336,13 +2585,16 @@ namespace ChefSkills.Specials
             }
             catch (Exception error)
             {
-                SpecialRuntime.Fail("Cannoneer.OnTrigger", error);
+                SpecialRuntime.Fail("TransitPro.OnTrigger", error);
                 return true;
             }
         }
     }
 
-    /// <summary>Driver (host): carts and platforms steered by a Driver move 50% faster.</summary>
+    /// <summary>
+    /// Transit Pro (host; was Driver): carts and platforms steered by a Transit Pro chef move 50%
+    /// faster, and are remembered as moved, for the burst when the chef lets go of them.
+    /// </summary>
     [HarmonyPatch(typeof(ServerPilotMovement), "Update_Movement")]
     internal static class DriverPatch
     {
@@ -2358,7 +2610,7 @@ namespace ChefSkills.Specials
             try
             {
                 if (!SpecialRuntime.InLevel || SchemeField == null || PilotField == null) return;
-                if (!SpecialRuntime.AnyHas(Special.Driver)) return;
+                if (!SpecialRuntime.AnyHas(Special.PortalPro)) return;
                 var scheme = SchemeField.GetValue(__instance) as PlayerControls.ControlSchemeData;
                 ChefState driver = TeleportSpecials.DriverOf(scheme);
                 if (driver == null) return;
@@ -2367,11 +2619,15 @@ namespace ChefSkills.Specials
                 _changed = pilot;
                 _speed = pilot.MoveSpeed;
                 pilot.MoveSpeed *= TeleportSpecials.DriverSpeed;
-                if (pilot.HasMoved()) TeleportSpecials.MarkDriver(driver);
+                if (pilot.HasMoved())
+                {
+                    TeleportSpecials.MarkDriver(driver);
+                    PortalState.Steered.Add(__instance.GetInstanceID());
+                }
             }
             catch (Exception error)
             {
-                SpecialRuntime.Fail("Driver.Update_Movement", error);
+                SpecialRuntime.Fail("TransitPro.Update_Movement", error);
             }
         }
 
@@ -2381,6 +2637,33 @@ namespace ChefSkills.Specials
             if (_changed == null) return;
             _changed.MoveSpeed = _speed;
             _changed = null;
+        }
+    }
+
+    /// <summary>
+    /// Transit Pro (host): a chef lets go of a cart or platform it steered (and moved): the burst
+    /// of speed. Rotating controls (a cannon's aim) aren't steered platforms and never count.
+    /// </summary>
+    [HarmonyPatch(typeof(ServerPilotMovement), "AssignPlayer")]
+    internal static class TransitSteerPatch
+    {
+        private static readonly FieldInfo SchemeField = AccessTools.Field(typeof(ServerPilotMovement), "m_controlScheme");
+
+        private static void Prefix(ServerPilotMovement __instance, PlayerControls.ControlSchemeData _controlScheme)
+        {
+            try
+            {
+                if (!SpecialRuntime.InLevel || SchemeField == null || PortalState.Steered.Count == 0) return;
+                var previous = SchemeField.GetValue(__instance) as PlayerControls.ControlSchemeData;
+                if (previous == _controlScheme) return;
+                // Whoever takes the controls next starts afresh.
+                if (!PortalState.Steered.Remove(__instance.GetInstanceID()) || previous == null) return;
+                TeleportSpecials.TransitBoost(TeleportSpecials.DriverOf(previous));
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("TransitPro.AssignPlayer", error);
+            }
         }
     }
 }
