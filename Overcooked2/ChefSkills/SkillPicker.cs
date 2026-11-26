@@ -7,11 +7,18 @@ using Object = UnityEngine.Object;
 namespace ChefSkills
 {
     /// <summary>
-    /// The special picker: SELECT on a card's ACTIVE / PASSIVE / QUIRK row opens it. Every choice
-    /// for that slot is a tile (icon and name) in a grid, grouped by category under headers; a
-    /// strip at the bottom tells what the highlighted one does and whether it can be picked (one
-    /// per kitchen and taken, or clashing with another pick). Directions move, SELECT picks, BACK
-    /// closes; the mouse can point, click and scroll.
+    /// The special picker: CHOOSE SKILLS on a card (or a click on one of the card's special icons)
+    /// opens it. Along the top are all the special slots (ACTIVE, PASSIVE, PASSIVE, QUIRK) with
+    /// what is in each, drawn in each slot's own style (see <see cref="SlotIcon"/>); under them,
+    /// every choice for the slot in focus is a tile (icon and name) in a grid, grouped by category
+    /// under headers; a strip at the bottom tells what the highlighted one does and whether it can
+    /// be picked (one per kitchen and taken, or clashing with another pick), and under it the keys.
+    ///
+    /// On the slots, LEFT / RIGHT move between them, DOWN or SELECT goes into the grid, BACK
+    /// closes. In the grid, the directions move (UP from the top row goes back to the slots),
+    /// SELECT picks for that slot and goes back to the slots (SELECT on the slot's current pick
+    /// empties the slot instead), BACK goes back without picking. The mouse can point, click a slot
+    /// or a tile, and scroll; a right click closes.
     ///
     /// One per local player. With one player on this machine it opens as a dialog over the dimmed
     /// screen; with several, each player's picker stays in their own lane of the screen, over their
@@ -24,17 +31,25 @@ namespace ChefSkills
         private const float MaxWidth = 1240f;
         private const float ScreenWidth = 1840f;
         private const float PanelGap = 20f;
-        private const float PanelHeight = 900f;
+        private const float PanelHeight = 940f;
         private const float PanelY = 10f;
         private const float Pad = 46f;
         private const float HeaderHeight = 70f;
         private const float FooterHeight = 170f;
+        // The key legend, inside the panel under the details strip.
+        private const float LegendHeight = 44f;
         private const float TileWidth = 96f;
         private const float TileHeight = 118f;
         private const float TileGap = 10f;
         private const float DiscSize = 66f;
         private const float SectionHeader = 34f;
         private const float SectionGap = 14f;
+        // The slots along the top: one box each, side by side.
+        private const float StripHeight = 128f;
+        private const float StripGap = 12f;
+        private const float StripBoxGap = 10f;
+        // The active's icon across; the others are smaller (see SlotIcon).
+        private const float StripIcon = 56f;
 
         private static readonly Color PanelTint = new Color(0.3f, 0.4f, 0.52f, 1f);
         private static readonly Color TileColour = new Color(0.08f, 0.11f, 0.18f, 0.82f);
@@ -64,19 +79,34 @@ namespace ChefSkills
             public int Row;
         }
 
+        /// <summary>One slot along the top: its name, the pick in the slot's style, and the pick's name.</summary>
+        private sealed class SlotBox
+        {
+            public RectTransform Root;
+            public Image Back, Frame;
+            public SlotIcon Icon;
+            public Text Label, Name;
+            public int Shown = -1;
+            public float PunchAt = -10f;
+        }
+
         internal readonly PlayerInputLookup.Player Player;
-        internal readonly SpecialSlot Slot;
         /// <summary>The player plays alone with two chefs: a quirk then applies to both.</summary>
         internal bool Solo;
         private readonly GameArt _art;
         private readonly RectTransform _panel, _viewport, _content;
         private readonly Sprite _panelSprite;
         private readonly List<Tile> _tiles = new List<Tile>();
+        private readonly SlotBox[] _boxes;
+        private readonly RectTransform _stripLegend, _gridLegend;
         private readonly Image _footIcon, _footDisc;
         private readonly Text _footGlyph, _footName, _footTag, _footText, _footStatus;
         private readonly Text _titleText, _ownerText;
         private bool _narrow;
         private readonly float _openedAt;
+        // The slot in focus, and whether the grid (rather than the slots along the top) has the focus.
+        private SpecialSlot _slot;
+        private bool _inGrid;
         private int _cursor;
         private float _scroll, _scrollTarget, _contentHeight;
         private float _shownWidth = -1f;
@@ -92,15 +122,12 @@ namespace ChefSkills
         private bool _hasLane;
         private float _laneLeft, _laneRight;
 
-        /// <summary>A player's colour index (for the panel's name tag), and how many players are on this machine.</summary>
-        private readonly string _owner;
-
-        private SkillPicker(Transform canvas, GameArt art, PlayerInputLookup.Player player, string owner, SpecialSlot slot, Special current, bool shared)
+        private SkillPicker(Transform canvas, GameArt art, PlayerInputLookup.Player player, string owner, SpecialSlot slot,
+            int[] loadout, bool shared)
         {
             Player = player;
-            Slot = slot;
+            _slot = slot;
             _art = art;
-            _owner = owner;
             _openedAt = Time.unscaledTime;
             _lastMouse = Input.mousePosition;
             _mouseAnchor = _lastMouse;
@@ -120,7 +147,7 @@ namespace ChefSkills
 
             _panel = Child("Picker" + (int)player, canvas);
             _panel.sizeDelta = new Vector2(MaxWidth, PanelHeight);
-            _panelSprite = art != null ? art.Sliced(GameArt.CardSprites[(int)slot % GameArt.CardSprites.Length],
+            _panelSprite = art != null ? art.Sliced(GameArt.CardSprites[(int)player % GameArt.CardSprites.Length],
                 new Vector4(120f, 95f, 120f, 95f), 135f) : null;
             Image back = _panel.gameObject.AddComponent<Image>();
             back.raycastTarget = false;
@@ -135,9 +162,7 @@ namespace ChefSkills
             title.pivot = new Vector2(0.5f, 1f);
             title.offsetMin = new Vector2(Pad, -Pad - HeaderHeight + 10f);
             title.offsetMax = new Vector2(-Pad, -Pad + 6f);
-            string what = slot == SpecialSlot.Active ? Lang.T("CHOOSE YOUR ACTIVE", "CHỌN KỸ NĂNG CHỦ ĐỘNG")
-                : slot == SpecialSlot.Quirk ? Lang.T("CHOOSE A QUIRK", "CHỌN MỘT TẬT") : Lang.T("CHOOSE A PASSIVE", "CHỌN KỸ NĂNG BỊ ĐỘNG");
-            _titleText = AddText(title, Header, 44, TitleColour, TextAnchor.MiddleLeft, what);
+            _titleText = AddText(title, Header, 44, TitleColour, TextAnchor.MiddleLeft, TitleFor(slot));
             AddShadow(_titleText.gameObject);
             if (!string.IsNullOrEmpty(owner))
             {
@@ -148,12 +173,23 @@ namespace ChefSkills
                 AddShadow(_ownerText.gameObject);
             }
 
+            // Every slot, side by side under the header. The boxes keep half a gap in from their
+            // share of the row, so the row is widened by that much either side.
+            RectTransform strip = Child("Slots", _panel);
+            strip.anchorMin = new Vector2(0f, 1f);
+            strip.anchorMax = new Vector2(1f, 1f);
+            strip.pivot = new Vector2(0.5f, 1f);
+            strip.offsetMin = new Vector2(Pad - StripBoxGap / 2f, -Pad - HeaderHeight - StripHeight);
+            strip.offsetMax = new Vector2(-Pad + StripBoxGap / 2f, -Pad - HeaderHeight);
+            _boxes = new SlotBox[SpecialCatalog.SlotCount];
+            for (int i = 0; i < _boxes.Length; i++) _boxes[i] = MakeSlotBox(strip, i, _boxes.Length);
+
             // The grid, scrolled inside a masked viewport.
             _viewport = Child("Grid", _panel);
             _viewport.anchorMin = Vector2.zero;
             _viewport.anchorMax = Vector2.one;
-            _viewport.offsetMin = new Vector2(Pad - 6f, Pad + FooterHeight);
-            _viewport.offsetMax = new Vector2(-Pad + 6f, -Pad - HeaderHeight);
+            _viewport.offsetMin = new Vector2(Pad - 6f, Pad + LegendHeight + FooterHeight);
+            _viewport.offsetMax = new Vector2(-Pad + 6f, -Pad - HeaderHeight - StripHeight - StripGap);
             _viewport.gameObject.AddComponent<RectMask2D>();
             _content = Child("Content", _viewport);
             _content.anchorMin = new Vector2(0f, 1f);
@@ -161,21 +197,15 @@ namespace ChefSkills
             _content.pivot = new Vector2(0.5f, 1f);
             _content.offsetMin = Vector2.zero;
             _content.offsetMax = Vector2.zero;
-
-            List<Special> choices = SpecialCatalog.Choices(slot);
-            for (int i = 0; i < choices.Count; i++)
-            {
-                _tiles.Add(MakeTile(choices[i]));
-                if (choices[i] == current) _cursor = i;
-            }
+            BuildTiles(CurrentIn(loadout, slot));
 
             // Footer: the highlighted choice.
             RectTransform foot = Child("Details", _panel);
             foot.anchorMin = new Vector2(0f, 0f);
             foot.anchorMax = new Vector2(1f, 0f);
             foot.pivot = new Vector2(0.5f, 0f);
-            foot.offsetMin = new Vector2(Pad, Pad);
-            foot.offsetMax = new Vector2(-Pad, Pad + FooterHeight - 14f);
+            foot.offsetMin = new Vector2(Pad, Pad + LegendHeight);
+            foot.offsetMax = new Vector2(-Pad, Pad + LegendHeight + FooterHeight - 14f);
             Image footBack = foot.gameObject.AddComponent<Image>();
             footBack.raycastTarget = false;
             footBack.sprite = SpecialFx.RoundBox;
@@ -205,23 +235,9 @@ namespace ChefSkills
             _footText.horizontalOverflow = HorizontalWrapMode.Wrap;
             _footStatus = FootText(foot, "Status", 20, CurrentColour, 128f, 26f, Header);
 
-            // The keys, on the panel's bottom rim.
-            RectTransform legend = Child("Legend", _panel);
-            legend.anchorMin = legend.anchorMax = new Vector2(0.5f, 0f);
-            legend.anchoredPosition = new Vector2(0f, Pad * 0.5f - 6f);
-            legend.sizeDelta = new Vector2(900f, 40f);
-            HorizontalLayoutGroup row = legend.gameObject.AddComponent<HorizontalLayoutGroup>();
-            row.childAlignment = TextAnchor.MiddleCenter;
-            row.spacing = 8f;
-            row.childControlWidth = true;
-            row.childControlHeight = true;
-            row.childForceExpandWidth = false;
-            row.childForceExpandHeight = false;
-            AddButton(legend, PlayerInputLookup.LogicalButtonID.UISelectNotStart, "SELECT");
-            AddLabel(legend, Lang.T("PICK", "CHỌN"));
-            AddGap(legend, 26f);
-            AddButton(legend, PlayerInputLookup.LogicalButtonID.UICancel, "BACK");
-            AddLabel(legend, Lang.T("CLOSE", "ĐÓNG"));
+            // The keys, inside the panel under the details: one set for the slots, one for the grid.
+            _stripLegend = MakeLegend(true);
+            _gridLegend = MakeLegend(false);
 
             s_open.Add(this);
             s_open.Sort(delegate(SkillPicker a, SkillPicker b) { return ((int)a.Player).CompareTo((int)b.Player); });
@@ -229,11 +245,14 @@ namespace ChefSkills
             ScrollToCursor(true);
         }
 
-        /// <summary>Opens a picker for this player's slot, on the skill screen's canvas.</summary>
+        /// <summary>
+        /// Opens a picker for this player's specials on the skill screen's canvas, with
+        /// <paramref name="slot"/> in focus.
+        /// </summary>
         internal static SkillPicker Open(Transform canvas, GameArt art, PlayerInputLookup.Player player, string owner,
-            SpecialSlot slot, Special current, bool byMouse, bool shared)
+            SpecialSlot slot, int[] loadout, bool byMouse, bool shared)
         {
-            var picker = new SkillPicker(canvas, art, player, owner, slot, current, shared);
+            var picker = new SkillPicker(canvas, art, player, owner, slot, loadout, shared);
             picker._mouseMode = byMouse;
             return picker;
         }
@@ -321,17 +340,23 @@ namespace ChefSkills
 
         // --- every frame ------------------------------------------------------------------------
 
-        /// <summary>What a frame of input did.</summary>
-        internal enum Outcome { None, Moved, Picked, Refused, Closed }
+        /// <summary>
+        /// What a frame of input did. Picked: a slot's pick changed (or was removed); the picker
+        /// stays open. Returned: went back from the grid to the slots.
+        /// </summary>
+        internal enum Outcome { None, Moved, Picked, Refused, Returned, Closed }
 
         /// <summary>
-        /// Reads this player's buttons (and the mouse). <paramref name="picked"/> is set when the
-        /// outcome is Picked. <paramref name="reason"/>: why a pick was refused.
+        /// Reads this player's buttons (and the mouse). When the outcome is Picked,
+        /// <paramref name="pickedSlot"/> and <paramref name="picked"/> say which slot now holds
+        /// what (<see cref="Special.None"/> when it was emptied).
         /// </summary>
         internal Outcome HandleInput(ILogicalButton up, ILogicalButton down, ILogicalButton left, ILogicalButton right,
-            ILogicalButton select, ILogicalButton cancel, int[] loadout, HashSet<Special> taken, out Special picked)
+            ILogicalButton select, ILogicalButton cancel, int[] loadout, HashSet<Special> taken,
+            out SpecialSlot pickedSlot, out Special picked)
         {
             picked = Special.None;
+            pickedSlot = _slot;
             if (_panel == null) return Outcome.Closed;
             // The player's own pad, read directly as well: the menu buttons can be used up by
             // something else first, and this keeps a controller working whatever happens to them.
@@ -339,8 +364,12 @@ namespace ChefSkills
             // The press that opened it.
             if (Time.unscaledTime - _openedAt < 0.05f) return Outcome.None;
 
-            var game = new[] { up.JustPressed(), down.JustPressed(), left.JustPressed(), right.JustPressed(), select.JustPressed(), cancel.JustPressed() };
-            for (int i = 0; i < 6; i++)
+            var game = new[]
+            {
+                up.JustPressed(), down.JustPressed(), left.JustPressed(), right.JustPressed(), select.JustPressed(),
+                cancel.JustPressed(),
+            };
+            for (int i = 0; i < game.Length && i < pad.Length; i++)
             {
                 if (pad[i] && !game[i] && !s_padNoticeLogged)
                 {
@@ -353,17 +382,43 @@ namespace ChefSkills
             bool goLeft = game[SpecialInput.PadNav.Left], goRight = game[SpecialInput.PadNav.Right];
             bool choose = game[SpecialInput.PadNav.Select];
             bool back = game[SpecialInput.PadNav.Cancel];
-            if (back) return Outcome.Closed;
+
+            if (back)
+            {
+                if (!_inGrid) return Outcome.Closed;
+                _inGrid = false;
+                return Outcome.Returned;
+            }
 
             int before = _cursor;
-            if (goLeft) MoveFlat(-1);
-            if (goRight) MoveFlat(1);
-            if (goUp) MoveRow(-1);
-            if (goDown) MoveRow(1);
+            SpecialSlot slotBefore = _slot;
+            bool gridBefore = _inGrid;
+            bool pick = false;
+            if (!_inGrid)
+            {
+                // On the slots: LEFT / RIGHT pick the slot, DOWN or SELECT go into its choices.
+                if (goLeft) SetSlot(StepSlot(_slot, -1), loadout);
+                if (goRight) SetSlot(StepSlot(_slot, 1), loadout);
+                if (goDown || choose) EnterGrid(loadout);
+            }
+            else
+            {
+                if (goLeft) MoveFlat(-1);
+                if (goRight) MoveFlat(1);
+                if (goUp)
+                {
+                    // From the top row, back up to the slots.
+                    if (_tiles[_cursor].Row == 0) _inGrid = false;
+                    else MoveRow(-1);
+                }
+                if (goDown) MoveRow(1);
+                pick = choose;
+            }
 
-            // The mouse: once it has moved (or it opened the picker), pointing moves the highlight,
-            // a click picks, and a right click or a click outside closes. Keys and buttons hand
-            // control back until it moves again. The wheel always scrolls.
+            // The mouse: once it has moved (or it opened the picker), pointing at a tile moves the
+            // highlight, a click on a slot puts it in focus, a click on a tile picks it, and a right
+            // click or a click outside closes. Keys and buttons hand control back until it moves
+            // again. The wheel always scrolls.
             Vector3 mouse = Input.mousePosition;
             bool keyed = goUp || goDown || goLeft || goRight || choose;
             if (keyed)
@@ -378,13 +433,24 @@ namespace ChefSkills
             if (_mouseMode && !keyed)
             {
                 int under = TileUnder(mouse);
-                if (under >= 0 && mouseMoved) _cursor = under;
+                int box = BoxUnder(mouse);
+                if (under >= 0 && mouseMoved)
+                {
+                    _cursor = under;
+                    _inGrid = true;
+                }
                 if (Input.GetMouseButtonDown(0))
                 {
-                    if (under >= 0)
+                    if (box >= 0)
+                    {
+                        SetSlot((SpecialSlot)box, loadout);
+                        _inGrid = false;
+                    }
+                    else if (under >= 0)
                     {
                         _cursor = under;
-                        choose = true;
+                        _inGrid = true;
+                        pick = true;
                     }
                     else if (!inPanel && s_open.Count == 1) return Outcome.Closed;
                 }
@@ -395,26 +461,75 @@ namespace ChefSkills
 
             if (_cursor != before) ScrollToCursor(false);
 
-            if (choose)
+            if (pick)
             {
                 Special candidate = _tiles[_cursor].Special;
+                // SELECT on the slot's current pick takes it out again: the slot is emptied.
+                if (candidate == CurrentIn(loadout, _slot))
+                {
+                    _inGrid = false;
+                    pickedSlot = _slot;
+                    return Outcome.Picked;
+                }
                 if (!Allowed(candidate, loadout, taken))
                 {
                     _deniedAt = Time.unscaledTime;
                     _deniedTile = _cursor;
                     return Outcome.Refused;
                 }
+                // Picked: back to the slots, to see it there and go on to the next one.
+                _inGrid = false;
+                pickedSlot = _slot;
                 picked = candidate;
                 return Outcome.Picked;
             }
-            return _cursor != before ? Outcome.Moved : Outcome.None;
+            return _cursor != before || _slot != slotBefore || _inGrid != gridBefore ? Outcome.Moved : Outcome.None;
+        }
+
+        private static SpecialSlot StepSlot(SpecialSlot slot, int step)
+        {
+            int count = SpecialCatalog.SlotCount;
+            return (SpecialSlot)(((int)slot + step + count) % count);
+        }
+
+        private static Special CurrentIn(int[] loadout, SpecialSlot slot)
+        {
+            return loadout != null && (int)slot < loadout.Length ? (Special)loadout[(int)slot] : Special.None;
+        }
+
+        private static string TitleFor(SpecialSlot slot)
+        {
+            return slot == SpecialSlot.Active ? Lang.T("CHOOSE YOUR ACTIVE", "CHỌN KỸ NĂNG CHỦ ĐỘNG")
+                : slot == SpecialSlot.Quirk ? Lang.T("CHOOSE A QUIRK", "CHỌN MỘT TẬT") : Lang.T("CHOOSE A PASSIVE", "CHỌN KỸ NĂNG BỊ ĐỘNG");
+        }
+
+        /// <summary>Puts another slot in focus: the grid then shows that slot's choices.</summary>
+        private void SetSlot(SpecialSlot slot, int[] loadout)
+        {
+            if (slot == _slot) return;
+            _slot = slot;
+            _titleText.text = TitleFor(slot);
+            _boxes[(int)slot].PunchAt = Time.unscaledTime;
+            BuildTiles(CurrentIn(loadout, slot));
+        }
+
+        /// <summary>Into the grid, on the slot's current pick.</summary>
+        private void EnterGrid(int[] loadout)
+        {
+            // A slot with nothing to choose (every choice turned off) has no grid to go into.
+            if (_tiles.Count == 0) return;
+            _inGrid = true;
+            Special current = CurrentIn(loadout, _slot);
+            for (int i = 0; i < _tiles.Count; i++)
+                if (_tiles[i].Special == current) _cursor = i;
+            ScrollToCursor(false);
         }
 
         private bool Allowed(Special candidate, int[] loadout, HashSet<Special> taken)
         {
             if (candidate == Special.None) return true;
             if (taken != null && taken.Contains(candidate)) return false;
-            return SpecialCatalog.Fits(loadout, Slot, candidate);
+            return SpecialCatalog.Fits(loadout, _slot, candidate);
         }
 
         private void MoveFlat(int step)
@@ -454,6 +569,14 @@ namespace ChefSkills
             return -1;
         }
 
+        private int BoxUnder(Vector3 mouse)
+        {
+            for (int i = 0; i < _boxes.Length; i++)
+                if (_boxes[i].Root != null && RectTransformUtility.RectangleContainsScreenPoint(_boxes[i].Root, mouse, null))
+                    return i;
+            return -1;
+        }
+
         private float MaxScroll()
         {
             return Mathf.Max(0f, _contentHeight - _viewport.rect.height);
@@ -463,7 +586,7 @@ namespace ChefSkills
         {
             if (_tiles.Count == 0 || _viewport == null) return;
             float view = _viewport.rect.height;
-            if (view <= 1f) view = PanelHeight - 2f * Pad - HeaderHeight - FooterHeight;
+            if (view <= 1f) view = PanelHeight - 2f * Pad - HeaderHeight - StripHeight - StripGap - FooterHeight - LegendHeight;
             Tile tile = _tiles[_cursor];
             float top = tile.Position.y - SectionHeader - 8f;
             float bottom = tile.Position.y + TileHeight + 8f;
@@ -479,6 +602,7 @@ namespace ChefSkills
 
         private void Fit(bool narrow)
         {
+            FitLegend(_inGrid ? _gridLegend : _stripLegend);
             if (narrow == _narrow) return;
             _narrow = narrow;
             _titleText.fontSize = narrow ? 30 : 44;
@@ -492,7 +616,22 @@ namespace ChefSkills
             }
         }
 
-        /// <summary>Draws a frame: tiles' states, the highlight, the details strip.</summary>
+        /// <summary>
+        /// Shrinks a key legend to fit the panel whatever its width. Only an active legend can be
+        /// measured (an inactive one's layout reads as empty), so this runs as one is shown.
+        /// </summary>
+        private void FitLegend(RectTransform legend)
+        {
+            if (!legend.gameObject.activeInHierarchy) return;
+            float room = _panel.sizeDelta.x - 2f * Pad;
+            legend.localScale = Vector3.one;
+            LayoutRebuilder.ForceRebuildLayoutImmediate(legend);
+            float wanted = LayoutUtility.GetPreferredWidth(legend);
+            float scale = wanted > room && wanted > 1f ? room / wanted : 1f;
+            legend.localScale = new Vector3(scale, scale, 1f);
+        }
+
+        /// <summary>Draws a frame: the slots, tiles' states, the highlight, the details strip.</summary>
         internal void Render(int[] loadout, HashSet<Special> taken)
         {
             if (_panel == null) return;
@@ -514,12 +653,39 @@ namespace ChefSkills
             _scroll = Mathf.Lerp(_scroll, _scrollTarget, 1f - Mathf.Exp(-Time.unscaledDeltaTime * 16f));
             _content.anchoredPosition = new Vector2(0f, _scroll);
 
-            Special current = loadout != null && (int)Slot < loadout.Length ? (Special)loadout[(int)Slot] : Special.None;
+            if (_stripLegend.gameObject.activeSelf == _inGrid || _gridLegend.gameObject.activeSelf != _inGrid)
+            {
+                _stripLegend.gameObject.SetActive(!_inGrid);
+                _gridLegend.gameObject.SetActive(_inGrid);
+                FitLegend(_inGrid ? _gridLegend : _stripLegend);
+            }
+
             float pulse = 0.5f + 0.5f * Mathf.Sin(now * 5f);
+            float denied = now - _deniedAt;
+            for (int i = 0; i < _boxes.Length; i++)
+            {
+                SlotBox box = _boxes[i];
+                int pickHere = loadout != null && i < loadout.Length ? loadout[i] : 0;
+                if (box.Shown != pickHere)
+                {
+                    if (box.Shown != -1) box.PunchAt = now;
+                    box.Shown = pickHere;
+                    ShowBox(box, (Special)pickHere);
+                }
+                bool focus = i == (int)_slot;
+                box.Back.color = focus ? TileCursorColour : TileColour;
+                box.Frame.enabled = focus;
+                // Bright and pulsing while the slots have the focus; steady while its grid has it.
+                box.Frame.color = focus && !_inGrid ? Color.Lerp(CursorFrame, Color.white, 0.35f * pulse) : WithAlpha(CursorFrame, 0.6f);
+                float grow = focus && !_inGrid ? 1.04f : 1f;
+                box.Root.localScale = Punch(now - box.PunchAt, 0.08f) * grow;
+            }
+
+            Special current = CurrentIn(loadout, _slot);
             for (int i = 0; i < _tiles.Count; i++)
             {
                 Tile tile = _tiles[i];
-                bool cursor = i == _cursor;
+                bool cursor = _inGrid && i == _cursor;
                 bool mine = tile.Special == current;
                 bool allowed = mine || Allowed(tile.Special, loadout, taken);
                 bool isTaken = taken != null && taken.Contains(tile.Special);
@@ -530,7 +696,6 @@ namespace ChefSkills
                 tile.Frame.color = cursor ? Color.Lerp(CursorFrame, Color.white, 0.35f * pulse) : CurrentColour;
 
                 float shake = 0f;
-                float denied = now - _deniedAt;
                 if (i == _deniedTile && denied < 0.35f) shake = Mathf.Sin(denied / 0.35f * Mathf.PI * 6f) * 6f * (1f - denied / 0.35f);
                 float grow = cursor ? 1.08f : 1f;
                 tile.Root.localScale = new Vector3(grow, grow, 1f);
@@ -544,7 +709,18 @@ namespace ChefSkills
                     tile.BadgeBack.color = mine ? CurrentColour : BlockedColour;
                 }
             }
-            ShowDetails(_tiles[_cursor].Special, current, loadout, taken, now);
+            // On the slots, the details are the slot's own pick; in the grid, the highlighted tile.
+            Special shown = _inGrid && _cursor < _tiles.Count ? _tiles[_cursor].Special : current;
+            ShowDetails(shown, current, loadout, taken, now);
+        }
+
+        private void ShowBox(SlotBox box, Special pick)
+        {
+            SpecialInfo info = SpecialCatalog.Info(pick);
+            box.Icon.Show(pick);
+            box.Name.text = info == null ? Lang.T("EMPTY", "TRỐNG")
+                : info.Kind == SpecialKind.Quirk ? info.Name + " +" + info.Refund : info.Name;
+            box.Name.color = info == null ? MutedColour : TitleColour;
         }
 
         private void ShowDetails(Special special, Special current, int[] loadout, HashSet<Special> taken, float now)
@@ -553,21 +729,28 @@ namespace ChefSkills
             _footDisc.color = special == Special.None ? NoneColour : SpecialFx.ColourOf(special);
             SpecialFx.ShowIcon(_footIcon, _footGlyph, special);
             if (special == Special.None) _footGlyph.text = "-";
-            _footName.text = info != null ? (info.Kind == SpecialKind.Quirk ? info.Name + "  +" + info.Refund : info.Name) : Lang.T("NONE", "KHÔNG CÓ");
+            _footName.text = info != null ? (info.Kind == SpecialKind.Quirk ? info.Name + "  +" + info.Refund : info.Name) : Lang.T("EMPTY", "TRỐNG");
             _footTag.text = TagFor(special, info);
-            _footText.text = info != null ? info.Description : SpecialCatalog.SlotHelp[(int)Slot] + Lang.T(". Pick this for none", ". Chọn ô này để không lấy gì");
+            _footText.text = info != null ? info.Description : SpecialCatalog.SlotHelp[(int)_slot];
 
             string status;
             Color colour = CurrentColour;
-            if (special == current) status = Lang.T("YOUR CURRENT PICK", "LỰA CHỌN HIỆN TẠI CỦA BẠN");
+            if (!_inGrid)
+            {
+                status = current == Special.None
+                    ? Lang.T("EMPTY: SELECT TO CHOOSE ONE", "ĐANG TRỐNG: SELECT ĐỂ CHỌN")
+                    : Lang.T("YOUR CURRENT PICK", "LỰA CHỌN HIỆN TẠI CỦA BẠN");
+                if (current == Special.None) colour = MutedColour;
+            }
+            else if (special == current) status = Lang.T("YOUR CURRENT PICK: SELECT AGAIN TO REMOVE IT", "ĐANG CHỌN: SELECT LẦN NỮA ĐỂ BỎ");
             else if (special != Special.None && taken != null && taken.Contains(special))
             {
                 status = Lang.T("ANOTHER PLAYER HAS IT: ONE PER KITCHEN", "NGƯỜI KHÁC ĐÃ CHỌN: MỖI BẾP MỘT NGƯỜI");
                 colour = BlockedColour;
             }
-            else if (special != Special.None && !SpecialCatalog.Fits(loadout, Slot, special))
+            else if (special != Special.None && !SpecialCatalog.Fits(loadout, _slot, special))
             {
-                Special with = SpecialCatalog.ClashWith(loadout, Slot, special);
+                Special with = SpecialCatalog.ClashWith(loadout, _slot, special);
                 status = with != Special.None ? (Lang.Vi ? "KỴ VỚI " + SpecialCatalog.NameOf(with) + " (LỰA CHỌN KHÁC CỦA BẠN)" : "CAN'T GO WITH " + SpecialCatalog.NameOf(with) + " (YOUR OTHER PICK)") : Lang.T("NOT AVAILABLE HERE", "KHÔNG DÙNG ĐƯỢC Ở ĐÂY");
                 colour = BlockedColour;
             }
@@ -584,7 +767,7 @@ namespace ChefSkills
 
         private string TagFor(Special special, SpecialInfo info)
         {
-            if (info == null) return Slot == SpecialSlot.Active ? Lang.T("NO ACTIVE", "KHÔNG CHỦ ĐỘNG") : Slot == SpecialSlot.Quirk ? Lang.T("NO QUIRK", "KHÔNG TẬT") : Lang.T("NO PASSIVE", "KHÔNG BỊ ĐỘNG");
+            if (info == null) return _slot == SpecialSlot.Active ? Lang.T("NO ACTIVE", "KHÔNG CHỦ ĐỘNG") : _slot == SpecialSlot.Quirk ? Lang.T("NO QUIRK", "KHÔNG TẬT") : Lang.T("NO PASSIVE", "KHÔNG BỊ ĐỘNG");
             int category = SpecialCatalog.CategoryOf(special);
             string tag = category >= 0 ? SpecialCatalog.CategoryNames[category] : "";
             if (info.Kind == SpecialKind.Active)
@@ -596,6 +779,110 @@ namespace ChefSkills
         }
 
         // --- building ---------------------------------------------------------------------------
+
+        /// <summary>The focused slot's choices as tiles (the highlight on <paramref name="current"/>).</summary>
+        private void BuildTiles(Special current)
+        {
+            foreach (Tile old in _tiles)
+                if (old.Root != null) Object.Destroy(old.Root.gameObject);
+            _tiles.Clear();
+            _cursor = 0;
+            // No "none" tile: SELECT on the current pick empties the slot instead.
+            foreach (Special choice in SpecialCatalog.Choices(_slot))
+            {
+                if (choice == Special.None) continue;
+                if (choice == current) _cursor = _tiles.Count;
+                _tiles.Add(MakeTile(choice));
+            }
+            _deniedTile = -1;
+            _scroll = _scrollTarget = 0f;
+            float width = _viewport.rect.width;
+            if (width > 1f)
+            {
+                _shownWidth = width;
+                LayoutTiles(width);
+                ScrollToCursor(true);
+            }
+            else _shownWidth = -1f;
+        }
+
+        private SlotBox MakeSlotBox(RectTransform strip, int index, int count)
+        {
+            var box = new SlotBox();
+            box.Root = Child("Slot" + index, strip);
+            box.Root.anchorMin = new Vector2((float)index / count, 0f);
+            box.Root.anchorMax = new Vector2((float)(index + 1) / count, 1f);
+            box.Root.offsetMin = new Vector2(StripBoxGap / 2f, 0f);
+            box.Root.offsetMax = new Vector2(-StripBoxGap / 2f, 0f);
+            box.Back = Sliced(box.Root, "Back", SpecialFx.RoundBox, 0f);
+            box.Frame = Sliced(box.Root, "Frame", SpecialFx.RoundFrame, 3f);
+            box.Frame.enabled = false;
+
+            RectTransform label = Child("Slot", box.Root);
+            label.anchorMin = new Vector2(0f, 1f);
+            label.anchorMax = new Vector2(1f, 1f);
+            label.pivot = new Vector2(0.5f, 1f);
+            label.offsetMin = new Vector2(4f, -26f);
+            label.offsetMax = new Vector2(-4f, -5f);
+            // The slot's name in its own colour (gold active, green passive, red quirk).
+            box.Label = AddText(label, Header, 17, Color.Lerp(SlotIcon.ColourOf((SpecialSlot)index), Color.white, 0.25f),
+                TextAnchor.MiddleCenter, SpecialCatalog.SlotNames[index]);
+            Shrink(box.Label, 17);
+            AddShadow(box.Label.gameObject);
+
+            // The pick, drawn the same way as on the card. Centred in the room between the name
+            // and the pick's name, whatever its size.
+            RectTransform holder = Child("Icon", box.Root);
+            holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 1f);
+            holder.anchoredPosition = new Vector2(0f, -30f - StripIcon / 2f);
+            holder.sizeDelta = new Vector2(StripIcon, StripIcon);
+            box.Icon = new SlotIcon(holder, (SpecialSlot)index, StripIcon * SlotIcon.SizeOf((SpecialSlot)index), Header);
+
+            RectTransform name = Child("Name", box.Root);
+            name.anchorMin = new Vector2(0f, 0f);
+            name.anchorMax = new Vector2(1f, 0f);
+            name.pivot = new Vector2(0.5f, 0f);
+            name.offsetMin = new Vector2(5f, 4f);
+            name.offsetMax = new Vector2(-5f, 34f);
+            box.Name = AddText(name, Header, 16, TitleColour, TextAnchor.MiddleCenter, "");
+            Shrink(box.Name, 16);
+            box.Name.lineSpacing = 0.85f;
+            AddShadow(box.Name.gameObject);
+            return box;
+        }
+
+        /// <summary>Wraps a text and lets it shrink to fit its box.</summary>
+        private static void Shrink(Text text, int size)
+        {
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.resizeTextForBestFit = true;
+            text.resizeTextMaxSize = size;
+            text.resizeTextMinSize = 10;
+        }
+
+        /// <summary>The keys on the panel's bottom rim, for the slots or for the grid.</summary>
+        private RectTransform MakeLegend(bool slots)
+        {
+            RectTransform legend = Child(slots ? "SlotKeys" : "PickKeys", _panel);
+            legend.anchorMin = legend.anchorMax = new Vector2(0.5f, 0f);
+            legend.anchoredPosition = new Vector2(0f, Pad + LegendHeight / 2f - 4f);
+            legend.sizeDelta = new Vector2(900f, 40f);
+            HorizontalLayoutGroup row = legend.gameObject.AddComponent<HorizontalLayoutGroup>();
+            row.childAlignment = TextAnchor.MiddleCenter;
+            row.spacing = 8f;
+            row.childControlWidth = true;
+            row.childControlHeight = true;
+            row.childForceExpandWidth = false;
+            row.childForceExpandHeight = false;
+            // The directions aren't listed: moving with them is a given.
+            AddButton(legend, PlayerInputLookup.LogicalButtonID.UISelectNotStart, "SELECT");
+            AddLabel(legend, slots ? Lang.T("CHANGE", "ĐỔI") : Lang.T("PICK / REMOVE", "CHỌN / BỎ"));
+            AddGap(legend, 26f);
+            AddButton(legend, PlayerInputLookup.LogicalButtonID.UICancel, "BACK");
+            AddLabel(legend, slots ? Lang.T("CLOSE", "ĐÓNG") : Lang.T("BACK", "QUAY LẠI"));
+            legend.gameObject.SetActive(slots);
+            return legend;
+        }
 
         /// <summary>Places the tiles in rows, each category starting a new row under its header.</summary>
         private void LayoutTiles(float width)
@@ -852,6 +1139,21 @@ namespace ChefSkills
             Shadow shadow = target.AddComponent<Shadow>();
             shadow.effectColor = ShadowColour;
             shadow.effectDistance = new Vector2(2f, -2f);
+        }
+
+        private static Color WithAlpha(Color colour, float alpha)
+        {
+            colour.a = alpha;
+            return colour;
+        }
+
+        /// <summary>A quick grow-and-settle, <paramref name="amount"/> bigger at the peak.</summary>
+        private static Vector3 Punch(float age, float amount)
+        {
+            const float seconds = 0.18f;
+            if (age < 0f || age >= seconds) return Vector3.one;
+            float s = 1f + amount * Mathf.Sin(Mathf.PI * age / seconds);
+            return new Vector3(s, s, 1f);
         }
 
         private static float EaseOutBack(float t)

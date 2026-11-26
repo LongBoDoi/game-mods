@@ -110,6 +110,39 @@ namespace ChefSkills
     }
 
     /// <summary>
+    /// While the skill screen is open, the kitchen behind it can't be used: the pause menu doesn't
+    /// open. A Start / Esc press then is thrown away, so it doesn't open the menu the moment the
+    /// screen closes either. A pause the game makes for itself (its network or system layer) just
+    /// waits until the screen has closed.
+    /// </summary>
+    [HarmonyPatch(typeof(PauseMenuManager), "UpdateWhileClosed")]
+    internal static class SkillScreenPausePatch
+    {
+        private static readonly FieldInfo StartButtonsField =
+            AccessTools.Field(typeof(PauseMenuManager), "m_startButtons");
+
+        private static bool Prefix(PauseMenuManager __instance)
+        {
+            if (!SkillSelectScreen.IsOpen) return true;
+            ILogicalButton[] buttons = StartButtonsField != null ? StartButtonsField.GetValue(__instance) as ILogicalButton[] : null;
+            if (buttons != null)
+                foreach (ILogicalButton button in buttons)
+                    if (button != null) button.JustPressed();
+            return false;
+        }
+    }
+
+    /// <summary>No emote wheel opens while the skill screen is open.</summary>
+    [HarmonyPatch(typeof(EmoteWheel), "CanShow")]
+    internal static class SkillScreenEmotePatch
+    {
+        private static void Postfix(ref bool __result)
+        {
+            if (SkillSelectScreen.IsOpen) __result = false;
+        }
+    }
+
+    /// <summary>
     /// CHOPPING on the host, which decides when the item is chopped: a fractional stroke counter
     /// per chef, so 1.36x chops count 1 or 2 and the leftover carries on to the next item.
     /// </summary>

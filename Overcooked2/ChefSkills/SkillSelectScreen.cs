@@ -35,9 +35,14 @@ namespace ChefSkills
         private static List<Slot> _slots;
         private static bool _open;
 
+        // When the screen's loop last ran. If the level is torn down while the screen is up, the
+        // loop just stops; the screen then stops counting as open, so it can't keep the pause menu
+        // (or the HUD) blocked afterwards.
+        private static float _tick = -10f;
+
         internal static bool IsOpen
         {
-            get { return _open; }
+            get { return _open && Time.unscaledTime - _tick < 1f; }
         }
 
         /// <summary>Runs the skill-select screen, then the game's own intro (Ready... Go!).</summary>
@@ -61,6 +66,7 @@ namespace ChefSkills
                 while (true)
                 {
                     bool more;
+                    _tick = Time.unscaledTime;
                     try
                     {
                         more = screen.MoveNext();
@@ -137,7 +143,10 @@ namespace ChefSkills
             public SpecialInput.Capture Capture;
             // The special picker, while it is open for this player.
             public SkillPicker Picker;
-            // Moving the skill bar's preview (BAR POSITION row): where it is now.
+            // The SETTINGS panel (keys and skill bar) is open over this player's card, on this row.
+            public bool SettingsOpen;
+            public int Setting;
+            // Moving the skill bar's preview (the panel's BAR POSITION row): where it is now.
             public bool Placing;
             public Vector2 PlaceSpot;
             public string Notice;
@@ -192,6 +201,9 @@ namespace ChefSkills
             }
             var players = new List<PlayerInputLookup.Player>(chefs.Keys);
             players.Sort();
+            // From here on the kitchen behind can't be used (no pause menu, no emote wheel), also
+            // while the screen's art is still loading.
+            _open = true;
 
             // The dialog art comes from the in-game menu scene, which the kitchen loads
             // additively; give it a moment. The view still works (plainer) without it.
@@ -452,7 +464,8 @@ namespace ChefSkills
                     DetailsKeyName = SpecialInput.DetailsNameFor(slot.Player) ?? Lang.T("NONE", "KHÔNG CÓ"),
                     BarMode = SkillBarSettings.Name(SkillBarSettings.Get(slot.Rank)), Keyboard = SpecialInput.IsKeyboard(slot.Player),
                     BarSize = SkillBarSettings.SizePercent(slot.Rank) + "%", BarSizePercent = SkillBarSettings.SizePercent(slot.Rank), BarSpot = SkillBarSettings.PositionName(slot.Rank), Placing = slot.Placing,
-                    Capturing = slot.Capture != null, CapturingDetails = slot.Capture != null && slot.Capture.Details, Notice = slot.Notice, NoticeAt = slot.NoticeAt
+                    Capturing = slot.Capture != null, CapturingDetails = slot.Capture != null && slot.Capture.Details, Notice = slot.Notice, NoticeAt = slot.NoticeAt,
+                    SettingsOpen = slot.SettingsOpen, Setting = slot.Setting
                 });
             if (remote != null)
                 foreach (SkillSync.RemoteCard card in remote)
@@ -474,7 +487,7 @@ namespace ChefSkills
         private static bool HandleHide(List<Slot> slots)
         {
             bool capturing = false;
-            foreach (Slot slot in slots) capturing |= slot.Capture != null || slot.Picker != null || slot.Placing;
+            foreach (Slot slot in slots) capturing |= slot.Capture != null || slot.Picker != null || slot.Placing || slot.SettingsOpen;
             if (capturing) return false;
             bool toggle = false;
             foreach (Slot slot in slots)
@@ -542,13 +555,15 @@ namespace ChefSkills
             }
             if (slot.Picker != null)
             {
-                // The special picker is open: every press goes to it.
+                // The special picker is open: every press goes to it. It stays open after a pick,
+                // so the other slots can be changed too, until the player closes it.
                 Special picked = Special.None;
+                SpecialSlot pickedSlot = SpecialSlot.Active;
                 SkillPicker.Outcome outcome;
                 try
                 {
                     outcome = slot.Picker.HandleInput(slot.Up, slot.Down, slot.Left, slot.Right,
-                        slot.Select, slot.Cancel, slot.Specials, taken, out picked);
+                        slot.Select, slot.Cancel, slot.Specials, taken, out pickedSlot, out picked);
                 }
                 catch (Exception error)
                 {
@@ -562,13 +577,13 @@ namespace ChefSkills
                         PlaySound(GameOneShotAudioTag.UIHighlight);
                         break;
                     case SkillPicker.Outcome.Refused:
+                    case SkillPicker.Outcome.Returned:
                         PlaySound(GameOneShotAudioTag.UIBack);
                         break;
                     case SkillPicker.Outcome.Picked:
-                        slot.Specials[(int)slot.Picker.Slot] = (int)picked;
+                        slot.Specials[(int)pickedSlot] = (int)picked;
                         KeepAboveFloors(slot);
-                        ClosePicker(slot);
-                        PlaySound(GameOneShotAudioTag.UISelect);
+                        PlaySound(picked == Special.None ? GameOneShotAudioTag.UIBack : GameOneShotAudioTag.UISelect);
                         break;
                     case SkillPicker.Outcome.Closed:
                         ClosePicker(slot);
@@ -577,38 +592,26 @@ namespace ChefSkills
                 }
                 return;
             }
-            if (!slot.Ready && IsSpecialRow(slot.Selected) && slot.Select.JustPressed())
-            {
-                slot.Select.ClaimPressEvent();
-                OpenPicker(slot, false);
-                return;
-            }
-            bool keyRow = slot.Selected == SkillSelectView.KeyRow || slot.Selected == SkillSelectView.DetailsRow;
-            if (!slot.Ready && keyRow && slot.Select.JustPressed())
-            {
-                slot.Select.ClaimPressEvent();
-                slot.Capture = new SpecialInput.Capture(slot.Player, slot.Selected == SkillSelectView.DetailsRow);
-                PlaySound(GameOneShotAudioTag.UISelect);
-                return;
-            }
             if (slot.Placing)
             {
                 HandlePlacing(slot);
                 return;
             }
-            if (!slot.Ready && slot.Selected == SkillSelectView.SizeRow && slot.Select.JustPressed())
+            if (slot.SettingsOpen)
             {
-                StepSize(slot, SkillBarSettings.SizePercent(slot.Rank) >= SkillBarSettings.MaxSize ? -10 : 1);
+                HandleSettings(slot);
                 return;
             }
-            if (!slot.Ready && slot.Selected == SkillSelectView.SpotRow && slot.Select.JustPressed())
+            if (!slot.Ready && slot.Selected == SkillSelectView.EditRow && slot.Select.JustPressed())
             {
-                StartPlacing(slot);
+                slot.Select.ClaimPressEvent();
+                OpenPicker(slot, SpecialSlot.Active, false);
                 return;
             }
-            if (!slot.Ready && slot.Selected == SkillSelectView.BarRow && slot.Select.JustPressed())
+            if (!slot.Ready && slot.Selected == SkillSelectView.SettingsRow && slot.Select.JustPressed())
             {
-                StepBar(slot, 1);
+                slot.Select.ClaimPressEvent();
+                OpenSettings(slot);
                 return;
             }
             // SELECT on a skill row does nothing: locking in has its own button.
@@ -657,22 +660,9 @@ namespace ChefSkills
                 PlaySound(GameOneShotAudioTag.UIHighlight);
             }
 
-            if (slot.Selected == SkillSelectView.BarRow)
-            {
-                // DISPLAY: Left/Right step through on screen / over head / hidden.
-                if (slot.Left.JustPressed()) StepBar(slot, -1);
-                if (slot.Right.JustPressed()) StepBar(slot, 1);
-                return;
-            }
-            if (slot.Selected == SkillSelectView.SizeRow)
-            {
-                if (slot.Left.JustPressed()) StepSize(slot, -1);
-                if (slot.Right.JustPressed()) StepSize(slot, 1);
-                return;
-            }
             if (slot.Selected >= SkillStats.Count)
             {
-                // Special and key rows: SELECT opens the picker / sets the key; Left/Right do nothing.
+                // EDIT SKILLS and SETTINGS: SELECT opens them; Left/Right do nothing.
                 Discard(slot.Left);
                 Discard(slot.Right);
                 return;
@@ -852,23 +842,92 @@ namespace ChefSkills
             PlaySound(GameOneShotAudioTag.UIHighlight);
         }
 
-        private static bool IsSpecialRow(int row)
+        /// <summary>Opens the SETTINGS panel (keys and skill bar) over this player's card.</summary>
+        private static void OpenSettings(Slot slot)
         {
-            return SpecialCatalog.Enabled && row >= SkillStats.Count && row < SkillStats.Count + SpecialCatalog.SlotCount;
+            if (!SpecialCatalog.Enabled) return;
+            slot.SettingsOpen = true;
+            slot.Setting = 0;
+            slot.Selected = SkillSelectView.SettingsRow;
+            PlaySound(GameOneShotAudioTag.UISelect);
         }
 
-        /// <summary>Opens the special picker for the slot's highlighted ACTIVE / PASSIVE / QUIRK row.</summary>
-        private static void OpenPicker(Slot slot, bool byMouse)
+        private static void CloseSettings(Slot slot)
         {
-            if (_view == null || _view.Overlay == null || !IsSpecialRow(slot.Selected)) return;
-            var which = (SpecialSlot)(slot.Selected - SkillStats.Count);
+            slot.SettingsOpen = false;
+            PlaySound(GameOneShotAudioTag.UIBack);
+        }
+
+        /// <summary>
+        /// The SETTINGS panel is open: UP / DOWN pick a setting, SELECT uses it (sets a key, steps
+        /// the display or size, starts moving the bar), LEFT / RIGHT step DISPLAY and BAR SIZE, BACK
+        /// closes the panel. LOCK IN does nothing until it is closed.
+        /// </summary>
+        private static void HandleSettings(Slot slot)
+        {
+            bool back = slot.Cancel.JustPressed();
+            bool up = slot.Up.JustPressed(), down = slot.Down.JustPressed();
+            bool left = slot.Left.JustPressed(), right = slot.Right.JustPressed();
+            bool select = slot.Select.JustPressed();
+            ClaimAll(slot);
+            if (back)
+            {
+                CloseSettings(slot);
+                return;
+            }
+            int count = SkillSelectView.SettingCount;
+            int move = (down ? 1 : 0) - (up ? 1 : 0);
+            if (move != 0)
+            {
+                slot.Setting = (slot.Setting + move + count) % count;
+                PlaySound(GameOneShotAudioTag.UIHighlight);
+                return;
+            }
+            if (select)
+            {
+                UseSetting(slot);
+                return;
+            }
+            int step = (right ? 1 : 0) - (left ? 1 : 0);
+            if (step == 0) return;
+            if (slot.Setting == SkillSelectView.BarSetting) StepBar(slot, step);
+            else if (slot.Setting == SkillSelectView.SizeSetting) StepSize(slot, step);
+        }
+
+        /// <summary>What SELECT (or a click) does on the panel's highlighted setting.</summary>
+        private static void UseSetting(Slot slot)
+        {
+            switch (slot.Setting)
+            {
+                case SkillSelectView.KeySetting:
+                case SkillSelectView.DetailsSetting:
+                    slot.Capture = new SpecialInput.Capture(slot.Player, slot.Setting == SkillSelectView.DetailsSetting);
+                    PlaySound(GameOneShotAudioTag.UISelect);
+                    break;
+                case SkillSelectView.BarSetting:
+                    StepBar(slot, 1);
+                    break;
+                case SkillSelectView.SizeSetting:
+                    StepSize(slot, SkillBarSettings.SizePercent(slot.Rank) >= SkillBarSettings.MaxSize ? -10 : 1);
+                    break;
+                default:
+                    StartPlacing(slot);
+                    break;
+            }
+        }
+
+        /// <summary>Opens the special picker for this player, with <paramref name="which"/> slot in focus.</summary>
+        private static void OpenPicker(Slot slot, SpecialSlot which, bool byMouse)
+        {
+            if (_view == null || _view.Overlay == null || !SpecialCatalog.Enabled) return;
+            slot.Selected = SkillSelectView.EditRow;
             string owner = _slots != null && _slots.Count > 1 ? slot.Title : null;
             try
             {
                 // With several players here, each picker keeps to its own player's part of the
                 // screen, so everyone else can still see their card and carry on.
                 bool shared = _slots != null && _slots.Count > 1;
-                slot.Picker = SkillPicker.Open(_view.Overlay, _view.Art, slot.Player, owner, which, (Special)slot.Specials[(int)which], byMouse, shared);
+                slot.Picker = SkillPicker.Open(_view.Overlay, _view.Art, slot.Player, owner, which, slot.Specials, byMouse, shared);
                 if (slot.Picker != null) slot.Picker.Solo = slot.Chefs != null && slot.Chefs.Length > 1;
                 if (_slots != null) PlacePickers(_slots);
                 PlaySound(GameOneShotAudioTag.UISelect);
@@ -890,22 +949,42 @@ namespace ChefSkills
         }
 
         /// <summary>
-        /// A click on a special row of one of this machine's cards opens the picker for it (when
-        /// that player has none open, the click isn't on someone's open picker, and the screen
-        /// isn't hidden).
+        /// The mouse on this machine's cards (when the click isn't on someone's open picker and the
+        /// screen isn't hidden): on an open SETTINGS panel, a click on a setting uses it and a click
+        /// off the panel closes it (with one player here); otherwise a click on a special icon or
+        /// EDIT SKILLS opens the picker, and on SETTINGS opens the panel.
         /// </summary>
         private static void HandleMouse(List<Slot> slots)
         {
             if (_view == null || _view.Hidden || !Input.GetMouseButtonDown(0)) return;
-            if (SkillPicker.AnyAt(Input.mousePosition)) return;
-            string key;
-            int row;
-            if (!_view.SpecialRowAt(Input.mousePosition, out key, out row)) return;
+            Vector3 mouse = Input.mousePosition;
+            if (SkillPicker.AnyAt(mouse)) return;
             foreach (Slot slot in slots)
             {
-                if ("L" + (int)slot.Player != key || slot.Ready || slot.Picker != null || slot.Capture != null) continue;
-                slot.Selected = row;
-                OpenPicker(slot, true);
+                if (!slot.SettingsOpen || slot.Capture != null || slot.Placing) continue;
+                int setting;
+                if (_view.SettingAt(mouse, "L" + (int)slot.Player, out setting))
+                {
+                    if (setting < 0) return;
+                    slot.Setting = setting;
+                    UseSetting(slot);
+                    return;
+                }
+                if (slots.Count == 1)
+                {
+                    CloseSettings(slot);
+                    return;
+                }
+            }
+            string key;
+            int row, which;
+            if (!_view.ControlAt(mouse, out key, out row, out which)) return;
+            foreach (Slot slot in slots)
+            {
+                if ("L" + (int)slot.Player != key || slot.Ready || slot.Picker != null || slot.Capture != null ||
+                    slot.SettingsOpen || slot.Placing) continue;
+                if (row == SkillSelectView.SettingsRow) OpenSettings(slot);
+                else OpenPicker(slot, (SpecialSlot)which, true);
                 return;
             }
         }

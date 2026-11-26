@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
 using System.Text;
 using BepInEx.Configuration;
+using HarmonyLib;
 using Team17.Online.Multiplayer.Messaging;
 using UnityEngine;
 
@@ -36,9 +38,8 @@ namespace ChefSkills
     }
 
     /// <summary>
-    /// What each skill level is worth, read from the BepInEx config so it can be tuned without a
-    /// rebuild. A level is worth PercentPerLevel: at 12, level +3 is 36% faster and level -2 is
-    /// 24% slower.
+    /// What each skill level is worth. The numbers are fixed (no config), so a build means the
+    /// same on every machine: at 12% per level, level +3 is 36% faster and level -2 is 24% slower.
     /// </summary>
     internal static class SkillStats
     {
@@ -47,14 +48,18 @@ namespace ChefSkills
         private const float MinMultiplier = 0.1f;
         private const float MaxMultiplier = 5f;
 
-        private static readonly ConfigEntry<int>[] Percent = new ConfigEntry<int>[Count];
-        private static readonly ConfigEntry<int>[] MinLevels = new ConfigEntry<int>[Count];
-        private static ConfigEntry<int> _maxLevel;
-        private static ConfigEntry<int> _maxPointsFreed;
-        private static ConfigEntry<int> _balanceVersion;
+        /// <summary>The highest level a skill can be set to on the card (and minus it, the lowest).</summary>
+        internal const int MaxLevel = 3;
 
-        // What this build's balance numbers are (see MigrateDefaults).
-        private const int CurrentBalance = 2;
+        /// <summary>
+        /// The most points lowering skills can free (a quirk's points come on top): without a cap a
+        /// chef could dump every skill they never use and max everything else.
+        /// </summary>
+        internal const int MaxPointsFreed = 2 * MaxLevel;
+
+        // What one level of each skill is worth, in percent, in Skill order: Cooking, Slow burn,
+        // Chopping, Washing, Serving, Running, Dashing, Throwing, Firefighting.
+        private static readonly int[] PercentPerLevel = { 12, 20, 12, 15, 20, 6, 10, 12, 20 };
 
         // Skill names in English (also what the log uses) and in Vietnamese.
         private static readonly string[] NamesEn =
@@ -114,138 +119,48 @@ namespace ChefSkills
             "How fast your extinguisher puts out fire",
         };
 
+        /// <summary>
+        /// The skill numbers used to be settings (`MaxLevel`, `MaxPointsFreed`, `BalanceVersion` and
+        /// every `[Skill.*]` section). They are fixed now, so an old config file's entries for them
+        /// are dropped from the file, which would otherwise keep them as if they still did something.
+        /// </summary>
         internal static void Bind(ConfigFile config)
         {
-            _maxLevel = config.Bind("General", "MaxLevel", 3,
-                new ConfigDescription("Mức cao nhất (và thấp nhất, số âm) của mỗi kỹ năng.",
-                    new AcceptableValueRange<int>(1, 5)));
-
-            _maxPointsFreed = config.Bind("General", "MaxPointsFreed", 0,
-                new ConfigDescription("Số điểm tối đa có được từ việc hạ các kỹ năng (điểm của tật cộng thêm ngoài số này). " +
-                    "0 = gấp đôi MaxLevel (6 khi MaxLevel là 3).",
-                    new AcceptableValueRange<int>(0, 45)));
-            _balanceVersion = config.Bind("General", "BalanceVersion", 0,
-                "Phiên bản cân bằng của các số mặc định trong tệp này (mod tự cập nhật, đừng sửa).");
-
-            BindSkill(config, Skill.Cooking, 12, -5, "Tốc độ nấu/trộn của nồi, chảo, bát trộn mà đầu bếp cho nguyên liệu vào gần nhất");
-            BindSkill(config, Skill.SlowBurn, 20, -5, "Thời gian món đã chín giữ được trước khi cháy (hoặc trộn quá tay)");
-            BindSkill(config, Skill.Chopping, 12, -5, "Tốc độ thái");
-            BindSkill(config, Skill.Washing, 15, -5, "Tốc độ rửa đĩa");
-            BindSkill(config, Skill.Serving, 20, -5, "Tốc độ đĩa bẩn quay lại sau khi đầu bếp giao món");
-            BindSkill(config, Skill.Running, 6, -5, "Tốc độ chạy");
-            BindSkill(config, Skill.Dashing, 10, -5, "Quãng lướt và tốc độ hồi lướt");
-            BindSkill(config, Skill.Throwing, 12, -1, "Độ xa khi ném");
-            BindSkill(config, Skill.Firefighting, 20, -1, "Tốc độ dập lửa của bình cứu hỏa");
-            MigrateDefaults(config);
-        }
-
-        private static void BindSkill(ConfigFile config, Skill skill, int percent, int minLevel, string what)
-        {
-            Percent[(int)skill] = config.Bind("Skill." + skill, "PercentPerLevel", percent,
-                new ConfigDescription(what + ": mỗi mức +1 nhanh hơn (mỗi mức -1 chậm hơn) bấy nhiêu phần trăm.",
-                    new AcceptableValueRange<int>(0, 50)));
-            MinLevels[(int)skill] = config.Bind("Skill." + skill, "MinLevel", minLevel,
-                new ConfigDescription("Mức thấp nhất được hạ kỹ năng này xuống (không thấp hơn -MaxLevel).",
-                    new AcceptableValueRange<int>(-5, 0)));
-        }
-
-        /// <summary>
-        /// An existing config file keeps the numbers it was written with, even when a new version
-        /// changes a default (and online the host's file is what everyone plays by). So a file from
-        /// before the balance pass moves each number still at its old default to the new one.
-        /// </summary>
-        private static void MigrateDefaults(ConfigFile config)
-        {
-            if (_balanceVersion == null || _balanceVersion.Value >= CurrentBalance) return;
-            if (_balanceVersion.Value < 2)
-            {
-                MoveDefault(Skill.Dashing, 15, 10);
-                MoveDefault(Skill.Serving, 15, 20);
-            }
-            _balanceVersion.Value = CurrentBalance;
             try
             {
+                PropertyInfo property = AccessTools.Property(typeof(ConfigFile), "OrphanedEntries");
+                var orphans = property != null ? property.GetValue(config, null) as Dictionary<ConfigDefinition, string> : null;
+                if (orphans == null) return;
+                var old = new List<ConfigDefinition>();
+                foreach (ConfigDefinition definition in orphans.Keys)
+                    if (definition.Section.StartsWith("Skill.") ||
+                        (definition.Section == "General" &&
+                         (definition.Key == "MaxLevel" || definition.Key == "MaxPointsFreed" || definition.Key == "BalanceVersion")))
+                        old.Add(definition);
+                if (old.Count == 0) return;
+                foreach (ConfigDefinition definition in old) orphans.Remove(definition);
                 config.Save();
+                Plugin.Log.LogInfo("Đã bỏ " + old.Count + " cài đặt số kỹ năng cũ khỏi tệp cài đặt (giờ các số này cố định).");
             }
             catch (Exception error)
             {
-                Plugin.Log.LogWarning("Không lưu được tệp cài đặt sau khi cập nhật số cân bằng: " + error.Message);
+                Plugin.Log.LogDebug("Không dọn được cài đặt số kỹ năng cũ: " + error.Message);
             }
-        }
-
-        private static void MoveDefault(Skill skill, int oldDefault, int newDefault)
-        {
-            ConfigEntry<int> entry = Percent[(int)skill];
-            if (entry != null && entry.Value == oldDefault) entry.Value = newDefault;
-        }
-
-        // Online, the host's numbers replace this machine's own, so every machine computes the
-        // same speed for the same chef (null: use this machine's config).
-        private static int s_hostMaxLevel;
-        private static int[] s_hostPercent;
-        private static int s_hostMaxFreed;
-        private static int[] s_hostMinLevels;
-
-        internal static int MaxLevel
-        {
-            get
-            {
-                if (s_hostPercent != null) return s_hostMaxLevel;
-                return OwnMaxLevel;
-            }
-        }
-
-        private static int OwnMaxLevel
-        {
-            get { return _maxLevel != null ? Mathf.Clamp(_maxLevel.Value, 1, 5) : 3; }
         }
 
         /// <summary>
-        /// The most points lowering skills can free (a quirk's points come on top): without a cap a
-        /// chef could dump every skill they never use and max everything else.
-        /// </summary>
-        internal static int MaxPointsFreed
-        {
-            get
-            {
-                if (s_hostPercent != null) return s_hostMaxFreed;
-                return OwnMaxPointsFreed;
-            }
-        }
-
-        private static int OwnMaxPointsFreed
-        {
-            get
-            {
-                int value = _maxPointsFreed != null ? _maxPointsFreed.Value : 0;
-                return value > 0 ? Mathf.Clamp(value, 1, 45) : 2 * OwnMaxLevel;
-            }
-        }
-
-        private static int OwnMinLevel(int skill)
-        {
-            ConfigEntry<int> entry = MinLevels[skill];
-            return entry != null ? Mathf.Clamp(entry.Value, -5, 0) : -5;
-        }
-
-        /// <summary>
-        /// The lowest level a skill can go to under the rules in use: its MinLevel (never below
-        /// -MaxLevel), and 0 when the loadout's quirk already takes that skill away (Heavy Boots
-        /// can't dash, so lowering DASHING would be a free point).
+        /// The lowest level a skill can go to: -MaxLevel, and 0 when the loadout's quirk already
+        /// takes that skill away (Heavy Boots can't dash, so lowering DASHING would be a free point).
         /// </summary>
         internal static int MinLevel(Skill skill, int[] loadout)
         {
-            int floor = s_hostMinLevels != null ? s_hostMinLevels[(int)skill] : OwnMinLevel((int)skill);
-            floor = Mathf.Max(floor, -MaxLevel);
-            if (SpecialCatalog.LocksSkill(loadout, skill)) floor = Mathf.Max(floor, 0);
-            return floor;
+            return SpecialCatalog.LocksSkill(loadout, skill) ? 0 : -MaxLevel;
         }
 
         private static int PercentOf(Skill skill)
         {
-            if (s_hostPercent != null) return s_hostPercent[(int)skill];
-            ConfigEntry<int> entry = Percent[(int)skill];
-            return entry != null ? Mathf.Clamp(entry.Value, 0, 50) : 0;
+            int index = (int)skill;
+            return index >= 0 && index < PercentPerLevel.Length ? PercentPerLevel[index] : 0;
         }
 
         /// <summary>1 = game default, 1.36 = 36% faster, 0.76 = 24% slower.</summary>
@@ -256,84 +171,24 @@ namespace ChefSkills
         }
 
         /// <summary>
-        /// This machine's own numbers, as the host publishes them:
-        /// "max|p.p.p...|specialFlags|maxFreed|min.min.min...".
+        /// This machine's own rules, as the host publishes them: the special-skill switches (see
+        /// SpecialCatalog.OwnFlags). The skill numbers are fixed, so they needn't be sent.
         /// </summary>
         internal static string FormatOwnRules()
         {
-            var text = new StringBuilder();
-            text.Append(OwnMaxLevel.ToString(CultureInfo.InvariantCulture)).Append('|');
-            for (int i = 0; i < Count; i++)
-            {
-                if (i > 0) text.Append('.');
-                ConfigEntry<int> entry = Percent[i];
-                text.Append((entry != null ? Mathf.Clamp(entry.Value, 0, 50) : 0).ToString(CultureInfo.InvariantCulture));
-            }
-            // The special-skill switches (see SpecialCatalog.OwnFlags).
-            text.Append('|').Append(SpecialCatalog.OwnFlags().ToString(CultureInfo.InvariantCulture));
-            text.Append('|').Append(OwnMaxPointsFreed.ToString(CultureInfo.InvariantCulture)).Append('|');
-            for (int i = 0; i < Count; i++)
-            {
-                if (i > 0) text.Append('.');
-                text.Append(OwnMinLevel(i).ToString(CultureInfo.InvariantCulture));
-            }
-            return text.ToString();
+            return SpecialCatalog.OwnFlags().ToString(CultureInfo.InvariantCulture);
         }
 
         /// <summary>
-        /// Uses the host's numbers (from <see cref="FormatOwnRules"/> on the host) instead of this
+        /// Uses the host's rules (from <see cref="FormatOwnRules"/> on the host) instead of this
         /// machine's own; null or unreadable goes back to this machine's own config.
         /// </summary>
         internal static void UseHostRules(string rules)
         {
-            int max;
-            int[] percent = null;
-            int? flags = null;
-            if (!string.IsNullOrEmpty(rules))
-            {
-                string[] parts = rules.Split('|');
-                string[] values = parts.Length >= 2 ? parts[1].Split('.') : null;
-                int flagValue;
-                if (parts.Length >= 3 &&
-                    int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out flagValue))
-                    flags = flagValue;
-                if (values != null && values.Length == Count &&
-                    int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out max))
-                {
-                    percent = new int[Count];
-                    for (int i = 0; i < Count && percent != null; i++)
-                    {
-                        int value;
-                        if (int.TryParse(values[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
-                            percent[i] = Mathf.Clamp(value, 0, 50);
-                        else percent = null;
-                    }
-                    s_hostMaxLevel = Mathf.Clamp(max, 1, 5);
-                }
-                // The cap on freed points and the floors (always there in this version's rules;
-                // without them the host's rules can't be read, so this machine's own apply).
-                int freed;
-                string[] floors = parts.Length >= 5 ? parts[4].Split('.') : null;
-                int[] minLevels = null;
-                if (percent != null && floors != null && floors.Length == Count &&
-                    int.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out freed))
-                {
-                    minLevels = new int[Count];
-                    for (int i = 0; i < Count && minLevels != null; i++)
-                    {
-                        int value;
-                        if (int.TryParse(floors[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
-                            minLevels[i] = Mathf.Clamp(value, -5, 0);
-                        else minLevels = null;
-                    }
-                    s_hostMaxFreed = Mathf.Clamp(freed, 1, 45);
-                }
-                if (minLevels == null) percent = null;
-                s_hostMinLevels = minLevels;
-            }
-            else s_hostMinLevels = null;
-            s_hostPercent = percent;
-            SpecialCatalog.UseHostFlags(percent != null ? flags : null);
+            int flags = 0;
+            bool read = !string.IsNullOrEmpty(rules) &&
+                int.TryParse(rules, NumberStyles.Integer, CultureInfo.InvariantCulture, out flags);
+            SpecialCatalog.UseHostFlags(read ? (int?)flags : null);
         }
 
         /// <summary>The change in percent a level makes, e.g. +36 or -24.</summary>

@@ -16,8 +16,8 @@ namespace ChefSkills
     /// applies every player's skills to their chefs. That has to happen everywhere, not only on
     /// the host: the host decides what actually happens, but each machine also simulates chopping
     /// and washing progress and its own players' movement, and those must run at the host's
-    /// speed or the bars lie and the chef gets pulled back. For the same reason every machine
-    /// uses the host's numbers (MaxLevel, PercentPerLevel), which the host writes into the lobby.
+    /// speed or the bars lie and the chef gets pulled back. The skill numbers are fixed in the mod,
+    /// so every machine computes the same speeds; the host's special-skill switches go through the lobby.
     ///
     /// It needs no network message of its own: each machine writes its players' skill levels,
     /// ready flags and chef entity IDs into its own Steam lobby member data (a key/value store
@@ -82,7 +82,9 @@ namespace ChefSkills
         // chosen target in the press, chefs standing still while aiming; Swap and Summon wind up).
         // 8: the balance pass (a cap on freed points, skill floors, capped bonuses, shared
         // cooldowns, protocol 4), which changes what every machine simulates.
-        private const string Version = "8";
+        // 9: fixed skill numbers (no MaxLevel, PercentPerLevel or MinLevel settings); the host
+        // now publishes only its special-skill switches.
+        private const string Version = "9";
         private const float TickSeconds = 0.5f;
         private const int LevelLimit = 5;
 
@@ -538,8 +540,8 @@ namespace ChefSkills
         }
 
         /// <summary>
-        /// The host writes its MaxLevel and PercentPerLevel numbers into the lobby; everyone else
-        /// uses them in place of their own, so the same build means the same speed everywhere.
+        /// The host writes its special-skill switches into the lobby; everyone else uses them in
+        /// place of their own, so the same specials are on (and versus picks allowed) everywhere.
         /// </summary>
         private static void SyncRules(CSteamID lobby, bool host)
         {
