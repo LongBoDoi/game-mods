@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using BepInEx.Configuration;
+using UnityEngine;
 
 namespace ChefSkills
 {
@@ -46,8 +47,12 @@ namespace ChefSkills
 
     internal enum SpecialKind { Active, Passive, Quirk }
 
-    /// <summary>The four picks on a card, in the order they are shown and sent.</summary>
-    internal enum SpecialSlot { Active = 0, Passive1 = 1, Passive2 = 2, Quirk = 3 }
+    /// <summary>
+    /// The picks on a card, in the order they are sent. New slots go at the end so old numbers keep
+    /// their meaning (the third passive and the second active came after the quirk); the card
+    /// shows them in <see cref="SpecialCatalog.RowOrder"/>.
+    /// </summary>
+    internal enum SpecialSlot { Active = 0, Passive1 = 1, Passive2 = 2, Quirk = 3, Passive3 = 4, Active2 = 5 }
 
     internal sealed class SpecialInfo
     {
@@ -75,6 +80,11 @@ namespace ChefSkills
         public float Cooldown;
         /// <summary>Quirks: skill points it frees.</summary>
         public int Refund;
+        /// <summary>
+        /// Passives: how much of the passive budget it takes (1 light, 2 solid, 3 build-defining).
+        /// A chef's passives add up to at most <see cref="SpecialCatalog.PassiveBudget"/>.
+        /// </summary>
+        public int Level;
         /// <summary>Only one chef in the kitchen can have it (its effect covers the whole team).</summary>
         public bool TeamWide;
         /// <summary>Only offered when the host turns on versus/party specials.</summary>
@@ -89,16 +99,32 @@ namespace ChefSkills
     }
 
     /// <summary>
-    /// What each special is, how it is picked, and which picks go together. A chef has one active
-    /// (used with the emote button), two passives and optionally one quirk (a drawback that frees
-    /// skill points). Specials cost no points.
+    /// What each special is, how it is picked, and which picks go together. A chef has up to two
+    /// actives (the SKILL KEY uses the selected one, the SWITCH KEY changes which), up to three
+    /// passives whose levels add up to at most 3, and optionally one quirk (a drawback that frees
+    /// skill points). Specials cost no skill points.
     /// </summary>
     internal static class SpecialCatalog
     {
-        internal const int SlotCount = 4;
+        internal const int SlotCount = 6;
 
-        // Groups of specials that exclude each other.
-        private const int DashStyle = 1, Size = 2, ThrowPath = 3;
+        /// <summary>The most passive levels one chef can hold (one level 3, a 2 and a 1, or three 1s).</summary>
+        internal const int PassiveBudget = 3;
+
+        /// <summary>The slot shown on each card row, top to bottom: the active, the passives, the quirk.</summary>
+        internal static readonly int[] RowOrder = { 0, 5, 1, 2, 4, 3 };
+
+        /// <summary>The active slots: active 1, active 2 (index into a loadout).</summary>
+        internal static readonly int[] ActiveSlots = { 0, 5 };
+
+        /// <summary>The passive slots, in the order they are filled (and given up by Enforce last first).</summary>
+        internal static readonly int[] PassiveSlots = { 1, 2, 4 };
+
+        // Groups of specials that exclude each other. The last five only hold actives, so they
+        // matter once a chef has two: one carry, one jump, one way of moving a teammate, one stun
+        // (versus), and one one-per-kitchen active per chef.
+        private const int DashStyle = 1, Size = 2, ThrowPath = 3, Carry = 4, Jump = 5, MateMove = 6, Stun = 7,
+            KitchenActive = 8;
 
         // Picks that clash although they share no group, mostly a quirk that takes away what a
         // special needs: the first entry of each set clashes with each of the others.
@@ -110,7 +136,7 @@ namespace ChefSkills
             new[] { Special.Butterfingers, Special.CatchersMitt, Special.Juggler },
             new[] { Special.Pyrophobe, Special.BuiltInExtinguisher, Special.FireBlast, Special.Fireproof },
             new[] { Special.Germaphobe, Special.WashBurst },
-            new[] { Special.Clumsy, Special.StickyFingers },
+            new[] { Special.Clumsy, Special.StickyFingers, Special.PackMule },
             new[] { Special.Fragile, Special.SafetyNet },
             new[] { Special.SecondChance, Special.ComboKeeper },
         };
@@ -136,18 +162,20 @@ namespace ChefSkills
 
         private static ConfigEntry<bool> _enabled;
         private static ConfigEntry<bool> _versus;
+        private static ConfigEntry<float> _secondActiveCooldown;
 
         // Online, the host's switches replace this machine's own (null: use the config).
         private static bool? s_hostEnabled;
         private static bool? s_hostVersus;
+        private static float? s_hostSecondActive;
 
         internal static string[] SlotNames
         {
             get
             {
                 return Lang.Vi
-                    ? new[] { "CHỦ ĐỘNG", "BỊ ĐỘNG", "BỊ ĐỘNG", "TẬT" }
-                    : new[] { "ACTIVE", "PASSIVE", "PASSIVE", "QUIRK" };
+                    ? new[] { "CHỦ ĐỘNG 1", "BỊ ĐỘNG", "BỊ ĐỘNG", "TẬT", "BỊ ĐỘNG", "CHỦ ĐỘNG 2" }
+                    : new[] { "ACTIVE 1", "PASSIVE", "PASSIVE", "QUIRK", "PASSIVE", "ACTIVE 2" };
             }
         }
 
@@ -158,17 +186,21 @@ namespace ChefSkills
                 if (Lang.Vi)
                     return new[]
                     {
-                        "Kỹ năng đặc biệt chủ động: bấm PHÍM KỸ NĂNG (mặc định là BIỂU CẢM) để dùng",
-                        "Kỹ năng đặc biệt bị động: luôn bật",
-                        "Kỹ năng đặc biệt bị động thứ hai: luôn bật",
+                        "Kỹ năng đặc biệt chủ động: bấm PHÍM KỸ NĂNG để dùng (có hai thì PHÍM ĐỔI chọn cái nào)",
+                        "Kỹ năng đặc biệt bị động: luôn bật. Cấp các kỹ năng bị động cộng lại tối đa 3",
+                        "Kỹ năng đặc biệt bị động thứ hai: luôn bật. Cấp các kỹ năng bị động cộng lại tối đa 3",
                         "Tật tùy chọn, đổi lại bạn có thêm điểm kỹ năng để cộng",
+                        "Kỹ năng đặc biệt bị động thứ ba: luôn bật. Cấp các kỹ năng bị động cộng lại tối đa 3",
+                        "Kỹ năng chủ động thứ hai: PHÍM ĐỔI chọn nó, PHÍM KỸ NĂNG dùng nó. Có hai kỹ năng chủ động thì hồi chiêu lâu hơn 25%",
                     };
                 return new[]
                 {
-                    "Your active special: press your SKILL KEY (EMOTE unless changed) to use it",
-                    "A passive special: always on",
-                    "A second passive special: always on",
+                    "Your active special: press your SKILL KEY to use it (with two, your SWITCH KEY picks which)",
+                    "A passive special: always on. Your passives' levels add up to at most 3",
+                    "A second passive special: always on. Your passives' levels add up to at most 3",
                     "Optional drawback that gives you skill points to spend",
+                    "A third passive special: always on. Your passives' levels add up to at most 3",
+                    "A second active special: your SWITCH KEY selects it, your SKILL KEY uses it. With two actives, cooldowns are 25% longer",
                 };
             }
         }
@@ -176,120 +208,120 @@ namespace ChefSkills
         static SpecialCatalog()
         {
             // 1. Movement
-            A(Special.Vault, "VAULT", "Hop over whatever is right in front of you (walls too), landing just past it", 9f);
-            A(Special.Blink, "BLINK", "Teleport to the farthest free spot up to 6 m ahead, through counters and walls", 10f);
-            P(Special.Sprinter, "SPRINTER", "Hold DASH to sprint +35% (more with DASHING; 4 s of stamina); you can't dash", group: DashStyle);
-            P(Special.DoubleDash, "DOUBLE DASH", "Two dash charges that refill 25% faster: chain two dashes back to back", group: DashStyle);
-            P(Special.ChargeDash, "CHARGE DASH", "Hold DASH to charge, release for up to twice the distance", group: DashStyle);
-            P(Special.Momentum, "MOMENTUM", "Keep running to build up to +30% speed; it fades soon after you stop");
-            P(Special.Slipstream, "SLIPSTREAM", "Co-op: teammates running close behind you get +20% speed, and you +10%");
-            P(Special.SureFooted, "SURE-FOOTED", "No slipping on ice, slopes or puddles; walkways carry you but never slow you");
-            P(Special.Immovable, "IMMOVABLE", "Dashes, thrown items, fire and wind can't knock or push you");
-            P(Special.Ghost, "GHOST", "Walk straight through other chefs");
+            A(Special.Vault, "VAULT", "Hop over whatever is right in front of you (walls too), landing just past it", 9f, group: Jump);
+            A(Special.Blink, "BLINK", "Teleport to the farthest free spot up to 6 m ahead, through counters and walls", 10f, group: Jump);
+            P(Special.Sprinter, "SPRINTER", "Hold DASH to sprint +35% (more with DASHING; 4 s of stamina); you can't dash", level: 3, group: DashStyle);
+            P(Special.DoubleDash, "DOUBLE DASH", "Two dash charges that refill 25% faster: chain two dashes back to back", level: 1, group: DashStyle);
+            P(Special.ChargeDash, "CHARGE DASH", "Hold DASH to charge, release for up to twice the distance", level: 2, group: DashStyle);
+            P(Special.Momentum, "MOMENTUM", "Keep running to build up to +30% speed; it fades soon after you stop", level: 2);
+            P(Special.Slipstream, "SLIPSTREAM", "Co-op: teammates running close behind you get +20% speed, and you +10%", level: 1);
+            P(Special.SureFooted, "SURE-FOOTED", "No slipping on ice, slopes or puddles; walkways carry you but never slow you", level: 2);
+            P(Special.Immovable, "IMMOVABLE", "Dashes, thrown items, fire and wind can't knock or push you", level: 1);
+            P(Special.Ghost, "GHOST", "Walk straight through other chefs (in versus, only your own team)", level: 1);
             A(Special.Recall, "RECALL", "Plant a flag; use again within 20 s to teleport back to it (cooldown starts on return)", 15f);
-            A(Special.Swap, "SWAP", "Trade places with the teammate you face (or the nearest)", 14f);
-            A(Special.Summon, "SUMMON", "Pull the teammate you face (or the nearest) to your side", 14f);
-            P(Special.QuickRespawn, "QUICK RESPAWN", "Respawn after 1 s, back at the last safe spot you stood on");
-            P(Special.SafetyNet, "SAFETY NET", "Once every 30 s, falling off puts you back where you fell");
-            P(Special.ConveyorRider, "CONVEYOR RIDER", "Moving floors and wind carry you twice as fast and never slow you down");
-            P(Special.BigChef, "BIG CHEF", "Bigger: can't be knocked, knock others further, dash 25% further, -5% speed", group: Size);
-            P(Special.TinyChef, "TINY CHEF", "Smaller: +10% speed, but knocks send you further", group: Size);
-            P(Special.Hover, "HOVER", "Dash across a gap, up to 0.6 s in the air (10 s recharge)");
-            A(Special.Grapple, "GRAPPLE", "Pull yourself to the counter you face, up to 7 m away, over gaps too", 9f);
+            A(Special.Swap, "SWAP", "Trade places with the teammate you face (or the nearest)", 14f, group: MateMove);
+            A(Special.Summon, "SUMMON", "Pull the teammate you face (or the nearest) to your side", 14f, group: MateMove);
+            P(Special.QuickRespawn, "QUICK RESPAWN", "Respawn after 1 s, back at the last safe spot you stood on", level: 1);
+            P(Special.SafetyNet, "SAFETY NET", "Once every 30 s, falling off puts you back where you fell", level: 2);
+            P(Special.ConveyorRider, "CONVEYOR RIDER", "Moving floors and wind carry you twice as fast and never slow you down", level: 1);
+            P(Special.BigChef, "BIG CHEF", "Bigger: can't be knocked, knock others further, dash 25% further, -5% speed", level: 1, group: Size);
+            P(Special.TinyChef, "TINY CHEF", "Smaller: +15% speed, but knocks send you further", level: 2, group: Size);
+            P(Special.Hover, "HOVER", "Dash across a gap, up to 0.6 s in the air (10 s recharge)", level: 2);
+            A(Special.Grapple, "GRAPPLE", "Pull yourself to the counter you face, up to 7 m away, over gaps too", 9f, group: Jump);
 
             // 2. Carrying and throwing
-            A(Special.PackMule, "PACK MULE", "Carry a second item on your back; SKILL KEY swaps hand and back", 0.5f);
-            A(Special.Pocket, "POCKET", "Pocket up to 2 ingredients, hidden; SKILL KEY stores or takes the last out", 0.5f);
-            P(Special.Waiter, "WAITER", "Put a dish onto another dish to carry both; hand one in and the other goes in too if it's ordered");
-            P(Special.LongArms, "LONG ARMS", "Pick up, put down, chop and wash one tile further away");
-            P(Special.Magnet, "MAGNET", "Loose items on the floor within 6 m slide to you (none by another chef)");
+            A(Special.PackMule, "PACK MULE", "Carry a second item on your back; SKILL KEY swaps hand and back", 0.5f, group: Carry);
+            A(Special.Pocket, "POCKET", "Pocket up to 2 ingredients, hidden; SKILL KEY stores or takes the last out", 0.5f, group: Carry);
+            P(Special.Waiter, "WAITER", "Put a dish onto another dish to carry both; hand one in and the other goes in too if it's ordered", level: 2);
+            P(Special.LongArms, "LONG ARMS", "Pick up, put down, chop and wash one tile further away", level: 2);
+            P(Special.Magnet, "MAGNET", "Loose items on the floor within 6 m slide to you (none by another chef)", hidden: true);
             A(Special.Telekinesis, "TELEKINESIS", "Pull the item you face, up to 6 m away (through walls, or from a crate), into your hands", 8f);
-            P(Special.BulkBuyer, "BULK BUYER", "Taking from a crate also gives a spare, on an empty board if it can be chopped (8 s)");
-            P(Special.CatchersMitt, "CATCHER'S MITT", "Catch from any direction and further away (Strong Arm tosses too)");
-            P(Special.StickyFingers, "STICKY FINGERS", "Keep what you hold when shoved or falling off; a fall holding something respawns you in 3 s");
-            P(Special.StrongArm, "STRONG ARM", "Throw anything (pots, dishes), aimed like a throw: to a teammate you aim at (8 m), or onto stations");
-            P(Special.HomingThrow, "HOMING THROW", "Throws fly to the teammate you aim at (10 m, more with THROWING); they catch from any side", group: ThrowPath);
-            P(Special.Lob, "LOB", "Throws arc high over counters and chefs, and go 30% further", group: ThrowPath);
-            P(Special.AssemblyLine, "ASSEMBLY LINE", "Take from a crate, then face a free teammate within 2.5 s: it flies to them");
-            P(Special.Juggler, "JUGGLER", "Re-throw within 2 s of a catch (or of taking from a crate) for a 50% longer throw");
-            P(Special.Rebound, "REBOUND", "Uncaught throws (yours too) landing within 4.5 m of you hop onto a free counter");
-            P(Special.HandOff, "HAND-OFF", "PICK UP facing a teammate within 3 m gives them what you hold");
+            P(Special.BulkBuyer, "BULK BUYER", "Taking from a crate also gives a spare, on an empty board if it can be chopped (8 s)", level: 1);
+            P(Special.CatchersMitt, "CATCHER'S MITT", "Catch from any side and further away; uncaught throws near you hop onto a counter, loose items within 6 m slide to you", level: 1);
+            P(Special.StickyFingers, "STICKY FINGERS", "Keep what you hold when shoved or falling off; a fall holding something respawns you in 3 s", level: 1);
+            P(Special.StrongArm, "STRONG ARM", "Throw anything (pots, dishes), aimed like a throw: to a teammate you aim at (8 m), or onto stations", level: 2);
+            P(Special.HomingThrow, "HOMING THROW", "Throws fly to the teammate you aim at (10 m, more with THROWING); they catch from any side", level: 3, group: ThrowPath);
+            P(Special.Lob, "LOB", "Throws arc high over counters and chefs, and go 30% further", level: 1, group: ThrowPath);
+            P(Special.AssemblyLine, "ASSEMBLY LINE", "Take from a crate, then face a free teammate within 2.5 s: it flies to them", level: 1);
+            P(Special.Juggler, "JUGGLER", "Re-throw within 2 s of a catch (or of taking from a crate) for a 50% longer throw", level: 1);
+            P(Special.Rebound, "REBOUND", "Uncaught throws (yours too) landing within 4.5 m of you hop onto a free counter", hidden: true);
+            P(Special.HandOff, "HAND-OFF", "PICK UP facing a teammate within 3 m gives them what you hold", level: 1);
 
             // 3. Prep stations
-            P(Special.Multitask, "MULTITASK", "Up to 2 boards or sinks you leave keep working at 35% speed");
-            P(Special.EchoKnife, "ECHO KNIFE", "60% of your chops also chop the last other board you used (within 6 m)");
+            P(Special.Multitask, "MULTITASK", "Up to 2 boards or sinks you leave keep working at 40% speed (2 per player, also in solo)", level: 3);
+            P(Special.EchoKnife, "ECHO KNIFE", "60% of your chops also chop the last other board you used (within 6 m)", level: 3);
             A(Special.PowerChop, "POWER CHOP", "Finish the item on the board you face at once", 10f);
-            P(Special.LuckyKnife, "LUCKY KNIFE", "Each chop has a 10% chance to finish the item at once (about 30-40% faster)");
-            P(Special.PrepCook, "PREP COOK", "Every 15 s, an ingredient you take from a crate comes chopped");
-            P(Special.DashChop, "DASH-CHOP", "Dashing past a loaded board chops it 3 times (each board once per 2 s)");
+            P(Special.LuckyKnife, "LUCKY KNIFE", "Each chop has a 10% chance to finish the item at once (about 30-40% faster)", level: 2);
+            P(Special.PrepCook, "PREP COOK", "Every 15 s, an ingredient you take from a crate comes chopped", level: 2);
+            P(Special.DashChop, "DASH-CHOP", "Dashing past a loaded board chops it 3 times (each board once per 2 s)", level: 2);
             A(Special.WashBurst, "WASH BURST", "Wash every plate in the sink you face at once (not when its rack is full)", 40f);
-            P(Special.Dishwasher, "DISHWASHER", "Every third dish you hand in comes back clean, on a sink's drying rack");
-            P(Special.Butler, "BUTLER", "Your dirty plates come back twice as fast, straight into a sink");
+            P(Special.Dishwasher, "DISHWASHER", "Every second dish you hand in comes back clean, on a sink's drying rack", level: 3);
+            P(Special.Butler, "BUTLER", "Your dirty plates come back twice as fast, straight into a sink", level: 1);
             A(Special.PlateConjurer, "PLATE CONJURER", "Conjure a clean plate in your empty hands; it's gone once its dish is handed in", 30f);
             A(Special.SparePan, "SPARE PAN", "Conjure a copy of the empty pan, pot or bowl you face (one out at a time); it's gone once emptied", 25f);
 
             // 4. Cooking and fire
-            P(Special.HotHands, "HOT HANDS", "A pot or pan you carry cooks 25% faster than on a cooker and stops when done");
-            P(Special.ColdHands, "COLD HANDS", "Pots and pans you carry or fill wait 8 s at done before they burn");
+            P(Special.HotHands, "HOT HANDS", "A pot or pan you carry cooks 25% faster than on a cooker and stops when done", level: 1);
+            P(Special.ColdHands, "COLD HANDS", "Pots and pans you carry or fill wait 8 s at done before they burn", level: 2);
             A(Special.Rescue, "RESCUE", "Un-burn the pot or pan you hold or face, put out its cooker's fire and hold it at done for 10 s", 30f);
             A(Special.Overclock, "OVERCLOCK", "The cooker or mixer you face works (and burns) three times as fast for 10 s", 30f);
-            P(Special.SizzleMaster, "SIZZLE MASTER", "Pots and pans you carry or fill cook (and burn) 60% faster");
-            P(Special.SteadyMixer, "STEADY MIXER", "Bowls you carry or fill mix 75% faster and never over-mix");
-            P(Special.Fireproof, "FIREPROOF", "Walk through flames, and fire right next to you dies out in 2 s");
-            P(Special.FireMarshal, "FIRE MARSHAL", "A cooker under a pot or pan you carried or filled never catches fire, and its food burns half as fast");
+            P(Special.SizzleMaster, "SIZZLE MASTER", "Pots and pans you carry or fill cook (and burn) twice as fast", level: 3);
+            P(Special.SteadyMixer, "STEADY MIXER", "Bowls you carry or fill mix 75% faster and never over-mix", level: 2);
+            P(Special.Fireproof, "FIREPROOF", "Walk through flames, and fire right next to you dies out in 2 s", level: 2);
+            P(Special.FireMarshal, "FIRE MARSHAL", "A cooker under a pot or pan you carried or filled never catches fire, and its food burns half as fast", level: 1);
             A(Special.FireBlast, "FIRE BLAST", "Put out every fire within 6 m at once", 20f);
-            P(Special.BuiltInExtinguisher, "HOSE HANDS", "Hold USE with empty hands facing a fire to spray it like an extinguisher");
-            P(Special.SlowSpread, "SLOW SPREAD", "Fire can't spread within 7 m of you");
+            P(Special.BuiltInExtinguisher, "HOSE HANDS", "Hold USE with empty hands facing a fire to spray it like an extinguisher", level: 2);
+            P(Special.SlowSpread, "SLOW SPREAD", "Fire can't spread within 7 m of you", level: 1);
 
             // 5. Orders and score
-            P(Special.Charmer, "CHARMER", "Dishes you hand in give +35% tip");
-            P(Special.MaitreD, "MAITRE D'", "Every order lasts 15% longer (whole team; levels with timed orders)", teamWide: true);
-            P(Special.Clutch, "CLUTCH", "A dish handed in during its order's last 20% scores x1.5");
-            P(Special.ComboKeeper, "COMBO KEEPER", "A missed order or wrong dish keeps the tip streak (every 25 s; not with Second Chance)", teamWide: true);
-            P(Special.SecondChance, "SECOND CHANCE", "An order's first expiry costs nothing, streak kept (every 30 s; not with Combo Keeper)", teamWide: true);
-            P(Special.Gambler, "GAMBLER", "Your tips are multiplied by 0, 1, 2 or 2.5 at random");
-            P(Special.FreshDelivery, "FRESH DELIVERY", "A dish handed in within 25 s of its first part cooking gets +50% tip");
-            A(Special.Reroll, "REROLL", "Replace the oldest order with a different dish, at no cost (whole team)", 40f, teamWide: true);
-            A(Special.TimeOut, "TIME OUT", "Order timers (and new orders) stop for 10 s (whole team)", 50f, teamWide: true);
-            P(Special.CloseEnough, "CLOSE ENOUGH", "Every 45 s, a dish nobody ordered counts as the oldest order", teamWide: true);
-            P(Special.FortuneTeller, "FORTUNE TELLER", "The next order shows early on the order bar and comes with 10% more time (not on phased levels)", teamWide: true);
-            P(Special.BountyHunter, "BOUNTY HUNTER", "One order at a time is framed in gold: hand it in for x1.5 points (next one 15 s later)", teamWide: true);
-            P(Special.GoldenHour, "GOLDEN HOUR", "In the last 60 s of the level, your tips are doubled");
+            P(Special.Charmer, "CHARMER", "Dishes you hand in give +50% tip", level: 2);
+            P(Special.MaitreD, "MAITRE D'", "Every order lasts 25% longer (whole team; levels with timed orders)", level: 3, teamWide: true);
+            P(Special.Clutch, "CLUTCH", "A dish handed in during its order's last 20% scores x1.5", level: 2);
+            P(Special.ComboKeeper, "COMBO KEEPER", "A missed order or wrong dish keeps the tip streak (every 25 s; not with Second Chance)", level: 1, teamWide: true);
+            P(Special.SecondChance, "SECOND CHANCE", "An order's first expiry costs nothing, streak kept (every 30 s; not with Combo Keeper)", level: 2, teamWide: true);
+            P(Special.Gambler, "GAMBLER", "Your tips are multiplied by 0, 1, 2 or 3 at random", level: 2);
+            P(Special.FreshDelivery, "FRESH DELIVERY", "A dish handed in within 25 s of its first part cooking gets +50% tip", level: 1);
+            A(Special.Reroll, "REROLL", "Replace the oldest order with a different dish, at no cost (whole team)", 40f, group: KitchenActive, teamWide: true);
+            A(Special.TimeOut, "TIME OUT", "Order timers (and new orders) stop for 10 s (whole team)", 50f, group: KitchenActive, teamWide: true);
+            P(Special.CloseEnough, "CLOSE ENOUGH", "Every 45 s, a dish nobody ordered counts as the oldest order", level: 2, teamWide: true);
+            P(Special.FortuneTeller, "FORTUNE TELLER", "The next order shows early on the order bar and comes with 10% more time (not on phased levels)", level: 1, teamWide: true);
+            P(Special.BountyHunter, "BOUNTY HUNTER", "One order at a time is framed in gold: hand it in for x1.5 points (next one 15 s later)", level: 3, teamWide: true);
+            P(Special.GoldenHour, "GOLDEN HOUR", "In the last 60 s of the level, your tips are doubled", level: 1);
 
             // 6. Team support
-            A(Special.RallyCry, "RALLY CRY", "You and every teammate run 30% faster for 8 s", 30f, teamWide: true);
-            P(Special.Inspiring, "INSPIRING", "Teammates within 3.5 m of you chop and wash about 25% faster", teamWide: true);
-            P(Special.Medic, "MEDIC", "Teammates who fall empty-handed respawn next to you after 1 s; you respawn within 2.5 s");
-            P(Special.Bodyguard, "BODYGUARD", "Teammates within 6 m of you can't be knocked back or slip");
-            P(Special.Battery, "BATTERY", "Your active (5 s+ cooldown) cuts up to 35% off a teammate's cooldown, at most half your own", teamWide: true);
-            P(Special.BuddySystem, "BUDDY SYSTEM", "Near your closest teammate (5 m) both run 15% faster and share speed buffs");
-            P(Special.Quartermaster, "QUARTERMASTER", "Teammates taking from a crate within 5 m of you get a spare (5 s)");
+            A(Special.RallyCry, "RALLY CRY", "You and every teammate run 30% faster for 8 s", 30f, group: KitchenActive, teamWide: true);
+            P(Special.Inspiring, "INSPIRING", "Teammates within 3.5 m of you chop and wash about 25% faster (not your own other chef in solo)", level: 2, teamWide: true);
+            P(Special.Medic, "MEDIC", "Teammates who fall empty-handed respawn next to you after 1 s; you respawn within 2.5 s", level: 1);
+            P(Special.Bodyguard, "BODYGUARD", "Teammates within 6 m of you can't be knocked back or slip", level: 2);
+            P(Special.Battery, "BATTERY", "Your active (5 s+ cooldown) cuts a teammate's longest cooldown, by up to half of it and 65% of yours (max 6.5 s); once per 10 s", level: 3, teamWide: true);
+            P(Special.BuddySystem, "BUDDY SYSTEM", "Near your closest teammate (5 m) both run 15% faster and share speed buffs", level: 2);
+            P(Special.Quartermaster, "QUARTERMASTER", "Teammates taking from a crate within 5 m of you get a spare, put on a counter next to you (5 s)", level: 1);
 
             // 7. Temporary buffs
             A(Special.Frenzy, "FRENZY", "All your skills +2 for 10 s, then -1 for 4 s", 30f);
             A(Special.Overdrive, "OVERDRIVE", "No dash recharge and +20% speed for 6 s", 30f);
-            P(Special.SecondWind, "SECOND WIND", "In the last 60 s, all skills +1 (RUNNING and DASHING +3)");
-            P(Special.Adrenaline, "ADRENALINE", "After a knock, slip, respawn or team mistake: +50% run speed, free dashes for 8 s");
-            P(Special.Zen, "ZEN", "Stand still (not working) 1.5 s while you control the chef: your next chop or wash finishes at once");
-            P(Special.CoffeeRun, "COFFEE RUN", "Every correct dish you hand in gives you +25% run speed for 10 s");
-            P(Special.GlassCannon, "GLASS CANNON", "All skills +1, but a knock (even blocked), slip, fall or team mistake makes them -1 for 20 s");
-            P(Special.SlowStarter, "SLOW STARTER", "All skills -1 for the first 45 s of play, then +1");
-            P(Special.UnderPressure, "UNDER PRESSURE", "+7% run speed for each order waiting beyond the second, up to +21%");
-            P(Special.LuckyCharm, "LUCKY CHARM", "Each chop stroke (or half-second washing) 25% chance to count double");
-            P(Special.HotStreak, "HOT STREAK", "Team orders in a row without a miss: +3% speed each (up to 15%); at 8, +1 to every skill but RUNNING and DASHING");
+            P(Special.SecondWind, "SECOND WIND", "In the last 60 s, all skills +1 (RUNNING and DASHING +3)", level: 1);
+            P(Special.Adrenaline, "ADRENALINE", "After a knock, slip, respawn or team mistake: +50% run speed, free dashes for 8 s", level: 1);
+            P(Special.Zen, "ZEN", "Stand still (not working) 1.5 s while you control the chef: your next chop or wash finishes at once", level: 2);
+            P(Special.CoffeeRun, "COFFEE RUN", "Every correct dish you hand in gives you +25% run speed for 10 s", level: 1);
+            P(Special.GlassCannon, "GLASS CANNON", "All skills +1, but a knock (even blocked), slip, fall or team mistake makes them -1 for 20 s", level: 3);
+            P(Special.SlowStarter, "SLOW STARTER", "All skills -1 for the first 45 s of play, then +1", level: 2);
+            P(Special.UnderPressure, "UNDER PRESSURE", "+7% run speed for each order waiting beyond the second, up to +21%", level: 2);
+            P(Special.LuckyCharm, "LUCKY CHARM", "Each chop stroke (or half-second washing) 25% chance to count double", level: 2);
+            P(Special.HotStreak, "HOT STREAK", "Team orders in a row without a miss: +3% speed each (up to 15%); at 8, +1 to every skill but RUNNING and DASHING", level: 3);
 
             // 8. Level hazards and vehicles
-            P(Special.PortalPro, "TRANSIT PRO", "After a teleporter, cannon or steered platform: run 40% faster, free dashes for 4 s; no cannon fuse, steer 50% faster");
+            P(Special.PortalPro, "TRANSIT PRO", "After a teleporter, cannon or steered platform: run 40% faster, free dashes for 4 s; no cannon fuse, steer 50% faster", level: 1);
             P(Special.Cannoneer, "CANNONEER", "Cannons fire you the moment the button is pressed, without the fuse", hidden: true);
             P(Special.Driver, "DRIVER", "Platforms and carts you steer move 50% faster", hidden: true);
             P(Special.Weatherproof, "WEATHERPROOF", "Wind and moving floors only push you the way you face", hidden: true);
-            P(Special.Lifeguard, "LIFEGUARD", "Teammates who fall within 7 m of you are put back instead");
+            P(Special.Lifeguard, "LIFEGUARD", "Teammates who fall within 7 m of you are put back instead", level: 2);
 
             // 9. Versus / party
-            P(Special.Shove, "SHOVE", "Your dashes knock harder and make chefs drop what they hold (in versus, only rivals)", versus: true);
-            P(Special.Pickpocket, "PICKPOCKET", "Dashing into a chef takes what they hold (in versus, only rivals; not from Sticky Fingers)", versus: true);
-            A(Special.GreaseTrail, "GREASE TRAIL", "For 4 s you leave a slippery trail; chefs who step on it slip (in versus, only rivals)", 20f, versus: true);
-            A(Special.SneezeBomb, "SNEEZE BOMB", "Every chef within 4 m of you (teammates too) sneezes, drops what they hold and freezes for 2 s", 20f, versus: true);
+            P(Special.Shove, "SHOVE", "Your dashes knock harder and make chefs drop what they hold (in versus, only rivals)", level: 2, versus: true);
+            P(Special.Pickpocket, "PICKPOCKET", "Dashing into a chef takes what they hold (in versus, only rivals; not from Sticky Fingers)", level: 2, versus: true);
+            A(Special.GreaseTrail, "GREASE TRAIL", "For 4 s you leave a slippery trail; chefs who step on it slip (in versus, only rivals)", 20f, group: Stun, versus: true);
+            A(Special.SneezeBomb, "SNEEZE BOMB", "Every chef within 4 m of you (teammates too) sneezes, drops what they hold and freezes for 2 s", 20f, group: Stun, versus: true);
             A(Special.Hex, "HEX", "The chef you face (5 m): their next 10 chops (within 30 s) don't count, and their washing starts 3 s late", 20f, versus: true);
             A(Special.DecoyOrder, "DECOY ORDER", "Add a fake order to the rival team's list for 25 s (it scores nothing)", 45f, versus: true);
 
@@ -323,7 +355,7 @@ namespace ChefSkills
             Vi(Special.Slipstream, "BÁM ĐUÔI", "Chơi chung đội: đồng đội chạy sát sau lưng bạn được +20% tốc độ, bạn được +10%");
             Vi(Special.SureFooted, "CHÂN VỮNG", "Không trượt trên băng, dốc hay vũng nước; băng chuyền chở bạn nhưng không làm bạn chậm");
             Vi(Special.Immovable, "BẤT ĐỘNG", "Cú lướt, đồ bị ném, lửa và gió không đẩy được bạn");
-            Vi(Special.Ghost, "BÓNG MA", "Đi xuyên qua các đầu bếp khác");
+            Vi(Special.Ghost, "BÓNG MA", "Đi xuyên qua các đầu bếp khác (đối kháng: chỉ đồng đội)");
             Vi(Special.Recall, "QUAY VỀ", "Cắm cờ; dùng lại trong 20 s để dịch chuyển về đó (hồi chiêu tính từ lúc về)");
             Vi(Special.Swap, "ĐỔI CHỖ", "Đổi chỗ với đồng đội bạn đang nhìn (hoặc người gần nhất)");
             Vi(Special.Summon, "TRIỆU HỒI", "Kéo đồng đội bạn đang nhìn (hoặc người gần nhất) về cạnh bạn");
@@ -331,7 +363,7 @@ namespace ChefSkills
             Vi(Special.SafetyNet, "LƯỚI AN TOÀN", "Cứ 30 s một lần, rơi khỏi màn sẽ đưa bạn về chỗ vừa rơi");
             Vi(Special.ConveyorRider, "CƯỠI BĂNG CHUYỀN", "Sàn di chuyển và gió đưa bạn đi nhanh gấp đôi và không bao giờ làm bạn chậm");
             Vi(Special.BigChef, "BẾP KHỔNG LỒ", "To hơn: không bị đẩy, đẩy người khác xa hơn, lướt xa hơn 25%, -5% tốc độ");
-            Vi(Special.TinyChef, "BẾP TÍ HON", "Nhỏ hơn: +10% tốc độ, nhưng bị đẩy văng xa hơn");
+            Vi(Special.TinyChef, "BẾP TÍ HON", "Nhỏ hơn: +15% tốc độ, nhưng bị đẩy văng xa hơn");
             Vi(Special.Hover, "LƠ LỬNG", "Lướt qua khoảng trống, bay được tới 0.6 s (hồi 10 s)");
             Vi(Special.Grapple, "MÓC KÉO", "Kéo mình tới quầy bạn đang nhìn, xa tới 7 m, bay qua cả khoảng trống");
 
@@ -343,7 +375,7 @@ namespace ChefSkills
             Vi(Special.Magnet, "NAM CHÂM", "Đồ rơi trên sàn trong vòng 6 m trượt về phía bạn (trừ đồ cạnh đầu bếp khác)");
             Vi(Special.Telekinesis, "NIỆM LỰC", "Kéo món đồ bạn đang nhìn, xa tới 6 m (xuyên tường, hoặc từ thùng), vào tay bạn");
             Vi(Special.BulkBuyer, "MUA SỈ", "Lấy đồ từ thùng thì có thêm một phần, lên thớt trống nếu thái được (8 s)");
-            Vi(Special.CatchersMitt, "GĂNG BẮT BÓNG", "Bắt được đồ từ mọi hướng và ở xa hơn (cả đồ TAY KHỎE ném)");
+            Vi(Special.CatchersMitt, "GĂNG BẮT BÓNG", "Bắt được đồ từ mọi phía và ở xa hơn; đồ ném rơi gần bạn nảy lên quầy, đồ rơi trong 6 m trượt về phía bạn");
             Vi(Special.StickyFingers, "TAY DÍNH", "Giữ được đồ khi bị xô hay rơi khỏi màn; rơi khi đang cầm đồ thì hồi sinh sau 3 s");
             Vi(Special.StrongArm, "TAY KHỎE", "Ném được mọi thứ (nồi, món ăn), ngắm như khi ném: tới đồng đội bạn nhắm (8 m), hoặc lên trạm");
             Vi(Special.HomingThrow, "NÉM DẪN ĐƯỜNG", "Đồ ném bay tới đồng đội bạn nhắm (10 m, xa hơn nhờ NÉM); họ bắt được từ mọi phía");
@@ -354,14 +386,14 @@ namespace ChefSkills
             Vi(Special.HandOff, "TRAO TAY", "NHẶT khi nhìn đồng đội trong vòng 3 m để đưa họ đồ bạn đang cầm");
 
             // 3. Prep stations
-            Vi(Special.Multitask, "ĐA NHIỆM", "Tối đa 2 thớt hay bồn rửa bạn rời đi vẫn chạy tiếp với 35% tốc độ");
+            Vi(Special.Multitask, "ĐA NHIỆM", "Tối đa 2 thớt hay bồn rửa bạn rời đi vẫn chạy tiếp với 40% tốc độ (2 cho mỗi người chơi, cả khi chơi một mình)");
             Vi(Special.EchoKnife, "DAO VỌNG", "60% nhát thái của bạn thái luôn thớt khác bạn dùng gần nhất (trong 6 m)");
             Vi(Special.PowerChop, "THÁI MẠNH", "Thái xong ngay món trên thớt bạn đang nhìn");
             Vi(Special.LuckyKnife, "DAO MAY MẮN", "Mỗi nhát thái có 10% cơ hội thái xong món ngay (nhanh hơn khoảng 30-40%)");
             Vi(Special.PrepCook, "PHỤ BẾP", "Cứ 15 s, nguyên liệu bạn lấy từ thùng đã được thái sẵn");
             Vi(Special.DashChop, "LƯỚT-THÁI", "Lướt ngang thớt có đồ sẽ thái nó 3 nhát (mỗi thớt một lần mỗi 2 s)");
             Vi(Special.WashBurst, "RỬA CẤP TỐC", "Rửa sạch ngay mọi đĩa trong bồn rửa bạn đang nhìn (trừ khi giá phơi đã đầy)");
-            Vi(Special.Dishwasher, "MÁY RỬA BÁT", "Cứ món thứ ba bạn giao, đĩa về sạch trên giá phơi của bồn rửa");
+            Vi(Special.Dishwasher, "MÁY RỬA BÁT", "Cứ món thứ hai bạn giao, đĩa về sạch trên giá phơi của bồn rửa");
             Vi(Special.Butler, "QUẢN GIA", "Đĩa bẩn của bạn quay về nhanh gấp đôi, thẳng vào bồn rửa");
             Vi(Special.PlateConjurer, "HÓA PHÉP ĐĨA", "Hóa ra một đĩa sạch trên tay không của bạn; giao món xong thì đĩa biến mất");
             Vi(Special.SparePan, "CHẢO DỰ PHÒNG", "Hóa ra bản sao của nồi, chảo hay bát rỗng bạn đang nhìn (mỗi lúc một cái); đổ ra hết thì biến mất");
@@ -371,7 +403,7 @@ namespace ChefSkills
             Vi(Special.ColdHands, "TAY LẠNH", "Nồi, chảo bạn cầm hoặc cho đồ vào chờ 8 s khi chín rồi mới cháy");
             Vi(Special.Rescue, "CỨU NGUY", "Hết cháy nồi hay chảo bạn cầm hoặc đang nhìn, dập lửa bếp của nó và giữ chín 10 s");
             Vi(Special.Overclock, "ÉP XUNG", "Bếp hoặc máy trộn bạn đang nhìn chạy (và làm cháy) nhanh gấp ba trong 10 s");
-            Vi(Special.SizzleMaster, "VUA XÈO XÈO", "Nồi, chảo bạn cầm hoặc cho đồ vào nấu (và cháy) nhanh hơn 60%");
+            Vi(Special.SizzleMaster, "VUA XÈO XÈO", "Nồi, chảo bạn cầm hoặc cho đồ vào nấu (và cháy) nhanh gấp đôi");
             Vi(Special.SteadyMixer, "TRỘN ĐỀU TAY", "Bát bạn cầm hoặc cho đồ vào trộn nhanh hơn 75%, không bao giờ quá tay");
             Vi(Special.Fireproof, "CHỐNG CHÁY", "Đi xuyên qua lửa, và lửa sát cạnh bạn tắt sau 2 s");
             Vi(Special.FireMarshal, "LÍNH CỨU HỎA", "Bếp dưới nồi hay chảo bạn từng cầm hoặc cho đồ vào không bao giờ bắt lửa, đồ trong đó cháy chậm gấp đôi");
@@ -380,12 +412,12 @@ namespace ChefSkills
             Vi(Special.SlowSpread, "LỬA CHẬM LAN", "Lửa không lan được trong vòng 7 m quanh bạn");
 
             // 5. Orders and score
-            Vi(Special.Charmer, "DUYÊN DÁNG", "Món bạn giao được +35% tiền boa");
-            Vi(Special.MaitreD, "QUẢN LÝ SẢNH", "Mọi đơn kéo dài thêm 15% (cả đội; màn có đơn tính giờ)");
+            Vi(Special.Charmer, "DUYÊN DÁNG", "Món bạn giao được +50% tiền boa");
+            Vi(Special.MaitreD, "QUẢN LÝ SẢNH", "Mọi đơn kéo dài thêm 25% (cả đội; màn có đơn tính giờ)");
             Vi(Special.Clutch, "PHÚT CHÓT", "Món giao trong 20% thời gian cuối của đơn được x1.5 điểm");
             Vi(Special.ComboKeeper, "GIỮ CHUỖI", "Lỡ đơn hay giao sai món vẫn giữ chuỗi tiền boa (mỗi 25 s; không đi cùng CƠ HỘI THỨ HAI)");
             Vi(Special.SecondChance, "CƠ HỘI THỨ HAI", "Lần hết giờ đầu của một đơn không mất gì, giữ chuỗi (mỗi 30 s; không đi cùng GIỮ CHUỖI)");
-            Vi(Special.Gambler, "CON BẠC", "Tiền boa của bạn được nhân ngẫu nhiên 0, 1, 2 hoặc 2.5");
+            Vi(Special.Gambler, "CON BẠC", "Tiền boa của bạn được nhân ngẫu nhiên 0, 1, 2 hoặc 3");
             Vi(Special.FreshDelivery, "GIAO NÓNG HỔI", "Món giao trong 25 s sau khi phần đầu tiên nấu xong được +50% tiền boa");
             Vi(Special.Reroll, "ĐỔI ĐƠN", "Đổi đơn cũ nhất sang một món khác, không mất gì (cả đội)");
             Vi(Special.TimeOut, "TẠM DỪNG", "Đồng hồ các đơn (và đơn mới) dừng 10 s (cả đội)");
@@ -396,12 +428,12 @@ namespace ChefSkills
 
             // 6. Team support
             Vi(Special.RallyCry, "HIỆU TRIỆU", "Bạn và mọi đồng đội chạy nhanh hơn 30% trong 8 s");
-            Vi(Special.Inspiring, "TRUYỀN LỬA", "Đồng đội trong vòng 3.5 m quanh bạn thái và rửa nhanh hơn khoảng 25%");
+            Vi(Special.Inspiring, "TRUYỀN LỬA", "Đồng đội trong vòng 3.5 m quanh bạn thái và rửa nhanh hơn khoảng 25% (không tính đầu bếp kia của bạn khi chơi một mình)");
             Vi(Special.Medic, "CỨU THƯƠNG", "Đồng đội tay không bị rơi hồi sinh cạnh bạn sau 1 s; bạn hồi sinh tối đa 2.5 s");
             Vi(Special.Bodyguard, "VỆ SĨ", "Đồng đội trong vòng 6 m quanh bạn không bị đẩy lùi hay trượt ngã");
-            Vi(Special.Battery, "CỤC PIN", "Kỹ năng chủ động (hồi từ 5 s) của bạn cắt tới 35% hồi chiêu của một đồng đội, tối đa nửa hồi chiêu của bạn");
+            Vi(Special.Battery, "CỤC PIN", "Kỹ năng chủ động (hồi từ 5 s) của bạn cắt hồi chiêu dài nhất của một đồng đội, tối đa nửa hồi chiêu đó và 65% hồi chiêu của bạn (tối đa 6.5 s); mỗi 10 s một lần");
             Vi(Special.BuddySystem, "CẠ CỨNG", "Ở gần đồng đội gần nhất (5 m) cả hai chạy nhanh hơn 15% và chia nhau hiệu ứng tăng tốc");
-            Vi(Special.Quartermaster, "HẬU CẦN", "Đồng đội lấy đồ từ thùng trong vòng 5 m quanh bạn được thêm một phần (5 s)");
+            Vi(Special.Quartermaster, "HẬU CẦN", "Đồng đội lấy đồ từ thùng trong vòng 5 m quanh bạn được thêm một phần, đặt lên quầy cạnh bạn (5 s)");
 
             // 7. Temporary buffs
             Vi(Special.Frenzy, "CUỒNG NHIỆT", "Mọi kỹ năng +2 trong 10 s, rồi -1 trong 4 s");
@@ -462,11 +494,14 @@ namespace ChefSkills
                 Cooldown = cooldown, Group = group, TeamWide = teamWide, Versus = versus });
         }
 
-        private static void P(Special id, string name, string description, int group = 0, bool teamWide = false,
-            bool versus = false, bool hidden = false)
+        private static void P(Special id, string name, string description, int level = 0, int group = 0,
+            bool teamWide = false, bool versus = false, bool hidden = false)
         {
+            // A passive that can be picked must take part of the budget; only retired ones have none.
+            if (!hidden && (level < 1 || level > PassiveBudget))
+                throw new ArgumentOutOfRangeException("level", id + " needs a level from 1 to " + PassiveBudget);
             Add(new SpecialInfo { Id = id, NameEn = name, NameVi = name, DescriptionEn = description,
-                DescriptionVi = description, Kind = SpecialKind.Passive,
+                DescriptionVi = description, Kind = SpecialKind.Passive, Level = level,
                 Group = group, TeamWide = teamWide, Versus = versus, Hidden = hidden });
         }
 
@@ -486,9 +521,24 @@ namespace ChefSkills
         internal static void Bind(ConfigFile config)
         {
             _enabled = config.Bind("Specials", "Enabled", true,
-                "Cho phép chọn kỹ năng đặc biệt (1 chủ động, 2 bị động, 1 tật). Khi chơi trực tuyến dùng cài đặt của chủ phòng.");
+                "Cho phép chọn kỹ năng đặc biệt (tới 2 chủ động, tới 3 bị động có tổng cấp tối đa 3, 1 tật). Khi chơi trực tuyến dùng cài đặt của chủ phòng.");
             _versus = config.Bind("Specials", "VersusSpecials", false,
                 "Cho phép các kỹ năng đặc biệt phá đối thủ (Shove, Pickpocket, Grease Trail, Sneeze Bomb, Hex, Decoy Order). Dùng cài đặt của chủ phòng.");
+            _secondActiveCooldown = config.Bind("Specials", "SecondActiveCooldown", 1.25f,
+                "Đầu bếp có hai kỹ năng chủ động: hồi chiêu nhân với số này (1.25 = lâu hơn 25%; không tính Pocket, Pack Mule hay kỹ năng mỗi màn một lần). Dùng cài đặt của chủ phòng.");
+        }
+
+        /// <summary>
+        /// Cooldowns of a chef with two actives are this much longer (host: it sets every
+        /// cooldown, so its value is what everyone gets).
+        /// </summary>
+        internal static float SecondActiveCooldown
+        {
+            get
+            {
+                if (s_hostSecondActive.HasValue) return s_hostSecondActive.Value;
+                return _secondActiveCooldown != null ? Mathf.Clamp(_secondActiveCooldown.Value, 1f, 3f) : 1.25f;
+            }
         }
 
         internal static bool Enabled
@@ -501,10 +551,14 @@ namespace ChefSkills
             get { return s_hostVersus ?? (_versus != null && _versus.Value); }
         }
 
-        /// <summary>This machine's switches as the host publishes them (a number of flag bits).</summary>
+        /// <summary>
+        /// This machine's switches as the host publishes them: flag bits, with the second-active
+        /// cooldown tax in hundredths above them (so every machine shows the cooldowns the host sets).
+        /// </summary>
         internal static int OwnFlags()
         {
-            return (_enabled == null || _enabled.Value ? 1 : 0) | (_versus != null && _versus.Value ? 2 : 0);
+            int tax = Mathf.RoundToInt((_secondActiveCooldown != null ? Mathf.Clamp(_secondActiveCooldown.Value, 1f, 3f) : 1.25f) * 100f);
+            return (_enabled == null || _enabled.Value ? 1 : 0) | (_versus != null && _versus.Value ? 2 : 0) | (tax << 2);
         }
 
         /// <summary>Uses the host's switches (null: this machine's own config).</summary>
@@ -514,10 +568,13 @@ namespace ChefSkills
             {
                 s_hostEnabled = null;
                 s_hostVersus = null;
+                s_hostSecondActive = null;
                 return;
             }
             s_hostEnabled = (flags.Value & 1) != 0;
             s_hostVersus = (flags.Value & 2) != 0;
+            int tax = flags.Value >> 2;
+            s_hostSecondActive = tax >= 100 && tax <= 300 ? tax / 100f : (float?)null;
         }
 
         internal static SpecialInfo Info(Special id)
@@ -543,10 +600,61 @@ namespace ChefSkills
         {
             switch (slot)
             {
-                case SpecialSlot.Active: return SpecialKind.Active;
+                case SpecialSlot.Active:
+                case SpecialSlot.Active2: return SpecialKind.Active;
                 case SpecialSlot.Quirk: return SpecialKind.Quirk;
                 default: return SpecialKind.Passive;
             }
+        }
+
+        /// <summary>The slot shown on card row <paramref name="row"/> (0 = the first special row).</summary>
+        internal static SpecialSlot SlotAtRow(int row)
+        {
+            return row >= 0 && row < RowOrder.Length ? (SpecialSlot)RowOrder[row] : (SpecialSlot)row;
+        }
+
+        /// <summary>The special in active slot <paramref name="index"/> (0 or 1) of a loadout.</summary>
+        internal static Special ActiveIn(int[] loadout, int index)
+        {
+            if (loadout == null || index < 0 || index >= ActiveSlots.Length) return Special.None;
+            int slot = ActiveSlots[index];
+            return slot < loadout.Length ? (Special)loadout[slot] : Special.None;
+        }
+
+        /// <summary>Does the loadout have an active in both slots?</summary>
+        internal static bool TwoActives(int[] loadout)
+        {
+            return ActiveIn(loadout, 0) != Special.None && ActiveIn(loadout, 1) != Special.None;
+        }
+
+        /// <summary>A passive's level (0 for anything else).</summary>
+        internal static int LevelOf(Special id)
+        {
+            SpecialInfo info = Info(id);
+            return info != null && info.Kind == SpecialKind.Passive ? info.Level : 0;
+        }
+
+        /// <summary>The levels of the loadout's passives, leaving out <paramref name="except"/> (-1: none left out).</summary>
+        internal static int PassiveLevels(int[] loadout, int except)
+        {
+            int total = 0;
+            if (loadout == null) return 0;
+            foreach (int slot in PassiveSlots)
+                if (slot != except && slot < loadout.Length) total += LevelOf((Special)loadout[slot]);
+            return total;
+        }
+
+        /// <summary>Passive levels still free for <paramref name="slot"/>, counting what the other passive slots hold.</summary>
+        internal static int BudgetLeft(int[] loadout, SpecialSlot slot)
+        {
+            return PassiveBudget - PassiveLevels(loadout, (int)slot);
+        }
+
+        /// <summary>Is <paramref name="candidate"/> a passive too heavy for what the loadout's other passives leave?</summary>
+        internal static bool OverBudget(int[] loadout, SpecialSlot slot, Special candidate)
+        {
+            int level = LevelOf(candidate);
+            return level > 0 && level > BudgetLeft(loadout, slot);
         }
 
         /// <summary>A loadout with nothing picked.</summary>
@@ -565,8 +673,8 @@ namespace ChefSkills
 
         /// <summary>
         /// Can <paramref name="candidate"/> go in <paramref name="slot"/> next to the loadout's
-        /// other picks? (Right kind, offered under the current rules, no clash of groups, and not
-        /// the same passive twice.)
+        /// other picks? (Right kind, offered under the current rules, no clash of groups, not the
+        /// same passive twice, and the passives' levels stay within the budget.)
         /// </summary>
         internal static bool Fits(int[] loadout, SpecialSlot slot, Special candidate)
         {
@@ -574,6 +682,7 @@ namespace ChefSkills
             SpecialInfo info = Info(candidate);
             if (info == null || info.Kind != KindFor(slot) || info.Hidden) return false;
             if (info.Versus && !VersusAllowed) return false;
+            if (OverBudget(loadout, slot, candidate)) return false;
             for (int i = 0; i < SlotCount; i++)
             {
                 if (i == (int)slot || loadout == null || i >= loadout.Length) continue;
@@ -701,9 +810,10 @@ namespace ChefSkills
         }
 
         /// <summary>
-        /// A loadout under the rules in use: unknown, wrong-kind, versus-when-off or clashing picks
-        /// are dropped (later slots give way to earlier ones), and nothing at all when specials are
-        /// turned off. Every machine runs this on every loadout, so they all agree.
+        /// A loadout under the rules in use: unknown, wrong-kind, versus-when-off, clashing or
+        /// over-budget picks are dropped (later slots give way to earlier ones, so the third passive
+        /// goes first), and nothing at all when specials are turned off. Every machine runs this on
+        /// every loadout, so they all agree.
         /// </summary>
         internal static int[] Enforce(int[] loadout)
         {
@@ -740,7 +850,7 @@ namespace ChefSkills
             return result;
         }
 
-        /// <summary>"BLINK, MAGNET, CHARMER, HEAVY BOOTS" for the log.</summary>
+        /// <summary>"BLINK, LONG ARMS, CHARMER, HEAVY BOOTS" for the log.</summary>
         internal static string Summary(int[] loadout)
         {
             var names = new List<string>();

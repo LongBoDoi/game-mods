@@ -21,15 +21,15 @@ namespace ChefSkills.Specials
     /// preview, the bounty, the hot streak, team recharges) go over SpecialNet.
     ///
     /// What players see: every bonus a delivery got floats up over the pass that took it
-    /// ("CHARMER TIP +35%", "BOUNTY! x1.5"...), the bounty order is framed in gold on the order bar,
+    /// ("CHARMER TIP +50%", "BOUNTY! x1.5"...), the bounty order is framed in gold on the order bar,
     /// chefs glow while Golden Hour / a full Hot Streak / Coffee Run holds, the passes are ringed
     /// while Time Out stops the clock, and team recharges sweep over the skill icons.
     /// </summary>
     internal sealed class OrdersModule : ISpecialModule
     {
         // --- tuning -----------------------------------------------------------------------------
-        internal const float CharmerTip = 1.35f;
-        internal const float MaitreDLifetime = 1.15f;
+        internal const float CharmerTip = 1.5f;
+        internal const float MaitreDLifetime = 1.25f;
         // Fortune Teller: the foretold order's extra time (that order only; never on top of Maitre D').
         internal const float FortuneLifetime = 1.1f;
         internal const float ClutchWindow = 0.2f;
@@ -55,7 +55,7 @@ namespace ChefSkills.Specials
         internal const int StreakSkills = 8;
         internal const float DecoySeconds = 25f;
         // Gambler's tip rolls (host), and the caps on what all the delivery specials multiply to.
-        private static readonly float[] GamblerRolls = { 0f, 1f, 2f, 2.5f };
+        private static readonly float[] GamblerRolls = { 0f, 1f, 2f, 3f };
         internal const float MaxTipFactor = 2.5f;
         internal const float MaxScoreFactor = 2f;
         internal const float PoseSeconds = 1f;
@@ -99,7 +99,6 @@ namespace ChefSkills.Specials
         // ClientOrderControllerBase.ActiveOrder is a protected nested class.
         private static readonly Type ActiveOrderType = AccessTools.Inner(typeof(ClientOrderControllerBase), "ActiveOrder");
         private static readonly FieldInfo ActiveOrderId = ActiveOrderType != null ? AccessTools.Field(ActiveOrderType, "ID") : null;
-        private static readonly FieldInfo ActiveOrderEntry = ActiveOrderType != null ? AccessTools.Field(ActiveOrderType, "RecipeListEntry") : null;
         private static readonly FieldInfo ActiveOrderToken = ActiveOrderType != null ? AccessTools.Field(ActiveOrderType, "UIToken") : null;
 
         // --- level state (cleared with the level) -----------------------------------------------
@@ -1283,7 +1282,8 @@ namespace ChefSkills.Specials
             if (orders == null) return chef.Refuse(Lang.Both("NOT READY YET", "CHƯA SẴN SÀNG"));
             if (orders.Count == 0) return chef.Refuse(Lang.Both("NO ORDERS", "KHÔNG CÓ MÓN"));
             if (TimeOutActive(TeamOf(chef))) return chef.Refuse(Lang.Both("CLOCK ALREADY STOPPED", "ĐỒNG HỒ ĐÃ DỪNG RỒI"));
-            // Order timers read the chef's ActiveUntil (set on every machine once confirmed).
+            // Order timers read the end of the Time Out slot's effect (set on every machine once
+            // confirmed); no other active of the chef can move it.
             return true;
         }
 
@@ -1305,7 +1305,7 @@ namespace ChefSkills.Specials
             for (int i = 0; i < chefs.Count; i++)
             {
                 ChefState chef = chefs[i];
-                if (chef.Active == Special.TimeOut && chef.ActiveUntil > now && TeamOf(chef) == team) return true;
+                if (chef.RunningUntil(Special.TimeOut) > now && TeamOf(chef) == team) return true;
             }
             return false;
         }
@@ -1657,7 +1657,7 @@ namespace ChefSkills.Specials
     // === Harmony patches (host unless noted) =======================================================
 
     /// <summary>
-    /// MAITRE D': new orders live 15% longer. FORTUNE TELLER: the foretold order lives 10% longer
+    /// MAITRE D': new orders live 25% longer. FORTUNE TELLER: the foretold order lives 10% longer
     /// (the larger of the two, never both). Also gives a decoy its short life.
     /// </summary>
     [HarmonyPatch(typeof(ServerFixedTimeOrderController), "GetNextOrderLifetime")]

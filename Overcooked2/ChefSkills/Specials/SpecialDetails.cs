@@ -149,7 +149,7 @@ namespace ChefSkills
             foreach (ChefState state in chefs)
             {
                 text.Append(state.GetHashCode()).Append(':');
-                for (int i = 0; i < 4; i++) text.Append(state.Loadout[i]).Append(',');
+                for (int i = 0; i < SpecialCatalog.SlotCount; i++) text.Append(state.Loadout[i]).Append(',');
                 PlayerInputLookup.Player player = PlayerOf(state);
                 text.Append(players.IndexOf(player)).Append(SpecialInput.DetailsNameFor(player)).Append('|');
             }
@@ -230,7 +230,7 @@ namespace ChefSkills
             y += 26f;
 
             bool first = true;
-            for (int slot = 0; slot < 4; slot++)
+            foreach (int slot in SpecialCatalog.RowOrder)
             {
                 var special = (Special)state.Loadout[slot];
                 if (special == Special.None) continue;
@@ -281,7 +281,7 @@ namespace ChefSkills
                 Place(name.rectTransform, TextX, rowTop);
 
                 Text tag = MakeText(card, SpecialFx.Font, 14, TextAnchor.UpperLeft, textWidth);
-                tag.text = TagFor(slot, info);
+                tag.text = TagFor(slot, info, state.Loadout);
                 tag.color = slot == 3 ? QuirkColour : TagColour;
                 Place(tag.rectTransform, TextX, rowTop + 24f);
 
@@ -303,12 +303,16 @@ namespace ChefSkills
             return card;
         }
 
-        private static string TagFor(int slot, SpecialInfo info)
+        private static string TagFor(int slot, SpecialInfo info, int[] loadout)
         {
             string tag = SpecialCatalog.SlotNames[slot];
-            if (slot == 0 && info.Cooldown > 0f && info.Cooldown < 999f) tag += "  -  " + (Lang.Vi ? "HỒI CHIÊU " + Mathf.RoundToInt(info.Cooldown) + " S" : Mathf.RoundToInt(info.Cooldown) + " S COOLDOWN");
-            if (slot == 0 && info.Cooldown >= 999f) tag += "  -  " + Lang.T("ONCE PER LEVEL", "MỖI MÀN MỘT LẦN");
+            bool active = info.Kind == SpecialKind.Active;
+            // With two actives the host's tax lengthens it: shown as the cooldown actually used.
+            float cooldown = active ? SpecialRuntime.CooldownFor(loadout, info.Id) : 0f;
+            if (active && cooldown > 0f && cooldown < 999f) tag += "  -  " + (Lang.Vi ? "HỒI CHIÊU " + cooldown.ToString("0.#") + " S" : cooldown.ToString("0.#") + " S COOLDOWN");
+            if (active && info.Cooldown >= 999f) tag += "  -  " + Lang.T("ONCE PER LEVEL", "MỖI MÀN MỘT LẦN");
             if (slot == 3 && info.Refund > 0) tag += "  -  +" + info.Refund + Lang.T(" POINTS", " ĐIỂM");
+            if (info.Kind == SpecialKind.Passive && info.Level > 0) tag += "  -  " + Lang.T("LEVEL ", "CẤP ") + info.Level;
             if (info.TeamWide) tag += "  -  " + Lang.T("WHOLE TEAM", "CẢ ĐỘI");
             return tag;
         }

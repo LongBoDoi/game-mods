@@ -14,10 +14,18 @@ namespace ChefSkills
         public string DispName;
         public Func<object, string> ObjToStr;
         public int? Order;
+        public bool? Browsable;
     }
 
-    /// <summary>A controller button a binding can use (None: that binding's default).</summary>
-    internal enum PadKey { None, A, B, X, Y, LB, RB, LT, RT, Back, LS, RS, DPadUp, DPadDown, DPadLeft, DPadRight }
+    /// <summary>
+    /// A controller button a binding can use. None: no button (for the skill button, the game's
+    /// EMOTE, as before 4.4.0); Emote: the game's EMOTE button, chosen on purpose. Settings are
+    /// saved by name, so new entries go at the end.
+    /// </summary>
+    internal enum PadKey { None, A, B, X, Y, LB, RB, LT, RT, Back, LS, RS, DPadUp, DPadDown, DPadLeft, DPadRight, Emote }
+
+    /// <summary>Which binding a capture on the skill screen sets.</summary>
+    internal enum CaptureTarget { Skill, Details, Switch }
 
     /// <summary>
     /// The skill key (uses a chef's active special) and the skill info key (shows or hides that
@@ -44,6 +52,48 @@ namespace ChefSkills
         private static ConfigEntry<KeyCode> s_detailsKey;
         private static ConfigEntry<PadKey> s_button;
         private static ConfigEntry<PadKey> s_detailsButton;
+        private static ConfigEntry<KeyCode> s_switchKey;
+        private static ConfigEntry<KeyCode> s_switchKeyRight;
+        private static ConfigEntry<PadKey> s_switchButton;
+        private static ConfigEntry<int> s_inputLayout;
+        private static ConfigEntry<bool> s_switchAfterUse;
+
+        /// <summary>After using one of two actives, select the other one by itself.</summary>
+        internal static bool SwitchAfterUse
+        {
+            get { return s_switchAfterUse != null && s_switchAfterUse.Value; }
+        }
+
+        /// <summary>The controller defaults since 4.4.0: SKILL on RB, SWITCH on RT (mirrored on a left half).</summary>
+        private const PadKey DefaultSkillButton = PadKey.RB, DefaultSwitchButton = PadKey.RT;
+        private const int CurrentInputLayout = 2;
+
+        // When a default button is one the game already uses for this player, the next of these
+        // that is free on their half of the controller is used instead (as LOCK IN does).
+        private static readonly ControlPadInput.Button[] SkillFallbacks =
+        {
+            ControlPadInput.Button.RB, ControlPadInput.Button.LB, ControlPadInput.Button.RTrigger, ControlPadInput.Button.LTrigger,
+            ControlPadInput.Button.RightAnalog, ControlPadInput.Button.LeftAnalog,
+            ControlPadInput.Button.DPadUp, ControlPadInput.Button.DPadRight,
+        };
+        private static readonly ControlPadInput.Button[] SwitchFallbacks =
+        {
+            ControlPadInput.Button.RTrigger, ControlPadInput.Button.LTrigger, ControlPadInput.Button.RB, ControlPadInput.Button.LB,
+            ControlPadInput.Button.LeftAnalog, ControlPadInput.Button.RightAnalog,
+            ControlPadInput.Button.DPadDown, ControlPadInput.Button.DPadLeft,
+        };
+
+        // Keyboard SWITCH KEY when none is set: the first of these the game doesn't use (left or
+        // whole keyboard; the right-hand player of a shared keyboard).
+        private static readonly KeyCode[] SwitchKeyChoices =
+        {
+            KeyCode.Q, KeyCode.R, KeyCode.F, KeyCode.Z, KeyCode.X, KeyCode.C, KeyCode.G,
+        };
+        private static readonly KeyCode[] SwitchKeyRightChoices =
+        {
+            KeyCode.RightControl, KeyCode.Period, KeyCode.Comma, KeyCode.Semicolon, KeyCode.Quote, KeyCode.O, KeyCode.U,
+            KeyCode.Keypad0,
+        };
 
         // The game's button for each PadKey.
         private static readonly ControlPadInput.Button[] PadButtons =
@@ -82,9 +132,10 @@ namespace ChefSkills
                 "Press Rebind, then the key; Backspace clears it. Also set on the skill screen's SKILL KEY row.",
                 null,
                 new ConfigurationManagerAttributes { DispName = "Skill key (keyboard)", ObjToStr = FormatSkillKey, Order = 0 }));
-            s_button = config.Bind("Controls", "SkillButton", PadKey.None, new ConfigDescription(
-                "Controller: the button that uses your active special (any button: shoulders, triggers, d-pad and stick clicks too). " +
-                "None = the game's EMOTE button (Y). Each player's own controller is read. " +
+            s_button = config.Bind("Controls", "SkillButton", DefaultSkillButton, new ConfigDescription(
+                "Controller: the button that uses your selected active special (any button: shoulders, triggers, d-pad and stick clicks too). " +
+                "Default RB (LB on the left half of a shared controller; another free button if the game uses it, e.g. to switch chefs alone). " +
+                "Emote = the game's EMOTE button (Y). Each player's own controller is read. " +
                 "Also set on the skill screen's SKILL KEY row by pressing the button.",
                 null,
                 new ConfigurationManagerAttributes { DispName = "Skill button (controller)", ObjToStr = FormatSkillButton, Order = -1 }));
@@ -99,11 +150,54 @@ namespace ChefSkills
                 null,
                 new ConfigurationManagerAttributes { DispName = "Skill info button (controller)", ObjToStr = FormatDetailsButton, Order = -3 }));
 
+            s_switchButton = config.Bind("Controls", "SwitchButton", DefaultSwitchButton, new ConfigDescription(
+                "Controller: the button that switches between your two active specials. Default RT (LT on the left half " +
+                "of a shared controller; another free button if the game uses it). None = no button. " +
+                "Also set on the skill screen's SWITCH KEY row by pressing the button.",
+                null,
+                new ConfigurationManagerAttributes { DispName = "Switch button (controller)", ObjToStr = FormatSwitchButton, Order = -4 }));
+            s_switchKey = config.Bind("Controls", "SwitchKey", KeyCode.None, new ConfigDescription(
+                "Keyboard: the key that switches between your two active specials. None = the first of Q, R, F, Z, X, C, G " +
+                "the game doesn't use. Also set on the skill screen's SWITCH KEY row.",
+                null,
+                new ConfigurationManagerAttributes { DispName = "Switch key (keyboard)", ObjToStr = FormatSwitchKey, Order = -5 }));
+            s_switchKeyRight = config.Bind("Controls", "SwitchKeyRight", KeyCode.None, new ConfigDescription(
+                "Keyboard, the right-hand player of a shared keyboard: the switch key. None = the first of R CONTROL, " +
+                "PERIOD, COMMA, SEMICOLON, QUOTE, O, U, NUM 0 the game doesn't use. Also set on that player's SWITCH KEY row.",
+                null,
+                new ConfigurationManagerAttributes { DispName = "Switch key (right-hand keyboard player)", ObjToStr = FormatSwitchKeyRight, Order = -6 }));
+            s_inputLayout = config.Bind("Controls", "InputLayout", 0, new ConfigDescription(
+                "Which version of the default buttons this file has been moved to (set by the mod).",
+                null,
+                new ConfigurationManagerAttributes { Browsable = false }));
+            s_switchAfterUse = config.Bind("Controls", "SwitchAfterUse", false, new ConfigDescription(
+                "With two actives: after using one, the SKILL KEY moves to the other by itself.",
+                null,
+                new ConfigurationManagerAttributes { DispName = "Switch after use", Order = -7 }));
+            MigrateLayout();
+
             // Older versions kept a controller button in the key setting: move it to the button setting.
             Migrate(s_key, s_button);
             Migrate(s_detailsKey, s_detailsButton);
             s_key.SettingChanged += delegate { Migrate(s_key, s_button); };
             s_detailsKey.SettingChanged += delegate { Migrate(s_detailsKey, s_detailsButton); };
+        }
+
+        /// <summary>
+        /// Once, on the first start of 4.4.0: a skill button still at the old default (None, the
+        /// game's EMOTE) moves to RB. A player who chose EMOTE on purpose can't be told apart from
+        /// the old default; they set it back on the SKILL KEY row (the release notes say so).
+        /// </summary>
+        private static void MigrateLayout()
+        {
+            if (s_inputLayout == null || s_inputLayout.Value >= CurrentInputLayout) return;
+            if (s_button != null && s_button.Value == PadKey.None)
+            {
+                s_button.Value = DefaultSkillButton;
+                Plugin.Log.LogInfo("Nút kỹ năng (tay cầm) chuyển từ BIỂU CẢM sang " + DefaultSkillButton + " (4.4.0). Chọn lại BIỂU CẢM ở hàng PHÍM KỸ NĂNG nếu muốn.");
+            }
+            s_inputLayout.Value = CurrentInputLayout;
+            Save(s_inputLayout.ConfigFile);
         }
 
         private static void Migrate(ConfigEntry<KeyCode> key, ConfigEntry<PadKey> button)
@@ -136,7 +230,25 @@ namespace ChefSkills
         private static string FormatSkillButton(object value)
         {
             PadKey key = value is PadKey ? (PadKey)value : PadKey.None;
-            return key == PadKey.None ? Lang.T("EMOTE (Y)", "BIỂU CẢM (Y)") : ButtonName(ToButton(key));
+            return key == PadKey.None || key == PadKey.Emote ? Lang.T("EMOTE (Y)", "BIỂU CẢM (Y)") : ButtonName(ToButton(key));
+        }
+
+        private static string FormatSwitchButton(object value)
+        {
+            PadKey key = value is PadKey ? (PadKey)value : PadKey.None;
+            return key == PadKey.None || key == PadKey.Emote ? Lang.T("None", "Không có") : ButtonName(ToButton(key));
+        }
+
+        private static string FormatSwitchKey(object value)
+        {
+            KeyCode key = value is KeyCode ? (KeyCode)value : KeyCode.None;
+            return key == KeyCode.None ? Lang.T("Automatic", "Tự động") + " (" + KeyName(AutoSwitchKey(false)) + ")" : KeyName(key);
+        }
+
+        private static string FormatSwitchKeyRight(object value)
+        {
+            KeyCode key = value is KeyCode ? (KeyCode)value : KeyCode.None;
+            return key == KeyCode.None ? Lang.T("Automatic", "Tự động") + " (" + KeyName(AutoSwitchKey(true)) + ")" : KeyName(key);
         }
 
         private static string FormatDetailsButton(object value)
@@ -157,6 +269,7 @@ namespace ChefSkills
             get { return s_detailsKey != null && !IsJoystick(s_detailsKey.Value) ? s_detailsKey.Value : KeyCode.None; }
         }
 
+        /// <summary>The skill button as set (Invalid: the game's EMOTE).</summary>
         private static ControlPadInput.Button Button
         {
             get { return s_button != null ? ToButton(s_button.Value) : ControlPadInput.Button.Invalid; }
@@ -239,6 +352,175 @@ namespace ChefSkills
             }
         }
 
+        // --- which controller buttons a player really gets ---------------------------------------
+
+        // Players playing alone with two chefs (the game's chef switch is then in use).
+        private static readonly HashSet<PlayerInputLookup.Player> s_solo = new HashSet<PlayerInputLookup.Player>();
+
+        /// <summary>This player controls two chefs (set by the skill screen and the kitchen).</summary>
+        internal static void SetSolo(PlayerInputLookup.Player player, bool solo)
+        {
+            if (solo) s_solo.Add(player);
+            else s_solo.Remove(player);
+        }
+
+        // Per player, per frame: the skill and switch buttons worked out (they are read every frame).
+        private static readonly Dictionary<PlayerInputLookup.Player, KeyValuePair<int, ControlPadInput.Button[]>> s_resolved =
+            new Dictionary<PlayerInputLookup.Player, KeyValuePair<int, ControlPadInput.Button[]>>();
+
+        /// <summary>
+        /// This controller player's skill button ([0]; Invalid = the game's EMOTE) and switch
+        /// button ([1]; Invalid = none), on their half of the controller.
+        /// </summary>
+        private static ControlPadInput.Button[] PadButtonsFor(PlayerInputLookup.Player player, PadSide side)
+        {
+            KeyValuePair<int, ControlPadInput.Button[]> cached;
+            if (s_resolved.TryGetValue(player, out cached) && cached.Key == Time.frameCount) return cached.Value;
+            HashSet<ControlPadInput.Button> game = GameButtons(player);
+            PadKey skillSetting = s_button != null ? s_button.Value : DefaultSkillButton;
+            PadKey switchSetting = s_switchButton != null ? s_switchButton.Value : DefaultSwitchButton;
+            ControlPadInput.Button skill = skillSetting == PadKey.None || skillSetting == PadKey.Emote
+                ? ControlPadInput.Button.Invalid
+                : Resolve(side, skillSetting, DefaultSkillButton, SkillFallbacks, game, ControlPadInput.Button.Invalid);
+            ControlPadInput.Button change = switchSetting == PadKey.None || switchSetting == PadKey.Emote
+                ? ControlPadInput.Button.Invalid
+                : Resolve(side, switchSetting, DefaultSwitchButton, SwitchFallbacks, game,
+                    skill == ControlPadInput.Button.Invalid ? ControlPadInput.Button.Y : skill);
+            var result = new[] { skill, change };
+            s_resolved[player] = new KeyValuePair<int, ControlPadInput.Button[]>(Time.frameCount, result);
+            return result;
+        }
+
+        /// <summary>
+        /// A setting as a button on the player's half: mirrored (RB to LB, RT to LT) when it is on
+        /// the other half; and when it is still the default and the game uses it (or it is
+        /// <paramref name="avoid"/>), the first free fallback instead.
+        /// </summary>
+        private static ControlPadInput.Button Resolve(PadSide side, PadKey setting, PadKey fallbackFor,
+            ControlPadInput.Button[] fallbacks, HashSet<ControlPadInput.Button> game, ControlPadInput.Button avoid)
+        {
+            ControlPadInput.Button button = ToButton(setting);
+            if (!OnSide(side, button)) button = Mirror(button);
+            if (!OnSide(side, button)) button = ControlPadInput.Button.Invalid;
+            bool isDefault = setting == fallbackFor;
+            // A button the player chose is kept even if the game uses it; the default steps aside.
+            // One that can't be used here (the other half, the other binding) falls back too.
+            if (button != ControlPadInput.Button.Invalid && button != avoid && !(isDefault && game.Contains(button))) return button;
+            foreach (ControlPadInput.Button choice in fallbacks)
+            {
+                ControlPadInput.Button candidate = OnSide(side, choice) ? choice : Mirror(choice);
+                if (OnSide(side, candidate) && candidate != avoid && !game.Contains(candidate)) return candidate;
+            }
+            return ControlPadInput.Button.Invalid;
+        }
+
+        private static ControlPadInput.Button Mirror(ControlPadInput.Button button)
+        {
+            switch (button)
+            {
+                case ControlPadInput.Button.RB: return ControlPadInput.Button.LB;
+                case ControlPadInput.Button.LB: return ControlPadInput.Button.RB;
+                case ControlPadInput.Button.RTrigger: return ControlPadInput.Button.LTrigger;
+                case ControlPadInput.Button.LTrigger: return ControlPadInput.Button.RTrigger;
+                default: return button;
+            }
+        }
+
+        /// <summary>
+        /// The controller buttons the game uses for this player in the kitchen: pick up, chop,
+        /// dash, emote and pause, and, when they play alone, the chef switch.
+        /// </summary>
+        private static HashSet<ControlPadInput.Button> GameButtons(PlayerInputLookup.Player player)
+        {
+            var used = new HashSet<ControlPadInput.Button> { ControlPadInput.Button.Start };
+            AddReal(used, player, AmbiPadButton.One);
+            AddReal(used, player, AmbiPadButton.Two);
+            AddReal(used, player, AmbiPadButton.Three);
+            AddReal(used, player, AmbiPadButton.Four);
+            if (s_solo.Contains(player)) AddReal(used, player, AmbiPadButton.Five);
+            return used;
+        }
+
+        // --- the game's keyboard keys --------------------------------------------------------------
+
+        private static HashSet<string> s_gameKeys;
+        private static float s_gameKeysAt = -100f;
+
+        /// <summary>Every key the game's keyboard bindings use (names, lower case), refreshed now and then.</summary>
+        private static HashSet<string> GameKeys()
+        {
+            if (s_gameKeys != null && Time.unscaledTime - s_gameKeysAt < 5f) return s_gameKeys;
+            s_gameKeysAt = Time.unscaledTime;
+            var keys = new HashSet<string>();
+            try
+            {
+                var bindings = HarmonyLib.AccessTools.Field(typeof(PCPadInputProvider), "m_UserKeyboardBindings").GetValue(null) as KeyboardBindings;
+                if (bindings != null)
+                    foreach (KeyboardBindingSet set in new[] { bindings.m_CombinedKeyboard, bindings.m_SplitKeyboard })
+                    {
+                        if (set == null) continue;
+                        AddKeys(keys, set.m_ButtonBindings);
+                        AddKeys(keys, set.m_PositiveValueBindings);
+                        AddKeys(keys, set.m_NegativeValueBindings);
+                    }
+            }
+            catch (Exception error)
+            {
+                Plugin.Log.LogDebug("Không đọc được phím của game: " + error.Message);
+            }
+            s_gameKeys = keys;
+            return keys;
+        }
+
+        private static void AddKeys<T>(HashSet<string> into, Dictionary<T, List<InControl.Key>> map)
+        {
+            if (map == null) return;
+            foreach (List<InControl.Key> list in map.Values)
+                if (list != null)
+                    foreach (InControl.Key key in list) into.Add(NormalKeyName(key.ToString()));
+        }
+
+        /// <summary>A key name the game's and Unity's spellings share ("alpha1" and "key1" both "1").</summary>
+        private static string NormalKeyName(string name)
+        {
+            name = name.ToLowerInvariant();
+            if (name.StartsWith("alpha")) return name.Substring(5);
+            if (name.StartsWith("key") && name.Length == 4 && char.IsDigit(name[3])) return name.Substring(3);
+            if (name.StartsWith("keypad")) return "pad" + name.Substring(6);
+            return name;
+        }
+
+        /// <summary>The keyboard SWITCH KEY used when none is set: the first choice the game and the other keys leave free.</summary>
+        private static KeyCode AutoSwitchKey(bool right)
+        {
+            HashSet<string> game = GameKeys();
+            // Both players of a shared keyboard press the same keys: keep off every key either of
+            // them has (the skill and info keys, and the other side's switch key; the left side's
+            // own pick never depends on the right's, so this can't loop).
+            KeyCode otherSwitch = right ? SwitchKeyFor(false) : ConfiguredSwitchKey(true);
+            foreach (KeyCode key in right ? SwitchKeyRightChoices : SwitchKeyChoices)
+            {
+                if (game.Contains(NormalKeyName(key.ToString()))) continue;
+                if (key == Key || key == DetailsKey || key == otherSwitch) continue;
+                return key;
+            }
+            return KeyCode.None;
+        }
+
+        /// <summary>The switch key as set for one side (None when automatic).</summary>
+        private static KeyCode ConfiguredSwitchKey(bool right)
+        {
+            ConfigEntry<KeyCode> entry = right ? s_switchKeyRight : s_switchKey;
+            return entry != null && !IsJoystick(entry.Value) ? entry.Value : KeyCode.None;
+        }
+
+        /// <summary>The keyboard SWITCH KEY for the left (or only) player, or the right-hand one.</summary>
+        private static KeyCode SwitchKeyFor(bool right)
+        {
+            KeyCode key = ConfiguredSwitchKey(right);
+            return key != KeyCode.None ? key : AutoSwitchKey(right);
+        }
+
         // --- the skill key -----------------------------------------------------------------------
 
         /// <summary>Is this local chef's skill button held now?</summary>
@@ -248,10 +530,15 @@ namespace ChefSkills
             bool keyboard;
             PadSide side;
             ControlPadInput.PadNum pad;
-            if (Device(state.Provider.GetID(), out keyboard, out side, out pad))
+            PlayerInputLookup.Player player = state.Provider.GetID();
+            if (Device(player, out keyboard, out side, out pad))
             {
                 if (keyboard && side != PadSide.Right && Key != KeyCode.None) return Input.GetKey(Key);
-                if (!keyboard && OnSide(side, Button)) return PadDown(pad, Button);
+                if (!keyboard)
+                {
+                    ControlPadInput.Button button = PadButtonsFor(player, side)[0];
+                    if (button != ControlPadInput.Button.Invalid) return PadDown(pad, button);
+                }
             }
             PlayerControls.ControlSchemeData scheme = state.Controls.ControlScheme;
             return scheme != null && scheme.m_curseButton != null && scheme.m_curseButton.IsDown();
@@ -267,9 +554,49 @@ namespace ChefSkills
             if (known)
             {
                 if (keyboard && side != PadSide.Right && Key != KeyCode.None) return KeyName(Key);
-                if (!keyboard && OnSide(side, Button)) return ButtonName(Button);
+                if (!keyboard)
+                {
+                    ControlPadInput.Button button = PadButtonsFor(player, side)[0];
+                    if (button != ControlPadInput.Button.Invalid) return ButtonName(button);
+                }
             }
             return known && !keyboard ? Lang.T("EMOTE (Y)", "BIỂU CẢM (Y)") : Lang.T("EMOTE", "BIỂU CẢM");
+        }
+
+        // --- the switch key ----------------------------------------------------------------------
+
+        /// <summary>Is this local chef's switch key (or button) held now?</summary>
+        internal static bool IsSwitchDown(ChefState state)
+        {
+            if (state == null || state.Provider == null) return false;
+            bool keyboard;
+            PadSide side;
+            ControlPadInput.PadNum pad;
+            PlayerInputLookup.Player player = state.Provider.GetID();
+            if (!Device(player, out keyboard, out side, out pad)) return false;
+            if (keyboard)
+            {
+                KeyCode key = SwitchKeyFor(side == PadSide.Right);
+                return key != KeyCode.None && Input.GetKey(key);
+            }
+            ControlPadInput.Button button = PadButtonsFor(player, side)[1];
+            return button != ControlPadInput.Button.Invalid && PadDown(pad, button);
+        }
+
+        /// <summary>What to print for this player's switch key ("RT", "Q"), or null when they have none.</summary>
+        internal static string SwitchNameFor(PlayerInputLookup.Player player)
+        {
+            bool keyboard;
+            PadSide side;
+            ControlPadInput.PadNum pad;
+            if (!Device(player, out keyboard, out side, out pad)) return null;
+            if (keyboard)
+            {
+                KeyCode key = SwitchKeyFor(side == PadSide.Right);
+                return key != KeyCode.None ? KeyName(key) : null;
+            }
+            ControlPadInput.Button button = PadButtonsFor(player, side)[1];
+            return button != ControlPadInput.Button.Invalid ? ButtonName(button) : null;
         }
 
         // --- the skill info key ------------------------------------------------------------------
@@ -379,6 +706,8 @@ namespace ChefSkills
             ControlPadInput.PadNum pad;
             if (!Device(player, out keyboard, out side, out pad) || keyboard) return ControlPadInput.Button.Invalid;
             HashSet<ControlPadInput.Button> used = MenuButtons(player);
+            // Nor the player's SKILL or SWITCH button.
+            foreach (ControlPadInput.Button mine in PadButtonsFor(player, side)) used.Add(mine);
             foreach (ControlPadInput.Button choice in LockInChoices)
                 if (OnSide(side, choice) && !used.Contains(choice)) return choice;
             return ControlPadInput.Button.Invalid;
@@ -419,12 +748,16 @@ namespace ChefSkills
             PadSide side;
             ControlPadInput.PadNum pad;
             if (!Device(player, out keyboard, out side, out pad)) return "không rõ thiết bị";
-            if (keyboard) return "bàn phím" + (side != PadSide.Both ? " (" + side + ")" : "") + ": chọn = Space, chốt = Enter";
+            if (keyboard) return "bàn phím" + (side != PadSide.Both ? " (" + side + ")" : "") + ": chọn = Space, chốt = Enter, đổi = " + SwitchKeyFor(side == PadSide.Right);
             ControlPadInput.Button lockIn = LockInPadButton(player);
+            ControlPadInput.Button[] mine = PadButtonsFor(player, side);
             return "tay cầm " + pad + (side != PadSide.Both ? " (nửa " + side + ")" : "") +
                 ": chọn = " + RealNames(player, AmbiPadButton.Confirm) + ", hủy = " + RealNames(player, AmbiPadButton.Cancel) +
                 ", ẩn = " + RealNames(player, AmbiPadButton.Four) +
-                ", chốt = " + (lockIn != ControlPadInput.Button.Invalid ? lockIn.ToString() : "nút X của game");
+                ", chốt = " + (lockIn != ControlPadInput.Button.Invalid ? lockIn.ToString() : "nút X của game") +
+                ", kỹ năng = " + (mine[0] != ControlPadInput.Button.Invalid ? mine[0].ToString() : "biểu cảm") +
+                ", đổi = " + (mine[1] != ControlPadInput.Button.Invalid ? mine[1].ToString() : "không có") +
+                ", đổi đầu bếp của game = " + RealNames(player, AmbiPadButton.Five);
         }
 
         // --- reading a pad directly (menus) -------------------------------------------------------
@@ -520,14 +853,18 @@ namespace ChefSkills
         // --- rebinding on the skill screen -------------------------------------------------------
 
         /// <summary>
-        /// One player waiting to press their new skill key (or skill info key): a keyboard player
-        /// sets the keyboard key, a controller player the controller button.
+        /// One player waiting to press their new skill key, switch key or skill info key: a
+        /// keyboard player sets the keyboard key, a controller player the controller button.
         /// </summary>
         internal sealed class Capture
         {
             internal readonly PlayerInputLookup.Player Player;
-            /// <summary>Setting the skill info key, not the skill key.</summary>
-            internal readonly bool Details;
+            internal readonly CaptureTarget Target;
+            /// <summary>Setting the skill info key.</summary>
+            internal bool Details
+            {
+                get { return Target == CaptureTarget.Details; }
+            }
             /// <summary>A new key was saved.</summary>
             internal bool Saved { get; private set; }
             internal readonly bool Keyboard;
@@ -538,10 +875,10 @@ namespace ChefSkills
             private readonly ILogicalButton[] _gameButtons;
             private bool _keysReleased;
 
-            internal Capture(PlayerInputLookup.Player player, bool details)
+            internal Capture(PlayerInputLookup.Player player, CaptureTarget target)
             {
                 Player = player;
-                Details = details;
+                Target = target;
                 Started = Time.unscaledTime;
                 bool keyboard;
                 PadSide side;
@@ -601,20 +938,30 @@ namespace ChefSkills
                 return Keyboard ? PollKeyboard(out result) : PollPad(out result);
             }
 
-            private string Label
+            private static string LabelOf(CaptureTarget target)
             {
-                get { return Details ? Lang.T("INFO KEY", "PHÍM XEM KỸ NĂNG") : Lang.T("SKILL KEY", "PHÍM KỸ NĂNG"); }
+                switch (target)
+                {
+                    case CaptureTarget.Details: return Lang.T("INFO KEY", "PHÍM XEM KỸ NĂNG");
+                    case CaptureTarget.Switch: return Lang.T("SWITCH KEY", "PHÍM ĐỔI");
+                    default: return Lang.T("SKILL KEY", "PHÍM KỸ NĂNG");
+                }
             }
 
-            private string OtherLabel
+            private static string YoursOf(CaptureTarget target)
             {
-                get { return Details ? Lang.T("YOUR SKILL KEY", "PHÍM KỸ NĂNG CỦA BẠN") : Lang.T("YOUR INFO KEY", "PHÍM XEM KỸ NĂNG CỦA BẠN"); }
+                switch (target)
+                {
+                    case CaptureTarget.Details: return Lang.T("YOUR INFO KEY", "PHÍM XEM KỸ NĂNG CỦA BẠN");
+                    case CaptureTarget.Switch: return Lang.T("YOUR SWITCH KEY", "PHÍM ĐỔI CỦA BẠN");
+                    default: return Lang.T("YOUR SKILL KEY", "PHÍM KỸ NĂNG CỦA BẠN");
+                }
             }
 
             private bool Done(out string result, string shown, bool gameButton)
             {
                 Saved = true;
-                result = Label + ": " + shown + (gameButton ? Lang.T(" (ALSO A GAME BUTTON)", " (CŨNG LÀ NÚT CỦA GAME)") : "");
+                result = LabelOf(Target) + ": " + shown + (gameButton ? Lang.T(" (ALSO A GAME BUTTON)", " (CŨNG LÀ NÚT CỦA GAME)") : "");
                 return true;
             }
 
@@ -633,22 +980,43 @@ namespace ChefSkills
                     result = Lang.T("CANCELLED", "ĐÃ HỦY");
                     return true;
                 }
+                bool right = Side == PadSide.Right;
                 if (Input.GetKeyDown(KeyCode.Backspace) || Input.GetKeyDown(KeyCode.Delete))
                 {
-                    SaveKey(Details, KeyCode.None);
-                    return Done(out result, Details ? Lang.T("NONE", "KHÔNG CÓ") : Lang.T("EMOTE", "BIỂU CẢM"), false);
+                    SaveKey(Target, right, KeyCode.None);
+                    string cleared = Target == CaptureTarget.Details ? Lang.T("NONE", "KHÔNG CÓ")
+                        : Target == CaptureTarget.Switch ? Lang.T("AUTOMATIC", "TỰ ĐỘNG") + " (" + KeyName(SwitchKeyFor(right)) + ")"
+                        : Lang.T("EMOTE", "BIỂU CẢM");
+                    return Done(out result, cleared, false);
                 }
                 foreach (KeyCode key in Enum.GetValues(typeof(KeyCode)))
                 {
                     if (key == KeyCode.None || key == KeyCode.Mouse0 || IsJoystick(key)) continue;
                     if (!Input.GetKeyDown(key)) continue;
-                    KeyCode other = Details ? Key : DetailsKey;
-                    if (other == key)
+                    // Neither this player's other keys nor the other player's on a shared keyboard
+                    // (they press the same keys): the skill and info keys, and both switch keys.
+                    var others = new Dictionary<CaptureTarget, KeyCode>
                     {
-                        result = KeyName(key) + Lang.T(" IS ", " ĐÃ LÀ ") + OtherLabel;
+                        { CaptureTarget.Skill, Key }, { CaptureTarget.Details, DetailsKey }, { CaptureTarget.Switch, SwitchKeyFor(right) },
+                    };
+                    foreach (KeyValuePair<CaptureTarget, KeyCode> other in others)
+                    {
+                        if (other.Key == Target || other.Value != key) continue;
+                        result = KeyName(key) + Lang.T(" IS ", " ĐÃ LÀ ") + YoursOf(other.Key);
                         return true;
                     }
-                    SaveKey(Details, key);
+                    if (key == SwitchKeyFor(!right) && Side != PadSide.Both)
+                    {
+                        result = KeyName(key) + Lang.T(" IS THE OTHER PLAYER'S SWITCH KEY", " LÀ PHÍM ĐỔI CỦA NGƯỜI KIA");
+                        return true;
+                    }
+                    if (Target == CaptureTarget.Skill && right)
+                    {
+                        // The right-hand player of a shared keyboard keeps EMOTE (their keys are the game's).
+                        result = Lang.T("RIGHT-HAND PLAYER: SKILL KEY STAYS EMOTE", "NGƯỜI CHƠI BÊN PHẢI: PHÍM KỸ NĂNG LÀ BIỂU CẢM");
+                        return true;
+                    }
+                    SaveKey(Target, right, key);
                     return Done(out result, KeyName(key), GameUses());
                 }
                 return false;
@@ -678,46 +1046,57 @@ namespace ChefSkills
                     return true;
                 }
                 PadKey key = ToPadKey(pressed);
-                // Y is EMOTE, the skill button's default: picking it for the skill goes back to EMOTE.
-                if (!Details && pressed == ControlPadInput.Button.Y)
+                // Y is EMOTE: picking it for the skill means the game's EMOTE, chosen on purpose.
+                if (Target == CaptureTarget.Skill && pressed == ControlPadInput.Button.Y)
                 {
-                    SaveButton(false, PadKey.None);
+                    SaveButton(CaptureTarget.Skill, PadKey.Emote);
                     return Done(out result, Lang.T("EMOTE (Y)", "BIỂU CẢM (Y)"), false);
                 }
-                // The info button pressed again clears it.
-                if (Details && s_detailsButton != null && key == s_detailsButton.Value)
+                // The info or switch button pressed again clears it.
+                ConfigEntry<PadKey> own = Target == CaptureTarget.Details ? s_detailsButton : Target == CaptureTarget.Switch ? s_switchButton : null;
+                ControlPadInput.Button[] mine = PadButtonsFor(Player, Side);
+                ControlPadInput.Button current = Target == CaptureTarget.Switch ? mine[1] : Target == CaptureTarget.Details ? DetailsButton : mine[0];
+                if (own != null && pressed == current)
                 {
-                    SaveButton(true, PadKey.None);
+                    SaveButton(Target, PadKey.None);
                     return Done(out result, Lang.T("NONE", "KHÔNG CÓ"), false);
                 }
-                ControlPadInput.Button skill = Button == ControlPadInput.Button.Invalid ? ControlPadInput.Button.Y : Button;
-                ControlPadInput.Button other = Details ? skill : DetailsButton;
-                if (pressed == other)
+                var others = new Dictionary<CaptureTarget, ControlPadInput.Button>
                 {
-                    result = ButtonName(pressed) + Lang.T(" IS ", " ĐÃ LÀ ") + OtherLabel;
+                    { CaptureTarget.Skill, mine[0] == ControlPadInput.Button.Invalid ? ControlPadInput.Button.Y : mine[0] },
+                    { CaptureTarget.Details, DetailsButton },
+                    { CaptureTarget.Switch, mine[1] },
+                };
+                foreach (KeyValuePair<CaptureTarget, ControlPadInput.Button> other in others)
+                {
+                    if (other.Key == Target || other.Value != pressed) continue;
+                    result = ButtonName(pressed) + Lang.T(" IS ", " ĐÃ LÀ ") + YoursOf(other.Key);
                     return true;
                 }
-                SaveButton(Details, key);
+                SaveButton(Target, key);
                 return Done(out result, ButtonName(pressed), GameUses());
             }
         }
 
-        private static void SaveKey(bool details, KeyCode value)
+        private static void SaveKey(CaptureTarget target, bool right, KeyCode value)
         {
-            ConfigEntry<KeyCode> entry = details ? s_detailsKey : s_key;
+            ConfigEntry<KeyCode> entry = target == CaptureTarget.Details ? s_detailsKey
+                : target == CaptureTarget.Switch ? (right ? s_switchKeyRight : s_switchKey) : s_key;
             if (entry == null) return;
             entry.Value = value;
             Save(entry.ConfigFile);
-            Plugin.Log.LogInfo(details ? "Phím xem kỹ năng (bàn phím): " + value : "Phím kỹ năng (bàn phím): " + value);
+            Plugin.Log.LogInfo("Phím (bàn phím) " + entry.Definition.Key + ": " + value);
         }
 
-        private static void SaveButton(bool details, PadKey value)
+        private static void SaveButton(CaptureTarget target, PadKey value)
         {
-            ConfigEntry<PadKey> entry = details ? s_detailsButton : s_button;
+            ConfigEntry<PadKey> entry = target == CaptureTarget.Details ? s_detailsButton
+                : target == CaptureTarget.Switch ? s_switchButton : s_button;
             if (entry == null) return;
             entry.Value = value;
             Save(entry.ConfigFile);
-            Plugin.Log.LogInfo(details ? "Nút xem kỹ năng (tay cầm): " + value : "Nút kỹ năng (tay cầm): " + value);
+            s_resolved.Clear();
+            Plugin.Log.LogInfo("Nút (tay cầm) " + entry.Definition.Key + ": " + value);
         }
 
         private static void Save(ConfigFile file)

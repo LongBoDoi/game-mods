@@ -71,7 +71,7 @@ namespace ChefSkills
         private const int Channel = 7;
         private const byte Magic = 0xC5;
         // 4: the balance pass (SkillSync version 8).
-        private const byte Protocol = 4;
+        private const byte Protocol = 5;
         private const byte RouteToHost = 1;
         private const byte RouteToAll = 2;
         private const byte RouteRelay = 3;

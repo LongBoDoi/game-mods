@@ -159,21 +159,25 @@ namespace ChefSkills
         /// there's nothing to choose from (the special is then used at once and the host says why
         /// it can't be).
         /// </summary>
-        internal static bool Begin(ChefState state, Func<ChefState, List<AimTarget>> source)
+        internal static bool Begin(ChefState state, Special active, Func<ChefState, List<AimTarget>> source)
         {
             List<AimTarget> targets;
             try
             {
+                state.Using = active;
+                state.UsingSlot = Mathf.Max(0, state.SlotOf(active));
                 targets = source(state);
             }
             catch (Exception error)
             {
-                SpecialRuntime.Fail(state.Active + ".Targets", error);
+                SpecialRuntime.Fail(active + ".Targets", error);
                 return false;
             }
             if (targets == null || targets.Count == 0) return false;
             float now = Time.unscaledTime;
-            state.Aim = new Session { Special = state.Active, Targets = targets, Selected = 0, Started = now };
+            // The session keeps the special it was opened for: letting go fires that one even if
+            // the selection changed meanwhile (switching cancels the aim anyway).
+            state.Aim = new Session { Special = active, Targets = targets, Selected = 0, Started = now };
             Send(state);
             return true;
         }
@@ -182,7 +186,7 @@ namespace ChefSkills
         internal static void Hold(ChefState state, bool down)
         {
             Session session = state.Aim;
-            if (session.Special != state.Active || !SpecialRuntime.CanUseNow(state))
+            if (!state.HasActive(session.Special) || !SpecialRuntime.CanUseNow(state))
             {
                 Stop(state);
                 return;
@@ -192,18 +196,24 @@ namespace ChefSkills
             {
                 // Everything it could be used on went away: let the host say so.
                 Stop(state);
-                SpecialRuntime.Fire(state, null);
+                SpecialRuntime.Fire(state, session.Special, null);
                 return;
             }
             if (!down)
             {
                 AimTarget chosen = session.Chosen;
                 Stop(state);
-                SpecialRuntime.Fire(state, chosen);
+                SpecialRuntime.Fire(state, session.Special, chosen);
                 return;
             }
             Steer(state, session);
             if (Time.unscaledTime - session.SentAt > KeepAliveSeconds) Send(state);
+        }
+
+        /// <summary>The player pressed SWITCH while choosing: stop without using anything (no cooldown starts).</summary>
+        internal static void Cancel(ChefState state)
+        {
+            Stop(state);
         }
 
         /// <summary>Stops choosing without using it (the chef was knocked out, a menu opened...).</summary>

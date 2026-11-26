@@ -1454,9 +1454,11 @@ namespace ChefSkills.Specials
             // Planting is free: only a short pause so a double tap doesn't return at once. The
             // button shows the flag's time running out instead (its "effect").
             float now = SpecialRuntime.Now;
-            chef.CooldownUntil = now + 0.5f;
-            chef.CooldownTotal = 0.5f;
-            chef.ActiveUntil = Mathf.Max(now + 0.5f, chef.Get(FlagUntilKey, now + RecallSeconds));
+            ActiveTimer timing = chef.TimingOf(Special.Recall);
+            if (timing == null) return;
+            timing.CooldownUntil = now + 0.5f;
+            timing.CooldownTotal = 0.5f;
+            timing.ActiveUntil = Mathf.Max(now + 0.5f, chef.Get(FlagUntilKey, now + RecallSeconds));
             chef.Set(FlagModeKey, 0);
         }
 

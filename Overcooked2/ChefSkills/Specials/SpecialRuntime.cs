@@ -72,6 +72,16 @@ namespace ChefSkills
         internal const int MoveBonus = 6;
     }
 
+    /// <summary>One active slot's timing (SpecialRuntime.Now): its cooldown and how long its effect runs.</summary>
+    internal sealed class ActiveTimer
+    {
+        /// <summary>When it can be used again, and its full cooldown.</summary>
+        public float CooldownUntil;
+        public float CooldownTotal;
+        /// <summary>When its effect (if it has one) ends.</summary>
+        public float ActiveUntil;
+    }
+
     /// <summary>One chef in the kitchen, as the specials see it, on this machine.</summary>
     internal sealed class ChefState
     {
@@ -84,11 +94,23 @@ namespace ChefSkills
         /// <summary>Its loadout (never null), refreshed twice a second.</summary>
         public int[] Loadout = SpecialCatalog.Empty();
 
-        /// <summary>Active special: when it can be used again, and its full cooldown (SpecialRuntime.Now).</summary>
-        public float CooldownUntil;
-        public float CooldownTotal;
-        public float ActiveUntil;
+        /// <summary>
+        /// Each active slot's cooldown and effect (index 0 = active 1, 1 = active 2; see
+        /// <see cref="SpecialCatalog.ActiveSlots"/>). Every machine keeps them, from the host's confirmations.
+        /// </summary>
+        public readonly ActiveTimer[] Timing = { new ActiveTimer(), new ActiveTimer() };
+        /// <summary>The player's machine: the active slot the SKILL KEY uses (the SWITCH KEY flips it).</summary>
+        internal int Selected;
+        /// <summary>
+        /// The active being used right now (in its Execute, Predict, OnActivated) and its slot:
+        /// handlers read this, never "the" active, as a chef can have two.
+        /// </summary>
+        public Special Using;
+        public int UsingSlot;
+        /// <summary>After any use, neither active can be used again until then (no two in a few frames).</summary>
+        internal float LockoutUntil;
         internal bool EmoteWasDown;
+        internal bool SwitchWasDown;
         internal float PendingUntil;
 
         /// <summary>
@@ -221,9 +243,64 @@ namespace ChefSkills
             get { return _status; }
         }
 
-        public Special Active
+        /// <summary>The active in slot <paramref name="index"/> (0 = active 1, 1 = active 2).</summary>
+        public Special ActiveAt(int index)
         {
-            get { return (Special)Loadout[(int)SpecialSlot.Active]; }
+            return SpecialCatalog.ActiveIn(Loadout, index);
+        }
+
+        /// <summary>The active slot (0 or 1) holding <paramref name="special"/>, or -1.</summary>
+        public int SlotOf(Special special)
+        {
+            if (special == Special.None) return -1;
+            for (int i = 0; i < Timing.Length; i++)
+                if (ActiveAt(i) == special) return i;
+            return -1;
+        }
+
+        public bool HasActive(Special special)
+        {
+            return SlotOf(special) >= 0;
+        }
+
+        /// <summary>Does the chef have any active at all?</summary>
+        public bool AnyActive
+        {
+            get { return ActiveAt(0) != Special.None || ActiveAt(1) != Special.None; }
+        }
+
+        /// <summary>
+        /// The slot the SKILL KEY uses: the selected one, or the only one filled (a chef with just
+        /// active 2 uses that).
+        /// </summary>
+        public int SelectedSlot
+        {
+            get
+            {
+                if (ActiveAt(Selected) != Special.None) return Selected;
+                int other = 1 - Selected;
+                return ActiveAt(other) != Special.None ? other : Selected;
+            }
+        }
+
+        /// <summary>The active the SKILL KEY uses now (None if the chef has none).</summary>
+        public Special SelectedActive
+        {
+            get { return ActiveAt(SelectedSlot); }
+        }
+
+        /// <summary>The timing of the slot holding <paramref name="special"/> (null if the chef doesn't have it).</summary>
+        public ActiveTimer TimingOf(Special special)
+        {
+            int slot = SlotOf(special);
+            return slot >= 0 ? Timing[slot] : null;
+        }
+
+        /// <summary>When <paramref name="special"/>'s effect ends (0 if the chef doesn't have it).</summary>
+        public float RunningUntil(Special special)
+        {
+            ActiveTimer timing = TimingOf(special);
+            return timing != null ? timing.ActiveUntil : 0f;
         }
 
         public bool Has(Special special)
@@ -411,7 +488,7 @@ namespace ChefSkills
             Refresh();
             Raise(LevelStarted, "LevelStarted");
             foreach (ChefState state in s_chefs)
-                if (state.Local && state.Loadout[0] + state.Loadout[1] + state.Loadout[2] + state.Loadout[3] != 0)
+                if (state.Local && Array.Exists(state.Loadout, pick => pick != 0))
                 {
                     s_hud = new SpecialHud();
                     break;
@@ -775,6 +852,18 @@ namespace ChefSkills
                 int[] loadout = allowed ? Plugin.Skills.SpecialsOf(chef) : null;
                 state.Loadout = loadout != null ? (int[])loadout.Clone() : SpecialCatalog.Empty();
             }
+            // A player on this machine with two chefs plays alone: the game's chef switch is then in
+            // use, so the skill and switch buttons keep off it (SpecialInput).
+            var perPlayer = new Dictionary<PlayerInputLookup.Player, int>();
+            foreach (ChefState state in s_chefs)
+            {
+                if (!state.Local || state.Provider == null) continue;
+                PlayerInputLookup.Player player = state.Provider.GetID();
+                int count;
+                perPlayer.TryGetValue(player, out count);
+                perPlayer[player] = count + 1;
+            }
+            foreach (KeyValuePair<PlayerInputLookup.Player, int> pair in perPlayer) SpecialInput.SetSolo(pair.Key, pair.Value > 1);
             for (int i = s_chefs.Count - 1; i >= 0; i--)
             {
                 if (seen.Contains(s_chefs[i].Chef != null ? s_chefs[i].Chef.GetInstanceID() : 0)) continue;
@@ -786,30 +875,51 @@ namespace ChefSkills
         // --- actives ----------------------------------------------------------------------------
 
         /// <summary>
-        /// A local player's skill key: a press uses their active, or, for one with targets, starts
-        /// choosing one (used when the key is let go; see <see cref="SpecialAim"/>).
+        /// After any active is used, how long before either can be used again: SKILL, SWITCH,
+        /// SKILL can't fire both in a few frames.
+        /// </summary>
+        internal const float ActiveLockout = 0.5f;
+
+        /// <summary>
+        /// A local player's keys: SWITCH changes which active the SKILL KEY uses; a SKILL press
+        /// uses it, or, for one with targets, starts choosing one (used when the key is let go;
+        /// see <see cref="SpecialAim"/>).
         /// </summary>
         private static void ReadActivation(ChefState state)
         {
             bool down = SpecialInput.IsDown(state);
             bool pressed = down && !state.EmoteWasDown;
             state.EmoteWasDown = down;
+            bool switchDown = SpecialInput.IsSwitchDown(state);
+            bool switched = switchDown && !state.SwitchWasDown;
+            state.SwitchWasDown = switchDown;
+            if (switched && SpecialCatalog.TwoActives(state.Loadout) && CanUseNow(state))
+            {
+                // Switching is free and instant; while aiming it cancels the aim (nothing was used).
+                if (state.Aim != null) SpecialAim.Cancel(state);
+                state.Selected = 1 - state.SelectedSlot;
+                SpecialHud.Switched(state);
+                // A press in the same frame uses the newly selected one.
+            }
             if (state.Aim != null)
             {
                 SpecialAim.Hold(state, down);
                 return;
             }
-            if (!pressed || state.Active == Special.None) return;
+            Special active = state.SelectedActive;
+            if (!pressed || active == Special.None) return;
             if (!CanUseNow(state)) return;
-            if (s_now < state.CooldownUntil || s_now < state.PendingUntil)
+            ActiveTimer timing = state.Timing[state.SelectedSlot];
+            if (s_now < timing.CooldownUntil || s_now < state.PendingUntil || s_now < state.LockoutUntil)
             {
-                SpecialHud.Deny(state, s_now < state.PendingUntil ? null : Lang.Both("NOT READY", "CHƯA HỒI CHIÊU XONG"));
+                SpecialHud.Deny(state, s_now < state.PendingUntil || (s_now < state.LockoutUntil && s_now >= timing.CooldownUntil)
+                    ? null : Lang.Both("NOT READY", "CHƯA HỒI CHIÊU XONG"));
                 return;
             }
             ActiveHandler handler;
-            if (s_actives.TryGetValue(state.Active, out handler) && handler.Targets != null && SpecialAim.Begin(state, handler.Targets))
+            if (s_actives.TryGetValue(active, out handler) && handler.Targets != null && SpecialAim.Begin(state, active, handler.Targets))
                 return;
-            Fire(state, null);
+            Fire(state, active, null);
         }
 
         /// <summary>The player's own machine: their chef can use its active now (not knocked out, no menu).</summary>
@@ -820,13 +930,21 @@ namespace ChefSkills
                    !HasBuff(state, BuffId.Frozen) && !SpecialHud.GameMenuOpen();
         }
 
-        /// <summary>
-        /// The player's own machine: use the chef's active, on <paramref name="target"/> when one
-        /// was chosen (null: whatever the special picks itself, from where the chef stands and faces).
-        /// </summary>
-        internal static void Fire(ChefState state, AimTarget target)
+        /// <summary>Sets what the handlers read as the active being used.</summary>
+        private static void Use(ChefState state, Special special)
         {
-            if (state.Active == Special.None) return;
+            state.Using = special;
+            state.UsingSlot = Mathf.Max(0, state.SlotOf(special));
+        }
+
+        /// <summary>
+        /// The player's own machine: use the chef's <paramref name="active"/>, on
+        /// <paramref name="target"/> when one was chosen (null: whatever the special picks itself,
+        /// from where the chef stands and faces).
+        /// </summary>
+        internal static void Fire(ChefState state, Special active, AimTarget target)
+        {
+            if (active == Special.None || !state.HasActive(active)) return;
             Vector3 forward = state.Forward;
             float reach = 0f;
             if (target != null)
@@ -848,26 +966,27 @@ namespace ChefSkills
             state.AimChef = target != null ? target.Chef : null;
             if (IsServer)
             {
-                ServerActivate(state, state.Active);
+                ServerActivate(state, active);
                 return;
             }
             state.PendingUntil = s_now + PendingSeconds;
             SpecialNet.SendToHost(new SpecialMessage
             {
-                Topic = SpecialNet.Topic.ActivateRequest, Chef = state.Id, I = (int)state.Active,
+                Topic = SpecialNet.Topic.ActivateRequest, Chef = state.Id, I = (int)active,
                 Vector1 = state.Position, Vector2 = forward, G = reach,
                 Text = state.AimChef != null && state.AimChef.Id != 0 ? state.AimChef.Id.ToString() : null
             });
             ActiveHandler handler;
-            if (s_actives.TryGetValue(state.Active, out handler) && handler.Predict != null)
+            if (s_actives.TryGetValue(active, out handler) && handler.Predict != null)
             {
                 try
                 {
+                    Use(state, active);
                     handler.Predict(state);
                 }
                 catch (Exception error)
                 {
-                    Fail(state.Active + ".Predict", error);
+                    Fail(active + ".Predict", error);
                 }
             }
         }
@@ -876,7 +995,8 @@ namespace ChefSkills
         {
             ChefState state = StateById(message.Chef);
             if (state == null) return;
-            if ((int)state.Active != message.I)
+            var special = (Special)message.I;
+            if (!state.HasActive(special))
             {
                 // The loadouts disagree (one machine hasn't refreshed yet): say so rather than
                 // leaving the player's press hanging.
@@ -896,7 +1016,21 @@ namespace ChefSkills
                 : null;
             // The player has let go of the skill key, whether or not its "done aiming" got here first.
             state.AimingUntil = 0f;
-            ServerActivate(state, state.Active);
+            ServerActivate(state, special);
+        }
+
+        /// <summary>
+        /// Host: the cooldown <paramref name="special"/> starts when used by a chef with this
+        /// loadout: its catalog cooldown, times the second-active tax when both slots are filled
+        /// (not for a near-instant toggle like Pocket, nor a once-per-level one).
+        /// </summary>
+        internal static float CooldownFor(int[] loadout, Special special)
+        {
+            SpecialInfo info = SpecialCatalog.Info(special);
+            float cooldown = info != null ? info.Cooldown : 10f;
+            if (SpecialCatalog.TwoActives(loadout) && cooldown >= 1f && cooldown < 999f)
+                cooldown *= SpecialCatalog.SecondActiveCooldown;
+            return cooldown;
         }
 
         /// <summary>Server: use a chef's active if it's ready and has something to work on.</summary>
@@ -905,12 +1039,16 @@ namespace ChefSkills
             ActiveHandler handler;
             bool ok = false;
             state.RefuseReason = null;
-            if (s_now + CooldownSlack < state.CooldownUntil) state.RefuseReason = Lang.Both("NOT READY", "CHƯA HỒI CHIÊU XONG");
+            ActiveTimer timing = state.TimingOf(special);
+            if (timing == null) state.RefuseReason = Lang.Both("NOT AVAILABLE", "KHÔNG DÙNG ĐƯỢC");
+            else if (s_now + CooldownSlack < timing.CooldownUntil || s_now + CooldownSlack < state.LockoutUntil)
+                state.RefuseReason = Lang.Both("NOT READY", "CHƯA HỒI CHIÊU XONG");
             else if (!s_actives.TryGetValue(special, out handler)) state.RefuseReason = Lang.Both("NOT AVAILABLE", "KHÔNG DÙNG ĐƯỢC");
             else
             {
                 try
                 {
+                    Use(state, special);
                     ok = handler.Execute(state);
                 }
                 catch (Exception error)
@@ -926,8 +1064,7 @@ namespace ChefSkills
                 SpecialNet.SendToAll(new SpecialMessage { Topic = SpecialNet.Topic.Denied, Chef = state.Id, I = (int)special, Text = reason });
                 return;
             }
-            SpecialInfo info = SpecialCatalog.Info(special);
-            float cooldown = info != null ? info.Cooldown : 10f;
+            float cooldown = CooldownFor(state.Loadout, special);
             float duration = s_actives[special].Duration;
             // Where it was used (where the player saw their chef), so every machine shows it there:
             // the owner's chef may already be somewhere else by then (Blink, Vault...).
@@ -944,10 +1081,18 @@ namespace ChefSkills
             if (state == null) return;
             Special special = (Special)message.I;
             state.PendingUntil = 0f;
-            state.CooldownUntil = s_now + message.A;
-            state.CooldownTotal = message.A;
-            state.ActiveUntil = s_now + message.B;
+            state.LockoutUntil = s_now + ActiveLockout;
+            // A player alone: the lockout covers both their chefs (switch chef, fire the other active).
+            foreach (ChefState sibling in SiblingsOf(state)) sibling.LockoutUntil = state.LockoutUntil;
+            ActiveTimer timing = state.TimingOf(special);
+            if (timing != null)
+            {
+                timing.CooldownUntil = s_now + message.A;
+                timing.CooldownTotal = message.A;
+                timing.ActiveUntil = s_now + message.B;
+            }
             ShareCooldown(state, special, message.A);
+            Use(state, special);
             ActiveHandler handler;
             if (s_actives.TryGetValue(special, out handler) && handler.OnActivated != null)
             {
@@ -974,7 +1119,12 @@ namespace ChefSkills
                     }
                 }
             }
-            if (state.Local) SpecialHud.Used(state);
+            if (state.Local)
+            {
+                SpecialHud.Used(state, special);
+                if (SpecialInput.SwitchAfterUse && SpecialCatalog.TwoActives(state.Loadout) && state.SlotOf(special) >= 0)
+                    state.Selected = 1 - state.SlotOf(special);
+            }
             // Everyone sees that a special went off, and whose, at the same spot.
             Vector3 at = message.G > 0.5f && Vector3.Distance(message.Vector2, state.Position) < 12f ? message.Vector2 : state.Position;
             SpecialFx.Burst(at, SpecialFx.ColourOf(special), 1.6f, 0.55f);
@@ -990,9 +1140,10 @@ namespace ChefSkills
         }
 
         /// <summary>
-        /// Every machine, as an active goes off: the chefs of the same player share one cooldown
-        /// (a player alone can't use the active once per chef), and a "one per kitchen" active
-        /// puts the same special on cooldown for every chef of the team.
+        /// Every machine, as an active goes off: the chefs of the same player share each slot's
+        /// cooldown (a player alone can't use an active once per chef), and a "one per kitchen"
+        /// active puts the same special on cooldown for every chef of the team. Only the slot
+        /// holding that special is touched, never the chef's other active.
         /// </summary>
         private static void ShareCooldown(ChefState state, Special special, float cooldown)
         {
@@ -1003,23 +1154,30 @@ namespace ChefSkills
             {
                 ChefState other = s_chefs[i];
                 if (other == state) continue;
-                bool share = SamePlayer(other, state) || (teamWide && other.Team == state.Team && other.Active == special);
-                if (!share || other.CooldownUntil >= until) continue;
-                other.CooldownUntil = until;
-                other.CooldownTotal = cooldown;
+                ActiveTimer timing = other.TimingOf(special);
+                if (timing == null) continue;
+                bool share = SamePlayer(other, state) || (teamWide && other.Team == state.Team);
+                if (!share || timing.CooldownUntil >= until) continue;
+                timing.CooldownUntil = until;
+                timing.CooldownTotal = cooldown;
             }
         }
 
         /// <summary>
-        /// Shortens a chef's active cooldown by <paramref name="seconds"/> (every machine), and its
-        /// player's other chef's, which shares it.
+        /// Shortens the cooldown of the slot holding <paramref name="special"/> by
+        /// <paramref name="seconds"/> (every machine), and the same slot of its player's other
+        /// chef, which shares it.
         /// </summary>
-        internal static void ShortenCooldownLocal(ChefState state, float seconds)
+        internal static void ShortenCooldownLocal(ChefState state, Special special, float seconds)
         {
             if (state == null) return;
-            state.CooldownUntil = Mathf.Max(s_now, state.CooldownUntil - seconds);
+            ActiveTimer timing = state.TimingOf(special);
+            if (timing != null) timing.CooldownUntil = Mathf.Max(s_now, timing.CooldownUntil - seconds);
             foreach (ChefState sibling in SiblingsOf(state))
-                sibling.CooldownUntil = Mathf.Max(s_now, sibling.CooldownUntil - seconds);
+            {
+                ActiveTimer theirs = sibling.TimingOf(special);
+                if (theirs != null) theirs.CooldownUntil = Mathf.Max(s_now, theirs.CooldownUntil - seconds);
+            }
         }
 
         // --- safety -----------------------------------------------------------------------------

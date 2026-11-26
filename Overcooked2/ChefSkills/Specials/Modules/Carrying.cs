@@ -474,7 +474,8 @@ namespace ChefSkills.Specials
             ServerPlayerAttachmentCarrier carrier = ServerCarrier(state);
             if (carrier == null || state.Controls == null) return state.Refuse(Lang.Both("NOT READY", "CHƯA SẴN SÀNG"));
             if (state.Controls.m_bRespawning) return state.Refuse(Lang.Both("RESPAWNING", "ĐANG HỒI SINH"));
-            Special kind = state.Active == Special.Pocket ? Special.Pocket : Special.PackMule;
+            // The active being used (a chef can have two; only one carry active, see the Carry group).
+            Special kind = state.Using == Special.Pocket ? Special.Pocket : Special.PackMule;
             int capacity = kind == Special.Pocket ? PocketSize : 1;
             GameObject hand = carrier.InspectCarriedItem();
             List<Stashed> stored = StashOf(state.Id, kind);

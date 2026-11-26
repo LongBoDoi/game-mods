@@ -41,6 +41,9 @@ namespace ChefSkills
             public string KeyName;
             /// <summary>Local cards: the key or button that opens the skill details panel in the kitchen.</summary>
             public string DetailsKeyName;
+            /// <summary>Local cards: the key or button that switches between two actives.</summary>
+            public string SwitchKeyName;
+            public bool CapturingSwitch;
             /// <summary>Local cards: waiting for the player to press their new skill key.</summary>
             public bool Capturing;
             /// <summary>The key being set is the details key.</summary>
@@ -68,6 +71,8 @@ namespace ChefSkills
             public Text Value;
             public Image Disc, Picture;
             public Text Glyph;
+            /// <summary>Passive rows: the pick's level, as up to three lit bars (null on other rows).</summary>
+            public Image[] LevelPips;
             public int Shown = -1;
             public float PunchAt = -10f;
         }
@@ -84,32 +89,38 @@ namespace ChefSkills
             get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount : -1; }
         }
 
+        /// <summary>Under it: the key that switches between two actives (-1 with specials off).</summary>
+        internal static int SwitchRow
+        {
+            get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 1 : -1; }
+        }
+
         /// <summary>Under it: the key that opens the skill details panel (-1 with specials off).</summary>
         internal static int DetailsRow
         {
-            get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 1 : -1; }
+            get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 2 : -1; }
         }
 
         /// <summary>Where this player's skill bar shows in a level (-1 with specials off).</summary>
         internal static int BarRow
         {
-            get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 2 : -1; }
+            get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 3 : -1; }
         }
 
         /// <summary>How big this player's skill bar is (-1 with specials off).</summary>
         internal static int SizeRow
         {
-            get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 3 : -1; }
+            get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 4 : -1; }
         }
 
         /// <summary>The last row: where this player's skill bar sits on screen (-1 with specials off).</summary>
         internal static int SpotRow
         {
-            get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 4 : -1; }
+            get { return SpecialCatalog.Enabled ? SkillStats.Count + SpecialCatalog.SlotCount + 5 : -1; }
         }
 
-        /// <summary>The setting rows under the special picks: SKILL KEY, INFO KEY, DISPLAY, BAR SIZE, BAR POSITION.</summary>
-        private const int SettingRows = 5;
+        /// <summary>The setting rows under the special picks: SKILL KEY, SWITCH KEY, INFO KEY, DISPLAY, BAR SIZE, BAR POSITION.</summary>
+        private const int SettingRows = 6;
 
         private static string[] SettingNames
         {
@@ -117,15 +128,15 @@ namespace ChefSkills
             {
                 return new[]
                 {
-                    Lang.T("SKILL KEY", "PHÍM KỸ NĂNG"), Lang.T("INFO KEY", "PHÍM XEM"), Lang.T("DISPLAY", "HIỂN THỊ"),
-                    Lang.T("BAR SIZE", "CỠ THANH"), Lang.T("BAR POSITION", "VỊ TRÍ THANH"),
+                    Lang.T("SKILL KEY", "PHÍM KỸ NĂNG"), Lang.T("SWITCH KEY", "PHÍM ĐỔI"), Lang.T("INFO KEY", "PHÍM XEM"),
+                    Lang.T("DISPLAY", "HIỂN THỊ"), Lang.T("BAR SIZE", "CỠ THANH"), Lang.T("BAR POSITION", "VỊ TRÍ THANH"),
                 };
             }
         }
 
         private static bool IsKeyRow(int index)
         {
-            return index >= 0 && (index == KeyRow || index == DetailsRow);
+            return index >= 0 && (index == KeyRow || index == DetailsRow || index == SwitchRow);
         }
 
         private static float RowY(int index)
@@ -249,6 +260,11 @@ namespace ChefSkills
         private const float PipsWidth = 96f;
         private const float PipGap = 3f;
         private const float PipHeight = 16f;
+        // A passive row's level bars, at the row's right end past the pick's name.
+        private const float LevelPipsX = 140f;
+        private const float LevelPipWidth = 4f;
+        private const float LevelPipGap = 2f;
+        private const float LevelPipHeight = 14f;
         private const float ArrowLeftX = -23f;
         private const float ArrowRightX = 95f;
         private const float PercentX = 124f;
@@ -739,6 +755,10 @@ namespace ChefSkills
             return row;
         }
 
+        /// <summary>
+        /// A special or setting row. <paramref name="slot"/> counts rows under the skills: the
+        /// special rows first (row r shows SpecialCatalog.SlotAtRow(r)), then the setting rows.
+        /// </summary>
         private SpecialRow BuildSpecialRow(RectTransform parent, int slot, Color tint)
         {
             var row = new SpecialRow();
@@ -755,8 +775,9 @@ namespace ChefSkills
             RectTransform name = key
                 ? Child("Name", row.Root, new Vector2(NameX + 10f, 0f), new Vector2(NameWidth + 20f, RowStep - 5f))
                 : Child("Name", row.Root, new Vector2(NameX, 0f), new Vector2(NameWidth, RowStep - 5f));
+            SpecialSlot shows = SpecialCatalog.SlotAtRow(slot);
             AddShadow(AddText(name, _art.Header, 21, key ? NeutralColour : PointsColour, TextAnchor.MiddleLeft,
-                key ? SettingNames[slot - SpecialCatalog.SlotCount] : SpecialCatalog.SlotNames[slot], true).gameObject);
+                key ? SettingNames[slot - SpecialCatalog.SlotCount] : SpecialCatalog.SlotNames[(int)shows], true).gameObject);
 
             // DISPLAY and BAR SIZE step with Left/Right, so their values leave room for the arrows.
             int rowIndex = SkillStats.Count + slot;
@@ -777,6 +798,15 @@ namespace ChefSkills
                 RectTransform glyph = Child("Glyph", disc, Vector2.zero, new Vector2(RowStep, RowStep));
                 row.Glyph = AddText(glyph, _art.Header, 12, Color.white, TextAnchor.MiddleCenter, "", false);
                 disc.gameObject.SetActive(false);
+                if (SpecialCatalog.KindFor(shows) == SpecialKind.Passive)
+                {
+                    row.LevelPips = new Image[SpecialCatalog.PassiveBudget];
+                    float first = LevelPipsX - (row.LevelPips.Length - 1) * (LevelPipWidth + LevelPipGap) * 0.5f;
+                    for (int k = 0; k < row.LevelPips.Length; k++)
+                        row.LevelPips[k] = AddImage(Child("Level" + k, row.Root,
+                            new Vector2(first + k * (LevelPipWidth + LevelPipGap), 0f),
+                            new Vector2(LevelPipWidth, LevelPipHeight)), null, EmptyPipColour);
+                }
             }
             return row;
         }
@@ -787,6 +817,12 @@ namespace ChefSkills
             if (animate) row.PunchAt = now;
             row.Shown = pick;
             SpecialInfo info = SpecialCatalog.Info((Special)pick);
+            if (row.LevelPips != null)
+            {
+                int level = SpecialCatalog.LevelOf((Special)pick);
+                for (int k = 0; k < row.LevelPips.Length; k++)
+                    row.LevelPips[k].color = level > k ? BuffColour : EmptyPipColour;
+            }
             if (row.Disc != null)
             {
                 row.Disc.transform.gameObject.SetActive(info != null);
@@ -817,7 +853,14 @@ namespace ChefSkills
                     ? (keyboard
                         ? Lang.T("Press any key now (Esc: cancel, Backspace: back to emote)", "Bấm phím bất kỳ ngay (Esc: hủy, Backspace: về phím biểu cảm)")
                         : Lang.T("Press any button now: shoulders, triggers, d-pad... (Start: cancel, Y: back to emote)", "Bấm nút bất kỳ ngay: vai, cò, d-pad... (Start: hủy, Y: về nút biểu cảm)"))
-                    : Lang.T("The key or button that uses your active special. SELECT to change it", "Phím hoặc nút dùng kỹ năng chủ động của bạn. SELECT để đổi");
+                    : Lang.T("The key or button that uses your selected active special. SELECT to change it", "Phím hoặc nút dùng kỹ năng chủ động đang chọn. SELECT để đổi");
+            if (selected == SwitchRow)
+                return capturing
+                    ? (keyboard
+                        ? Lang.T("Press any key now (Esc: cancel, Backspace: automatic)", "Bấm phím bất kỳ ngay (Esc: hủy, Backspace: tự động)")
+                        : Lang.T("Press any button now (Start: cancel, the same button again: none)", "Bấm nút bất kỳ ngay (Start: hủy, bấm lại nút cũ: bỏ nút)"))
+                    : Lang.T("With two actives, the key or button that switches which one your SKILL KEY uses. SELECT to change it",
+                        "Có hai kỹ năng chủ động: phím hoặc nút đổi kỹ năng mà PHÍM KỸ NĂNG dùng. SELECT để đổi");
             if (selected == DetailsRow)
                 return capturing
                     ? (keyboard
@@ -836,11 +879,19 @@ namespace ChefSkills
                         "Di chuyển thanh bằng phím hướng. SELECT: xong, BACK: hủy, ẨN: về tự động")
                     : Lang.T("Where your bar sits on screen: automatic, or anywhere you put it. SELECT to move it",
                         "Vị trí thanh trên màn hình: tự động, hoặc nơi bạn đặt. SELECT để di chuyển");
-            int slot = selected - SkillStats.Count;
+            var slot = (int)SpecialCatalog.SlotAtRow(selected - SkillStats.Count);
             Special pick = specials != null && slot < specials.Length ? (Special)specials[slot] : Special.None;
             SpecialInfo info = SpecialCatalog.Info(pick);
-            if (info == null) return SpecialCatalog.SlotHelp[slot];
-            string text = info.Description;
+            // On a passive row, how much of the budget the passives use, ahead of what this one does.
+            string budget = "";
+            if (SpecialCatalog.KindFor((SpecialSlot)slot) == SpecialKind.Passive)
+            {
+                int used = SpecialCatalog.PassiveLevels(specials, -1);
+                budget = (Lang.Vi ? "BỊ ĐỘNG " : "PASSIVES ") + used + "/" + SpecialCatalog.PassiveBudget +
+                    (info != null ? (Lang.Vi ? " - CẤP " : " - LEVEL ") + info.Level : "") + ". ";
+            }
+            if (info == null) return budget + SpecialCatalog.SlotHelp[slot];
+            string text = budget + info.Description;
             if (info.Kind == SpecialKind.Active)
                 text += info.Cooldown >= 999f ? Lang.T(" (once per level)", " (mỗi màn một lần)") : " (" + Mathf.RoundToInt(info.Cooldown) + " s)";
             if (info.TeamWide) text += Lang.T(". One per kitchen", ". Mỗi bếp một người");
@@ -1096,8 +1147,9 @@ namespace ChefSkills
                 }
                 for (int s = 0; s < card.Specials.Length; s++)
                 {
-                    int pick = known && info.Specials != null && s < info.Specials.Length ? info.Specials[s] : 0;
-                    ShowSpecial(card.Specials[s], s, pick, card.Initialised, now);
+                    var shows = (int)SpecialCatalog.SlotAtRow(s);
+                    int pick = known && info.Specials != null && shows < info.Specials.Length ? info.Specials[shows] : 0;
+                    ShowSpecial(card.Specials[s], shows, pick, card.Initialised, now);
                     card.Specials[s].Highlight.enabled = SkillStats.Count + s == selected;
                     card.Specials[s].Root.localScale = Punch(now - card.Specials[s].PunchAt, 0.06f);
                 }
@@ -1113,14 +1165,18 @@ namespace ChefSkills
                 // The setting rows: their values, the one being set pulsing.
                 if (card.Settings.Length == SettingRows)
                 {
+                    bool capturingSkill = info.Capturing && !info.CapturingDetails && !info.CapturingSwitch;
+                    bool capturingSwitch = info.Capturing && info.CapturingSwitch;
+                    bool capturingDetails = info.Capturing && info.CapturingDetails;
                     string[] values =
                     {
-                        info.Capturing && !info.CapturingDetails ? Lang.T("PRESS A KEY...", "BẤM PHÍM...") : info.KeyName,
-                        info.Capturing && info.CapturingDetails ? Lang.T("PRESS A KEY...", "BẤM PHÍM...") : info.DetailsKeyName,
+                        capturingSkill ? Lang.T("PRESS A KEY...", "BẤM PHÍM...") : info.KeyName,
+                        capturingSwitch ? Lang.T("PRESS A KEY...", "BẤM PHÍM...") : info.SwitchKeyName,
+                        capturingDetails ? Lang.T("PRESS A KEY...", "BẤM PHÍM...") : info.DetailsKeyName,
                         info.BarMode, info.BarSize,
                         info.Placing ? Lang.T("MOVING...", "ĐANG DI CHUYỂN...") : info.BarSpot,
                     };
-                    bool[] waiting = { info.Capturing && !info.CapturingDetails, info.Capturing && info.CapturingDetails, false, false, info.Placing };
+                    bool[] waiting = { capturingSkill, capturingSwitch, capturingDetails, false, false, info.Placing };
                     for (int s = 0; s < SettingRows; s++)
                     {
                         SpecialRow setting = card.Settings[s];

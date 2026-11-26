@@ -60,11 +60,14 @@ namespace ChefSkills.Specials
         private const int SlowStarterBonus = 1;
         private const float SneezeRange = 4f;
         private const float SneezeSeconds = 2f;
-        // Battery: the share of the teammate's catalog cooldown it takes off at most.
-        private const float BatteryShare = 0.35f;
-        // Battery: at most this share of the holder's own catalog cooldown.
-        private const float BatteryHolderShare = 0.5f;
-        // Battery: a holder whose active comes back sooner than this charges nothing (Pocket, Pack Mule).
+        // Battery (with two actives, PASSIVE_LEVELS_PROPOSAL 6.4): a charge takes off at most half
+        // the target slot's cooldown, and at most 65% of the trigger's own (taxed) cooldown, itself
+        // counted up to 10 s; one charge per holder every 10 s.
+        private const float BatteryShare = 0.5f;
+        private const float BatteryTriggerShare = 0.65f;
+        private const float BatteryTriggerCap = 10f;
+        private const float BatteryEvery = 10f;
+        // Battery: a trigger whose catalog cooldown is shorter charges nothing (Pocket, Pack Mule).
         private const float BatteryMinCooldown = 5f;
         // Battery: the teammate you face counts first (from your press), within this far and arc.
         private const float BatteryFaceRange = 8f;
@@ -111,6 +114,9 @@ namespace ChefSkills.Specials
         private static readonly List<KeyValuePair<ChefState, int>> Grants = new List<KeyValuePair<ChefState, int>>();
         // Host: Battery chefs holding a charge nobody could use yet.
         private static readonly HashSet<ChefState> BatteryCharged = new HashSet<ChefState>();
+        // Host: what a kept charge is worth (its trigger's capped share), and when each holder may charge again.
+        private static readonly Dictionary<ChefState, float> BatteryStored = new Dictionary<ChefState, float>();
+        private static readonly Dictionary<ChefState, float> BatteryNext = new Dictionary<ChefState, float>();
         // Bodyguard "BLOCKED!" words (instance ID -> unscaled time), so one knock shows one word.
         private static readonly Dictionary<int, float> LastBlocked = new Dictionary<int, float>();
         // Which of the buffs below each chef had last frame (this machine), to say when one starts or ends.
@@ -169,6 +175,8 @@ namespace ChefSkills.Specials
             SeenBuffs.Clear();
             Grants.Clear();
             BatteryCharged.Clear();
+            BatteryStored.Clear();
+            BatteryNext.Clear();
             LastBlocked.Clear();
             LastFlags.Clear();
             foreach (PlayerPhysicsSurfaceProperties copy in NoSlip.Values)
@@ -378,28 +386,42 @@ namespace ChefSkills.Specials
 
         // --- Battery ----------------------------------------------------------------------------
 
-        private static bool Rechargeable(ChefState mate, float now)
+        /// <summary>
+        /// The mate's active slot waiting longest (-1 if none is): not "once per level" actives
+        /// (Spare Pan), as half of forever is still forever.
+        /// </summary>
+        private static int RechargeableSlot(ChefState mate, float now)
         {
-            // Not "once per level" actives (Spare Pan): half of forever is still forever.
-            return mate.Chef != null && mate.Active != Special.None && mate.CooldownUntil - now > 1f &&
-                mate.CooldownTotal > 0f && mate.CooldownTotal <= 600f;
-        }
-
-        /// <summary>The catalog cooldown of a chef's active (not what modifiers made of it); 0 if none.</summary>
-        private static float CatalogCooldown(ChefState chef)
-        {
-            if (chef == null || chef.Active == Special.None) return 0f;
-            SpecialInfo info = SpecialCatalog.Info(chef.Active);
-            return info != null ? info.Cooldown : 0f;
+            if (mate.Chef == null) return -1;
+            int best = -1;
+            float longest = 1f;
+            for (int slot = 0; slot < mate.Timing.Length; slot++)
+            {
+                ActiveTimer timing = mate.Timing[slot];
+                if (mate.ActiveAt(slot) == Special.None || timing.CooldownTotal <= 0f || timing.CooldownTotal > 600f) continue;
+                float left = timing.CooldownUntil - now;
+                if (left <= longest) continue;
+                longest = left;
+                best = slot;
+            }
+            return best;
         }
 
         /// <summary>
-        /// Can this holder's active charge anyone? Not one that comes back in moments (Pocket,
-        /// Pack Mule): that would recycle a teammate's big active off a near-free press.
+        /// What a charge from this trigger can be worth at most: 65% of the trigger's cooldown as
+        /// used (with the second-active tax), counted up to 10 s. 0 when the trigger can't charge
+        /// (a catalog cooldown under 5 s: Pocket, Pack Mule would recycle a big active off a near-free press).
         /// </summary>
-        private static bool CanCharge(ChefState holder)
+        private static float TriggerShare(ChefState holder, Special trigger)
         {
-            return CatalogCooldown(holder) >= BatteryMinCooldown;
+            SpecialInfo info = SpecialCatalog.Info(trigger);
+            if (info == null || info.Cooldown < BatteryMinCooldown) return 0f;
+            ActiveTimer timing = holder.TimingOf(trigger);
+            float used = timing != null && timing.CooldownTotal > 0f ? timing.CooldownTotal : info.Cooldown;
+            // A use that set only a short pause (Recall planting its flag) isn't a real use yet:
+            // it charges nothing and leaves the 10 s window for the return.
+            if (used < BatteryMinCooldown) return 0f;
+            return BatteryTriggerShare * Mathf.Min(used, BatteryTriggerCap);
         }
 
         /// <summary>Can a charge from <paramref name="holder"/> go to <paramref name="mate"/> (not the holder's own other chef)?</summary>
@@ -410,9 +432,10 @@ namespace ChefSkills.Specials
 
         /// <summary>
         /// Host, after any active is confirmed. A Battery chef's active (5 s+ cooldown) charges a
-        /// teammate's: the one it faced at the press if that one is recharging, else the one with
-        /// the longest wait. If nobody is recharging the charge is kept and goes to the next
-        /// teammate who uses theirs. Never to the holder's own other chef (a player alone).
+        /// teammate's, at most once every 10 s: the one it faced at the press if that one is
+        /// recharging, else the one with the longest wait, on the teammate's slot waiting longest.
+        /// If nobody is recharging the charge is kept and goes to the next teammate who uses
+        /// theirs. Never to the holder's own other chef (a player alone).
         /// </summary>
         private static void OnAnyActivated(ChefState state, Special special)
         {
@@ -420,18 +443,22 @@ namespace ChefSkills.Specials
             float now = SpecialRuntime.Now;
 
             // A teammate just used theirs: a kept charge goes to them.
-            if (BatteryCharged.Count > 0 && Rechargeable(state, now))
+            if (BatteryCharged.Count > 0 && RechargeableSlot(state, now) >= 0)
             {
                 foreach (ChefState holder in SpecialRuntime.Teammates(state))
                 {
-                    if (!BatteryCharged.Contains(holder) || !BatteryReaches(holder, state) || !CanCharge(holder)) continue;
-                    SendBattery(holder, state);
+                    float stored;
+                    if (!BatteryCharged.Contains(holder) || !BatteryReaches(holder, state) || !BatteryStored.TryGetValue(holder, out stored)) continue;
+                    SendBattery(holder, state, stored);
                     SetCharge(holder, false);
                     break;
                 }
             }
 
-            if (!state.Has(Special.Battery) || !CanCharge(state)) return;
+            if (!state.Has(Special.Battery)) return;
+            float share = TriggerShare(state, special);
+            float next;
+            if (share <= 0f || (BatteryNext.TryGetValue(state, out next) && now < next)) return;
             ChefState best = null;
             float bestScore = float.MinValue;
             bool anyReachable = false;
@@ -441,10 +468,11 @@ namespace ChefSkills.Specials
             {
                 if (mate.Chef == null || !BatteryReaches(state, mate)) continue;
                 anyReachable = true;
-                if (!Rechargeable(mate, now)) continue;
+                int slot = RechargeableSlot(mate, now);
+                if (slot < 0) continue;
                 Vector3 offset = mate.Position - from;
                 offset.y = 0f;
-                float score = mate.CooldownUntil - now;
+                float score = mate.Timing[slot].CooldownUntil - now;
                 if (offset.magnitude <= BatteryFaceRange && offset.sqrMagnitude > 0.0001f && facing.sqrMagnitude > 0.0001f &&
                     Vector3.Angle(facing, offset) <= BatteryFaceArc)
                     score += 10000f - offset.magnitude;
@@ -454,36 +482,50 @@ namespace ChefSkills.Specials
                     bestScore = score;
                 }
             }
-            if (best != null) SendBattery(state, best);
-            // Kept only if someone could ever take it.
-            else if (anyReachable && !BatteryCharged.Contains(state)) SetCharge(state, true);
+            // Nobody recharging: kept only if someone could ever take it, and only one at a time.
+            if (best == null && (!anyReachable || BatteryCharged.Contains(state))) return;
+            BatteryNext[state] = now + BatteryEvery;
+            SendRecharge(state);
+            if (best != null) SendBattery(state, best, share);
+            else
+            {
+                BatteryStored[state] = share;
+                SetCharge(state, true);
+            }
         }
 
-        /// <summary>
-        /// Host: min(the teammate's time left, 35% of its catalog cooldown, half the holder's
-        /// catalog cooldown), the same caps for a kept charge.
-        /// </summary>
-        private static void SendBattery(ChefState holder, ChefState target)
+        /// <summary>Host: the charge comes off the target's slot waiting longest, at most half that slot's cooldown.</summary>
+        private static void SendBattery(ChefState holder, ChefState target, float share)
         {
-            float left = target.CooldownUntil - SpecialRuntime.Now;
-            float amount = Mathf.Min(left, Mathf.Min(CatalogCooldown(target) * BatteryShare,
-                CatalogCooldown(holder) * BatteryHolderShare));
+            int slot = RechargeableSlot(target, SpecialRuntime.Now);
+            if (slot < 0) return;
+            ActiveTimer timing = target.Timing[slot];
+            float left = timing.CooldownUntil - SpecialRuntime.Now;
+            float amount = Mathf.Min(left, Mathf.Min(timing.CooldownTotal * BatteryShare, share));
             if (amount <= 0f) return;
-            var message = new SpecialMessage { Topic = BatteryTopic, Chef = target.Id, D = holder.Id, A = amount };
-            if (target.Id == 0) ApplyBattery(target, holder, amount);
+            Special special = target.ActiveAt(slot);
+            var message = new SpecialMessage { Topic = BatteryTopic, Chef = target.Id, D = holder.Id, A = amount, I = (int)special };
+            if (target.Id == 0) ApplyBattery(target, holder, special, amount);
             else SpecialNet.SendToAll(message);
+        }
+
+        /// <summary>Every machine: the holder's Battery icon shows its 10 s recharge.</summary>
+        private static void SendRecharge(ChefState holder)
+        {
+            if (holder.Id == 0) holder.SetTimer(Special.Battery, SpecialRuntime.Now + BatteryEvery, BatteryEvery);
+            else SpecialNet.SendToAll(new SpecialMessage { Topic = BatteryChargeTopic, Chef = holder.Id, I = -1 });
         }
 
         private static void OnBattery(SpecialMessage message)
         {
-            ApplyBattery(SpecialRuntime.StateById(message.Chef), SpecialRuntime.StateById((uint)message.D), message.A);
+            ApplyBattery(SpecialRuntime.StateById(message.Chef), SpecialRuntime.StateById((uint)message.D), (Special)message.I, message.A);
         }
 
-        /// <summary>Every machine: the same number of seconds comes off the teammate's cooldown.</summary>
-        private static void ApplyBattery(ChefState target, ChefState holder, float seconds)
+        /// <summary>Every machine: the same number of seconds comes off that active's cooldown.</summary>
+        private static void ApplyBattery(ChefState target, ChefState holder, Special special, float seconds)
         {
             if (target == null || seconds <= 0f) return;
-            SpecialRuntime.ShortenCooldownLocal(target, seconds);
+            SpecialRuntime.ShortenCooldownLocal(target, special, seconds);
             if (target.Chef == null) return;
             Color colour = SpecialFx.ColourOf(Special.Battery);
             if (holder != null && holder.Chef != null) SpecialFx.Beam(holder.Position, target.Position, colour, 0.8f);
@@ -503,6 +545,11 @@ namespace ChefSkills.Specials
         {
             ChefState holder = SpecialRuntime.StateById(message.Chef);
             if (holder == null) return;
+            if (message.I < 0)
+            {
+                holder.SetTimer(Special.Battery, SpecialRuntime.Now + BatteryEvery, BatteryEvery);
+                return;
+            }
             holder.SetCount(Special.Battery, message.I);
             if (message.I > 0 && holder.Chef != null)
                 SpecialFx.Text(holder.Chef, Lang.T("CHARGE STORED", "ĐÃ TÍCH SẠC"), SpecialFx.ColourOf(Special.Battery));
@@ -889,7 +936,7 @@ namespace ChefSkills.Specials
             chef.SetStatus("Rally", FromTeammate(chef, RallyBuff) ? SpecialCatalog.NameOf(Special.RallyCry) + Lang.T(" +" + rally + "% SPEED", " +" + rally + "% TỐC ĐỘ") : null, Special.RallyCry);
             chef.SetStatus("Guarded", FromTeammate(chef, GuardedBuff) ? Lang.T("GUARDED: NO KNOCKBACK", "ĐƯỢC BẢO VỆ: KHÔNG BỊ ĐẨY") : null, Special.Bodyguard);
 
-            if (chef.Active != Special.Frenzy)
+            if (!chef.HasActive(Special.Frenzy))
             {
                 chef.SetStatus("Frenzy", null);
                 return;

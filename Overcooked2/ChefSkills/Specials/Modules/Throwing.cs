@@ -7,8 +7,8 @@ using UnityEngine;
 namespace ChefSkills.Specials
 {
     /// <summary>
-    /// Reach, catching, throwing and crate specials: Long Arms, Magnet, Bulk Buyer, Catcher's Mitt,
-    /// Sticky Fingers, Homing Throw, Lob, Assembly Line, Juggler, Rebound, Quartermaster, Shove,
+    /// Reach, catching, throwing and crate specials: Long Arms, Bulk Buyer, Catcher's Mitt (with its
+    /// rebound and magnet), Sticky Fingers, Homing Throw, Lob, Assembly Line, Juggler, Quartermaster, Shove,
     /// Weak Arm and Butterfingers.
     ///
     /// Where things run: the interaction scan (Long Arms) runs only on the machine that owns the
@@ -30,7 +30,9 @@ namespace ChefSkills.Specials
         private const float QuartermasterCooldown = 5f;
         private const float SpareRange = 4f;           // how far from the crate a spare may be put
         private const float SpareBoardRange = 6f;      // Bulk Buyer: an empty board for a choppable spare
-        private const float QuartermasterRange = 5f;   // crate to the quartermaster
+        private const float QuartermasterRange = 5f;
+        // Quartermaster: the spare goes on a free counter this close to the quartermaster (else by the crate).
+        private const float QuartermasterDrop = 2f;   // crate to the quartermaster
         private const float MagnetRange = 6f;
         private const float MagnetStop = 0.9f;         // don't push items into the chef's feet
         private const float MagnetSpeed = 6f;
@@ -325,7 +327,7 @@ namespace ChefSkills.Specials
                     if (mate.Chef == null || !mate.Has(Special.Quartermaster)) continue;
                     if (now < mate.Get("Throwing.QuartermasterNext", 0f)) continue;
                     if (FlatDistance(mate.Position, crate.transform.position) > QuartermasterRange) continue;
-                    if (!SpawnSpare(crate, held, Special.Quartermaster, false)) break;
+                    if (!SpawnSpare(crate, held, Special.Quartermaster, false, mate.Position)) break;
                     mate.Set("Throwing.QuartermasterNext", now + QuartermasterCooldown);
                     ShareTimer(mate, Special.Quartermaster, QuartermasterCooldown);
                     SpecialFx.TextAll(mate.Chef, Lang.Both("SPARE!", "DỰ PHÒNG!"), Special.Quartermaster);
@@ -356,12 +358,26 @@ namespace ChefSkills.Specials
         /// </summary>
         private static bool SpawnSpare(ServerPickupItemSpawner crate, GameObject sample, Special special, bool board)
         {
+            return SpawnSpare(crate, sample, special, board, null);
+        }
+
+        /// <summary>
+        /// As above; with <paramref name="nearChef"/> (Quartermaster) the spare goes on a free
+        /// counter within 2 m of that spot when there is one, so the quartermaster stages it.
+        /// </summary>
+        private static bool SpawnSpare(ServerPickupItemSpawner crate, GameObject sample, Special special, bool board, Vector3? nearChef)
+        {
             GameObject prefab = crate.GetItemPrefab();
             if (prefab == null) return false;
             Vector3 cratePosition = crate.transform.position;
             ServerAttachStation station = null;
             bool onBoard = false;
-            if (board && prefab.GetComponent<WorkableItem>() != null)
+            if (nearChef.HasValue)
+            {
+                station = NearestFreeStation(nearChef.Value, QuartermasterDrop, sample, false);
+                if (station != null) cratePosition = nearChef.Value;
+            }
+            if (station == null && board && prefab.GetComponent<WorkableItem>() != null)
             {
                 // The held one may be chopped already (Prep Cook): only a raw one says what a board takes.
                 GameObject raw = sample != null && sample.GetComponent<WorkableItem>() != null ? sample : null;
@@ -390,7 +406,7 @@ namespace ChefSkills.Specials
             }
             station.AddItem(spare, Flat(station.transform.position - cratePosition), context);
             // By position: the new item may reach other machines after this effect does.
-            SpecialFx.BeamAll(cratePosition, position, special, 0.5f);
+            SpecialFx.BeamAll(crate.transform.position, position, special, 0.5f);
             SpecialFx.BurstAll(position, special);
             SpecialFx.TextAllAt(position + Vector3.up * 0.9f, "+1", special);
             return true;
@@ -532,7 +548,7 @@ namespace ChefSkills.Specials
             }
         }
 
-        // --- throws: Juggler, Lob, Homing Throw, Assembly Line aim, Rebound tracking ----------------
+        // --- throws: Juggler, Lob, Homing Throw, Assembly Line aim, mitt rebound tracking ------------
 
         /// <summary>
         /// Host, right after the game set the thrown item's velocity. Works on that velocity rather
@@ -551,7 +567,7 @@ namespace ChefSkills.Specials
 
         /// <summary>
         /// Host, right after a STRONG ARM toss left the hands with its velocity: the same specials
-        /// as a normal throw (Juggler, Homing Throw, Lob, Rebound), on the toss's velocity.
+        /// as a normal throw (Juggler, Homing Throw, Lob, Catcher's Mitt rebound), on the toss's velocity.
         /// </summary>
         internal static void OnTossed(ChefState state, GameObject item, IAttachment attachment)
         {
@@ -644,7 +660,7 @@ namespace ChefSkills.Specials
             if (changed) motion.SetVelocity(velocity);
 
             ChefState aimed = AimedRebounder(state, origin, velocity);
-            if (target == null && mark == Special.None && aimed == null && !SpecialRuntime.AnyHas(Special.Rebound)) return;
+            if (target == null && mark == Special.None && aimed == null && !SpecialRuntime.AnyHas(Special.CatchersMitt)) return;
 
             float flat = new Vector2(velocity.x, velocity.z).magnitude;
             s_flights[item.GetInstanceID()] = new Flight
@@ -687,7 +703,7 @@ namespace ChefSkills.Specials
             return new Vector3(along.x, vertical, along.z);
         }
 
-        /// <summary>The Rebound chef (not the thrower) the throw is heading for, if any.</summary>
+        /// <summary>The Catcher's Mitt chef (not the thrower) the throw is heading for, if any.</summary>
         private static ChefState AimedRebounder(ChefState thrower, Vector3 from, Vector3 velocity)
         {
             Vector3 direction = new Vector3(velocity.x, 0f, velocity.z);
@@ -698,7 +714,7 @@ namespace ChefSkills.Specials
             for (int i = 0; i < chefs.Count; i++)
             {
                 ChefState chef = chefs[i];
-                if (chef == thrower || chef.Chef == null || !chef.Has(Special.Rebound)) continue;
+                if (chef == thrower || chef.Chef == null || !chef.Has(Special.CatchersMitt)) continue;
                 Vector3 offset = chef.Position - from;
                 offset.y = 0f;
                 float distance = offset.magnitude;
@@ -722,10 +738,10 @@ namespace ChefSkills.Specials
                     continue;
                 }
                 bool flying = flight.Toss ? TossFlying(flight, now) : flight.Throwable.IsFlying();
-                // REBOUND: a throw (not flying to a teammate) dropping well under where it was
+                // CATCHER'S MITT rebound: a throw (not flying to a teammate) dropping well under where it was
                 // thrown from is going into a pit: it counts as landed while it still can be saved.
                 if (flying && flight.Target == null && flight.Item.activeInHierarchy &&
-                    flight.Item.transform.position.y < flight.LaunchHeight - ReboundFall && SpecialRuntime.AnyHas(Special.Rebound))
+                    flight.Item.transform.position.y < flight.LaunchHeight - ReboundFall && SpecialRuntime.AnyHas(Special.CatchersMitt))
                     flying = false;
                 if (flying)
                 {
@@ -784,7 +800,7 @@ namespace ChefSkills.Specials
         }
 
         /// <summary>
-        /// Rebound: a throw nobody caught (the Rebound chef's own too), landing near a Rebound chef
+        /// Catcher's Mitt rebound (once REBOUND): a throw nobody caught (the mitt chef's own too), landing near a mitt chef
         /// or dropping into a pit there, goes onto a counter.
         /// </summary>
         private static void Landed(Flight flight)
@@ -799,7 +815,7 @@ namespace ChefSkills.Specials
             {
                 ChefState chef = chefs[i];
                 // The thrower's own throws too.
-                if (chef.Chef == null || !chef.Has(Special.Rebound)) continue;
+                if (chef.Chef == null || !chef.Has(Special.CatchersMitt)) continue;
                 if (chef.Controls != null && chef.Controls.m_bRespawning) continue;
                 float distance = FlatDistance(chef.Position, position);
                 float limit = chef == flight.Aimed ? ReboundAimed : ReboundNear;
@@ -814,19 +830,19 @@ namespace ChefSkills.Specials
             if (station == null) return;
             station.AddItem(flight.Item, Flat(station.transform.position - position), new PlacementContext(PlacementContext.Source.Game));
             Vector3 onCounter = flight.Item.transform.position;
-            SpecialFx.BeamAll(position, onCounter, Special.Rebound, 0.5f);
-            SpecialFx.BurstAll(onCounter, Special.Rebound);
-            SpecialFx.TextAll(flight.Item, SpecialFx.NameBoth(Special.Rebound, "!", "!"), Special.Rebound);
+            SpecialFx.BeamAll(position, onCounter, Special.CatchersMitt, 0.5f);
+            SpecialFx.BurstAll(onCounter, Special.CatchersMitt);
+            SpecialFx.TextAll(flight.Item, SpecialFx.NameBoth(Special.CatchersMitt, "!", "!"), Special.CatchersMitt);
         }
 
-        // --- Magnet ------------------------------------------------------------------------------
+        // --- Catcher's Mitt magnet (once MAGNET) ---------------------------------------------------
 
         private static void UpdateMagnets(float dt)
         {
             IList<ChefState> chefs = SpecialRuntime.Chefs;
             bool any = false;
             for (int i = 0; i < chefs.Count && !any; i++)
-                any = chefs[i].Chef != null && chefs[i].Has(Special.Magnet);
+                any = chefs[i].Chef != null && chefs[i].Has(Special.CatchersMitt);
             if (!any) return;
 
             float now = SpecialRuntime.Now;
@@ -840,7 +856,7 @@ namespace ChefSkills.Specials
             for (int i = 0; i < chefs.Count; i++)
             {
                 ChefState chef = chefs[i];
-                if (chef.Chef == null || !chef.Has(Special.Magnet)) continue;
+                if (chef.Chef == null || !chef.Has(Special.CatchersMitt)) continue;
                 if (chef.Controls != null && chef.Controls.m_bRespawning) continue;
                 Vector3 home = chef.Position;
                 ServerPlayerAttachmentCarrier hands = chef.Chef.GetComponent<ServerPlayerAttachmentCarrier>();
@@ -890,7 +906,7 @@ namespace ChefSkills.Specials
                     {
                         if (s_magnetMarked.Count > 256) s_magnetMarked.Clear();
                         s_magnetMarked[key] = now + 0.2f;
-                        SpecialFx.MarkAll(item.gameObject, Special.Magnet, 0.5f, null);
+                        SpecialFx.MarkAll(item.gameObject, Special.CatchersMitt, 0.5f, null);
                     }
                 }
             }
@@ -913,7 +929,7 @@ namespace ChefSkills.Specials
             return false;
         }
 
-        /// <summary>Host: a pulled item reached a Magnet chef's empty hands: the game's own pickup of a loose item.</summary>
+        /// <summary>Host: a pulled item reached a Catcher's Mitt chef's empty hands: the game's own pickup of a loose item.</summary>
         private static bool MagnetTake(ChefState chef, ServerPlayerAttachmentCarrier hands, GameObject item, Vector3 offset)
         {
             if (chef.Has(Special.Vegetarian) && CarryingModule.IsRawMeat(item)) return false;
@@ -922,8 +938,8 @@ namespace ChefSkills.Specials
             Vector3 from = item.transform.position;
             handler.HandlePickup(hands, Flat(offset));
             if (hands.InspectCarriedItem() != item) return false;
-            SpecialFx.BeamAll(from, chef.Position, Special.Magnet, 0.3f);
-            SpecialFx.MarkAll(item, Special.Magnet, 0.6f, null);
+            SpecialFx.BeamAll(from, chef.Position, Special.CatchersMitt, 0.3f);
+            SpecialFx.MarkAll(item, Special.CatchersMitt, 0.6f, null);
             return true;
         }
 
@@ -1436,7 +1452,7 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>JUGGLER, LOB, HOMING THROW, ASSEMBLY LINE aim and REBOUND tracking (host).</summary>
+    /// <summary>JUGGLER, LOB, HOMING THROW, ASSEMBLY LINE aim and CATCHER'S MITT rebound tracking (host).</summary>
     [HarmonyPatch(typeof(ServerAttachmentThrower), "ThrowItem")]
     internal static class ThrownPatch
     {

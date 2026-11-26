@@ -233,7 +233,7 @@ namespace ChefSkills
                     Colour = colour,
                     ColourIndex = GameArt.ColourIndex(colour),
                     Chefs = chefs[player].ToArray(),
-                    Levels = Plugin.Skills.LastPicked(player),
+                    Levels = PickedLevels(player, chefs[player].Count),
                     Specials = Plugin.Skills.LastPickedSpecials(player),
                     Up = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UIUp, player),
                     Down = PlayerInputLookup.GetButton(PlayerInputLookup.LogicalButtonID.UIDown, player),
@@ -449,6 +449,8 @@ namespace ChefSkills
                     FreePoints = slot.FreePoints, DeniedAt = slot.DeniedAt, DeniedReason = slot.DeniedReason,
                     State = slot.Ready ? SkillSync.CardState.Ready : SkillSync.CardState.Choosing,
                     Specials = slot.Specials, KeyName = SpecialInput.NameFor(slot.Player),
+                    SwitchKeyName = SpecialInput.SwitchNameFor(slot.Player) ?? Lang.T("NONE", "KHÔNG CÓ"),
+                    CapturingSwitch = slot.Capture != null && slot.Capture.Target == CaptureTarget.Switch,
                     DetailsKeyName = SpecialInput.DetailsNameFor(slot.Player) ?? Lang.T("NONE", "KHÔNG CÓ"),
                     BarMode = SkillBarSettings.Name(SkillBarSettings.Get(slot.Rank)), Keyboard = SpecialInput.IsKeyboard(slot.Player),
                     BarSize = SkillBarSettings.SizePercent(slot.Rank) + "%", BarSizePercent = SkillBarSettings.SizePercent(slot.Rank), BarSpot = SkillBarSettings.PositionName(slot.Rank), Placing = slot.Placing,
@@ -583,11 +585,14 @@ namespace ChefSkills
                 OpenPicker(slot, false);
                 return;
             }
-            bool keyRow = slot.Selected == SkillSelectView.KeyRow || slot.Selected == SkillSelectView.DetailsRow;
+            bool keyRow = slot.Selected == SkillSelectView.KeyRow || slot.Selected == SkillSelectView.DetailsRow ||
+                slot.Selected == SkillSelectView.SwitchRow;
             if (!slot.Ready && keyRow && slot.Select.JustPressed())
             {
                 slot.Select.ClaimPressEvent();
-                slot.Capture = new SpecialInput.Capture(slot.Player, slot.Selected == SkillSelectView.DetailsRow);
+                CaptureTarget what = slot.Selected == SkillSelectView.DetailsRow ? CaptureTarget.Details
+                    : slot.Selected == SkillSelectView.SwitchRow ? CaptureTarget.Switch : CaptureTarget.Skill;
+                slot.Capture = new SpecialInput.Capture(slot.Player, what);
                 PlaySound(GameOneShotAudioTag.UISelect);
                 return;
             }
@@ -627,6 +632,11 @@ namespace ChefSkills
                         if (taken.Contains((Special)pick)) clash = (Special)pick;
                     if (clash != Special.None)
                         Deny(slot, SpecialCatalog.NameOf(clash) + Lang.T(" IS TAKEN: ONE PER KITCHEN", " ĐÃ CÓ NGƯỜI CHỌN: MỖI BẾP MỘT"));
+                    else if (SpecialCatalog.Enabled && SpecialCatalog.TwoActives(SpecialCatalog.Enforce(slot.Specials)) &&
+                             SpecialInput.SwitchNameFor(slot.Player) == null)
+                        // Without a switch key the second active could never be used.
+                        Deny(slot, Lang.T("TWO ACTIVES NEED A SWITCH KEY: SET ONE ON THE SWITCH KEY ROW",
+                            "HAI KỸ NĂNG CHỦ ĐỘNG CẦN PHÍM ĐỔI: ĐẶT Ở HÀNG PHÍM ĐỔI"));
                     else if (slot.FreePoints == 0)
                     {
                         PlaySound(GameOneShotAudioTag.UISelect);
@@ -852,6 +862,13 @@ namespace ChefSkills
             PlaySound(GameOneShotAudioTag.UIHighlight);
         }
 
+        /// <summary>The player's last levels; also tells the input layer whether they play two chefs (their chef switch is then in use).</summary>
+        private static int[] PickedLevels(PlayerInputLookup.Player player, int chefs)
+        {
+            SpecialInput.SetSolo(player, chefs > 1);
+            return Plugin.Skills.LastPicked(player);
+        }
+
         private static bool IsSpecialRow(int row)
         {
             return SpecialCatalog.Enabled && row >= SkillStats.Count && row < SkillStats.Count + SpecialCatalog.SlotCount;
@@ -861,7 +878,7 @@ namespace ChefSkills
         private static void OpenPicker(Slot slot, bool byMouse)
         {
             if (_view == null || _view.Overlay == null || !IsSpecialRow(slot.Selected)) return;
-            var which = (SpecialSlot)(slot.Selected - SkillStats.Count);
+            SpecialSlot which = SpecialCatalog.SlotAtRow(slot.Selected - SkillStats.Count);
             string owner = _slots != null && _slots.Count > 1 ? slot.Title : null;
             try
             {

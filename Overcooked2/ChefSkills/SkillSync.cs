@@ -82,7 +82,7 @@ namespace ChefSkills
         // chosen target in the press, chefs standing still while aiming; Swap and Summon wind up).
         // 8: the balance pass (a cap on freed points, skill floors, capped bonuses, shared
         // cooldowns, protocol 4), which changes what every machine simulates.
-        private const string Version = "8";
+        private const string Version = "9";
         private const float TickSeconds = 0.5f;
         private const int LevelLimit = 5;
 

@@ -31,7 +31,7 @@ namespace ChefSkills.Specials
     internal sealed class StationsModule : ISpecialModule
     {
         // --- tuning -------------------------------------------------------------------------------
-        private const float MultitaskRate = 0.35f;
+        private const float MultitaskRate = 0.4f;
         // MULTITASK: boards and sinks working by themselves at once, per chef (the oldest goes).
         private const int MultitaskJobs = 2;
         private const float EchoChance = 0.6f;
@@ -56,7 +56,7 @@ namespace ChefSkills.Specials
         // DASH-CHOP: a board takes a dash's strokes at most this often.
         private const float DashBoardSeconds = 2f;
         // DISHWASHER: every this many dishes a chef hands in, the plate comes back clean.
-        private const int DishwasherEvery = 3;
+        private const int DishwasherEvery = 2;
         // BUTLER: the dirty plate reaches the sink this many times sooner.
         private const float ButlerSpeed = 2f;
         // TUNNEL VISION: sinks this close together are one station (a double sink).
@@ -175,6 +175,10 @@ namespace ChefSkills.Specials
         // --- per-level state ----------------------------------------------------------------------
 
         private static readonly Dictionary<ServerWorkstation, BoardJob> s_multitask = new Dictionary<ServerWorkstation, BoardJob>();
+        // Server: when each MULTITASK job was last touched (a counter), so the cap per player can
+        // drop the oldest across a solo player's two chefs.
+        private static readonly Dictionary<Component, int> s_jobTouched = new Dictionary<Component, int>();
+        private static int s_jobSerial;
         private static readonly List<ServerWorkstation> s_deadJobs = new List<ServerWorkstation>();
         private static readonly List<ButlerPlate> s_butler = new List<ButlerPlate>();
         private static readonly List<CleanPlate> s_clean = new List<CleanPlate>();
@@ -248,6 +252,8 @@ namespace ChefSkills.Specials
         private static void Reset()
         {
             s_multitask.Clear();
+            s_jobTouched.Clear();
+            s_jobSerial = 0;
             s_butler.Clear();
             s_clean.Clear();
             s_scrub.Clear();
@@ -403,6 +409,7 @@ namespace ChefSkills.Specials
                 {
                     ChefState mate = chefs[j];
                     if (mate == chef || mate.Chef == null || mate.Team != chef.Team || mate.Has(Special.LoneWolf)) continue;
+                    if (SpecialRuntime.SamePlayer(mate, chef)) continue;
                     if (FlatDistance(mate.Position, chef.Position) > InspiringRange) continue;
                     SpecialFx.Mark(mate.Chef, ColourOf(Special.Inspiring), 0.45f, null, 0.55f);
                 }
@@ -846,7 +853,7 @@ namespace ChefSkills.Specials
             return mine.ChopInterval;
         }
 
-        /// <summary>Server: MULTITASK boards nobody is at keep chopping at 35% of the chef's rhythm.</summary>
+        /// <summary>Server: MULTITASK boards nobody is at keep chopping at 40% of the chef's rhythm.</summary>
         private static void MultitaskBoards(float dt)
         {
             s_deadJobs.Clear();
@@ -878,6 +885,7 @@ namespace ChefSkills.Specials
         /// <summary>Server: this board or sink is the chef's newest MULTITASK job.</summary>
         private static void TouchJob(Mine mine, Component station)
         {
+            s_jobTouched[station] = ++s_jobSerial;
             int at = mine.Jobs.IndexOf(station);
             if (at == mine.Jobs.Count - 1 && at >= 0) return;
             if (at >= 0) mine.Jobs.RemoveAt(at);
@@ -886,8 +894,8 @@ namespace ChefSkills.Specials
 
         /// <summary>
         /// Server: each MULTITASK chef keeps at most two boards and sinks working by themselves
-        /// (the one they stand at doesn't count); a third takes over from the oldest. Jobs that
-        /// ended or went to another chef leave the list.
+        /// (the one they stand at doesn't count), and so does each player (see CapJobsPerPlayer);
+        /// a third takes over from the oldest. Jobs that ended or went to another chef leave the list.
         /// </summary>
         private static void PruneJobs()
         {
@@ -916,6 +924,57 @@ namespace ChefSkills.Specials
                     jobs.RemoveAt(j);
                     j--;
                     working--;
+                }
+            }
+            CapJobsPerPlayer(chefs);
+        }
+
+        /// <summary>
+        /// Server: a player alone with MULTITASK on both chefs still gets two jobs in all, not two
+        /// each; the job touched longest ago gives way. (With one chef per player this changes nothing.)
+        /// </summary>
+        private static void CapJobsPerPlayer(IList<ChefState> chefs)
+        {
+            for (int i = 0; i < chefs.Count; i++)
+            {
+                ChefState chef = chefs[i];
+                if (!chef.Has(Special.Multitask)) continue;
+                // The player's first MULTITASK chef counts for all of them.
+                bool counted = false;
+                for (int k = 0; k < i && !counted; k++)
+                    counted = chefs[k].Has(Special.Multitask) && SpecialRuntime.SamePlayer(chefs[k], chef);
+                if (counted) continue;
+                while (true)
+                {
+                    int working = 0, oldestAt = -1, oldestTouched = int.MaxValue;
+                    ChefState oldestChef = null;
+                    for (int k = i; k < chefs.Count; k++)
+                    {
+                        ChefState other = chefs[k];
+                        if (!other.Has(Special.Multitask) || !SpecialRuntime.SamePlayer(other, chef)) continue;
+                        List<Component> jobs = Of(other).Jobs;
+                        for (int j = 0; j < jobs.Count; j++)
+                        {
+                            bool alive, alone;
+                            JobState(other, jobs[j], out alive, out alone);
+                            if (!alive || !alone) continue;
+                            working++;
+                            int touched;
+                            if (!s_jobTouched.TryGetValue(jobs[j], out touched)) touched = 0;
+                            if (touched < oldestTouched)
+                            {
+                                oldestTouched = touched;
+                                oldestChef = other;
+                                oldestAt = j;
+                            }
+                        }
+                    }
+                    if (working <= MultitaskJobs || oldestChef == null) break;
+                    List<Component> list = Of(oldestChef).Jobs;
+                    ServerWorkstation board = list[oldestAt] as ServerWorkstation;
+                    if (board != null) s_multitask.Remove(board);
+                    s_jobTouched.Remove(list[oldestAt]);
+                    list.RemoveAt(oldestAt);
                 }
             }
         }
@@ -1398,7 +1457,8 @@ namespace ChefSkills.Specials
 
         /// <summary>
         /// Every machine: chopping and washing levels for a chef near an INSPIRING teammate, worth
-        /// about +25% (whole levels). Never stacks; LONE WOLF chefs ignore it.
+        /// about +25% (whole levels). Never stacks; LONE WOLF chefs ignore it, and a player alone
+        /// can't inspire their own other chef.
         /// </summary>
         private static int InspiringBonus(ChefState chef, Skill skill)
         {
@@ -1409,6 +1469,7 @@ namespace ChefSkills.Specials
             {
                 ChefState other = chefs[i];
                 if (other == chef || other.Chef == null || !other.Has(Special.Inspiring) || other.Team != chef.Team) continue;
+                if (SpecialRuntime.SamePlayer(other, chef)) continue;
                 if (FlatDistance(other.Position, chef.Position) > InspiringRange) continue;
                 float perLevel = (SkillStats.Multiplier(skill, 1) - 1f) * 100f;
                 return perLevel > 0.5f ? Mathf.Max(1, Mathf.RoundToInt(InspiringPercent / perLevel)) : 0;
@@ -1676,10 +1737,16 @@ namespace ChefSkills.Specials
 
         private static bool PowerChop(ChefState state)
         {
+            // TUNNEL VISION, as Wash Burst checks it the other way: a chef locked to a sink can't
+            // get chopping back through a second active.
+            bool tunnel = state.Has(Special.TunnelVision);
+            if (tunnel && Of(state).TunnelMode == ModeWash) return state.Refuse(Lang.Both("YOU CAN'T CHOP", "BẠN KHÔNG THÁI ĐƯỢC"));
             ServerWorkstation board = state.HasAimPoint
                 ? ChosenBoard(state, AimPosition(state), Object.FindObjectsOfType<ServerWorkstation>())
                 : FacedBoard(AimPosition(state), AimForward(state), Object.FindObjectsOfType<ServerWorkstation>(), BoardReach);
             if (board == null) return state.Refuse(Lang.Both("NO FOOD ON A BOARD IN FRONT", "KHÔNG CÓ ĐỒ TRÊN THỚT TRƯỚC MẶT"));
+            // Only the chef's own board.
+            if (tunnel && !TunnelAllows(Of(state), board.gameObject, false)) return state.Refuse(Lang.Both("NOT YOUR BOARD", "KHÔNG PHẢI THỚT CỦA BẠN"));
             if (!Finish(board, ItemOn(board), state)) return state.Refuse(Lang.Both("NOTHING TO CHOP", "KHÔNG CÓ GÌ ĐỂ THÁI"));
             SpecialFx.BurstAll(board.transform.position, Special.PowerChop);
             SpecialFx.TextAll(board.gameObject, Lang.Both("CHOPPED!", "THÁI XONG!"), Special.PowerChop);

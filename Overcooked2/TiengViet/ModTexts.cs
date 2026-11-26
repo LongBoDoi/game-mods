@@ -86,7 +86,7 @@ namespace TiengViet
 
         // ---- Hooks -------------------------------------------------------------------------
 
-        private static Type pageType, entryType, pluginType, languageType;
+        private static Type pageType, pluginType, languageType;
 
         /// <summary>Every plugin has loaded by now, so the other mods' types can be found.</summary>
         internal static void Patch(Harmony harmony)
@@ -97,7 +97,6 @@ namespace TiengViet
             Hook(harmony, metadata, "Read", null, "SettingNames");
             Hook(harmony, AccessTools.TypeByName("OC2ModSettings.RegisteredAction"), "Metadata", null, "SettingNames");
             pageType = AccessTools.TypeByName("OC2ModSettings.NativePage");
-            entryType = AccessTools.TypeByName("OC2ModSettings.NativeEntry");
             pluginType = AccessTools.TypeByName("OC2ModSettings.ModSettingsPlugin");
             if (metadata != null)
             {

@@ -84,7 +84,7 @@ namespace ChefSkills.Specials
         private const float SlipstreamLinger = 2f;
 
         private const float BigScale = 1.2f, TinyScale = 0.8f;
-        private const float BigSpeed = 0.95f, TinySpeed = 1.1f;
+        private const float BigSpeed = 0.95f, TinySpeed = 1.15f;
         private const float BigDash = 1.25f;            // Big Chef's dashes go this much further
         internal const float KnockFactor = 1.5f;
 
@@ -900,8 +900,9 @@ namespace ChefSkills.Specials
         }
 
         /// <summary>
-        /// Ghost: the chef's collider ignores every other chef's. Applied again regularly because
-        /// disabling a collider (respawn, cannon) forgets it. Every machine does it.
+        /// Ghost: the chef's collider ignores every other chef's on its own team (in versus, rivals
+        /// still bump). Applied again regularly because disabling a collider (respawn, cannon)
+        /// forgets it. Every machine does it.
         /// </summary>
         private static void ApplyGhost(IList<ChefState> chefs)
         {
@@ -912,7 +913,7 @@ namespace ChefSkills.Specials
                 Collider[] mine = chefs[i].Chef.GetComponents<Collider>();
                 for (int j = 0; j < chefs.Count; j++)
                 {
-                    if (j == i || chefs[j].Chef == null) continue;
+                    if (j == i || chefs[j].Chef == null || chefs[j].Team != chefs[i].Team) continue;
                     Collider[] theirs = chefs[j].Chef.GetComponents<Collider>();
                     foreach (Collider a in mine)
                     {
@@ -935,7 +936,7 @@ namespace ChefSkills.Specials
                 Vector3 at = ghost.Position;
                 for (int j = 0; j < chefs.Count && !near; j++)
                 {
-                    if (j == i || chefs[j].Chef == null) continue;
+                    if (j == i || chefs[j].Chef == null || chefs[j].Team != ghost.Team) continue;
                     Vector3 offset = chefs[j].Position - at;
                     if (Mathf.Abs(offset.y) > 1.2f) continue;
                     offset.y = 0f;

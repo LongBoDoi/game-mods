@@ -25,6 +25,9 @@ namespace ChefSkills
         private const float ActiveSize = 112f;
         private const float SmallSize = 58f;
         private const float SmallGap = 10f;
+        // A chef's other active (not the one the SKILL KEY uses now), beside the big button.
+        private const float SecondSize = 76f;
+        private const float SecondGap = 12f;
         private const float BarGap = 56f;
         private const float BottomMargin = 26f;
 
@@ -37,6 +40,11 @@ namespace ChefSkills
         // When each chef was last refused (and why) or used its active.
         private static readonly Dictionary<ChefState, float> s_deniedAt = new Dictionary<ChefState, float>();
         private static readonly Dictionary<ChefState, float> s_usedAt = new Dictionary<ChefState, float>();
+        private static readonly Dictionary<ChefState, Special> s_usedSpecial = new Dictionary<ChefState, Special>();
+        private static readonly Dictionary<ChefState, float> s_switchedAt = new Dictionary<ChefState, float>();
+
+        /// <summary>The loadout slots shown as small icons, in card order: the passives, then the quirk.</summary>
+        private static readonly int[] SmallSlots = { 1, 2, 4, 3 };
 
         private sealed class Icon
         {
@@ -49,15 +57,21 @@ namespace ChefSkills
         private sealed class Bar
         {
             public RectTransform Root;
-            public Icon Active;
-            public readonly Icon[] Small = new Icon[3];
+            // The active the SKILL KEY uses (big) and the chef's other one (small, dimmed).
+            public Icon Active, Second;
+            public CanvasGroup SecondGroup;
+            public Text SwitchKey;
+            public Image SwitchBack;
+            // The passives, then the quirk (see SmallSlots).
+            public readonly Icon[] Small = new Icon[SmallSlots.Length];
             public Text Key, Reason, Player, DetailsHint;
             public readonly List<Chip> Chips = new List<Chip>();
             public Image KeyBack, PlayerBack, Strip;
-            public bool WasCooling;
+            // Per active slot: was it cooling last frame, and when it became ready.
+            public readonly bool[] WasCooling = new bool[2];
+            public readonly float[] ReadyAt = { -10f, -10f };
             // Over a chef: how wide what is shown is (the bar is centred on it).
             public float CompactWidth = 112f;
-            public float ReadyAt = -10f;
         }
 
         private readonly GameObject _root;
@@ -150,6 +164,8 @@ namespace ChefSkills
             _details = new SpecialDetails((RectTransform)_root.transform);
             s_deniedAt.Clear();
             s_usedAt.Clear();
+            s_usedSpecial.Clear();
+            s_switchedAt.Clear();
         }
 
         internal static void Deny(ChefState state)
@@ -193,9 +209,26 @@ namespace ChefSkills
             }
         }
 
-        internal static void Used(ChefState state)
+        /// <summary>This chef's <paramref name="special"/> went off: its button pops.</summary>
+        internal static void Used(ChefState state, Special special)
         {
-            if (state != null) s_usedAt[state] = Time.unscaledTime;
+            if (state == null) return;
+            s_usedAt[state] = Time.unscaledTime;
+            s_usedSpecial[state] = special;
+        }
+
+        /// <summary>The player switched which active the SKILL KEY uses: the big button pops, with a click.</summary>
+        internal static void Switched(ChefState state)
+        {
+            if (state == null) return;
+            s_switchedAt[state] = Time.unscaledTime;
+            try
+            {
+                GameUtils.TriggerAudio(GameOneShotAudioTag.UIHighlight, LayerMask.NameToLayer("UI"));
+            }
+            catch (Exception)
+            {
+            }
         }
 
         // --- every frame ------------------------------------------------------------------------
@@ -230,7 +263,7 @@ namespace ChefSkills
             foreach (ChefState state in chefs)
             {
                 if (!state.Local || state.Chef == null) continue;
-                if (state.Loadout[0] + state.Loadout[1] + state.Loadout[2] + state.Loadout[3] == 0) continue;
+                if (!Array.Exists(state.Loadout, pick => pick != 0)) continue;
                 shown.Add(state);
             }
             shown.Sort(delegate(ChefState a, ChefState b)
@@ -365,9 +398,17 @@ namespace ChefSkills
         internal static float FullWidth(int[] loadout)
         {
             int small = 0;
-            for (int i = 1; i < 4 && loadout != null && i < loadout.Length; i++)
-                if (loadout[i] != 0) small++;
-            float width = loadout != null && loadout.Length > 0 && loadout[0] != 0 ? ActiveSize : 0f;
+            foreach (int i in SmallSlots)
+                if (loadout != null && i < loadout.Length && loadout[i] != 0) small++;
+            return ActivesWidth(SpecialCatalog.ActiveIn(loadout, 0) != Special.None || SpecialCatalog.ActiveIn(loadout, 1) != Special.None,
+                SpecialCatalog.TwoActives(loadout), small);
+        }
+
+        /// <summary>The bar's width: the active button(s), then the small passive and quirk icons.</summary>
+        private static float ActivesWidth(bool any, bool two, int small)
+        {
+            float width = any ? ActiveSize : 0f;
+            if (two) width += SecondGap + SecondSize;
             if (small > 0) width += (width > 0f ? 16f : 0f) + small * SmallSize + (small - 1) * SmallGap;
             return Mathf.Max(width, ActiveSize);
         }
@@ -410,21 +451,25 @@ namespace ChefSkills
             return true;
         }
 
-        /// <summary>When the active is ready again: a ring goes out under the chef (and the button flashes, if shown).</summary>
+        /// <summary>When an active is ready again: a ring goes out under the chef (and its button flashes, if shown).</summary>
         private static void TrackReady(ChefState state, Bar bar)
         {
-            if (state.Active == Special.None)
+            for (int slot = 0; slot < bar.WasCooling.Length; slot++)
             {
-                bar.WasCooling = false;
-                return;
+                Special active = state.ActiveAt(slot);
+                if (active == Special.None)
+                {
+                    bar.WasCooling[slot] = false;
+                    continue;
+                }
+                bool cooling = SpecialRuntime.Now < state.Timing[slot].CooldownUntil;
+                if (bar.WasCooling[slot] && !cooling)
+                {
+                    bar.ReadyAt[slot] = Time.unscaledTime;
+                    SpecialFx.Burst(state.Position, SpecialFx.ColourOf(active), 1.1f, 0.45f);
+                }
+                bar.WasCooling[slot] = cooling;
             }
-            bool cooling = SpecialRuntime.Now < state.CooldownUntil;
-            if (bar.WasCooling && !cooling)
-            {
-                bar.ReadyAt = Time.unscaledTime;
-                SpecialFx.Burst(state.Position, SpecialFx.ColourOf(state.Active), 1.1f, 0.45f);
-            }
-            bar.WasCooling = cooling;
         }
 
         private static PlayerInputLookup.Player PlayerOf(ChefState state)
@@ -434,96 +479,45 @@ namespace ChefSkills
 
         private static float BarWidth(ChefState state)
         {
-            int small = 0;
-            for (int i = 1; i < 4; i++)
-                if (state.Loadout[i] != 0) small++;
-            float width = state.Active != Special.None ? ActiveSize : 0f;
-            if (small > 0) width += (width > 0f ? 16f : 0f) + small * SmallSize + (small - 1) * SmallGap;
-            return Mathf.Max(width, ActiveSize);
+            return FullWidth(state.Loadout);
         }
 
         private void Draw(ChefState state, Bar bar, bool several, SkillBarMode mode, float chipRow)
         {
             float now = SpecialRuntime.Now;
             float real = Time.unscaledTime;
-            Special active = state.Active;
 
-            // --- the active button --------------------------------------------------------------
+            // --- the active buttons: the one the SKILL KEY uses big, the other small beside it ---
+            int mainSlot = state.SelectedSlot;
+            Special active = state.ActiveAt(mainSlot);
+            Special other = state.ActiveAt(1 - mainSlot);
             bool hasActive = active != Special.None;
+            bool two = hasActive && other != Special.None;
             bar.Active.Root.gameObject.SetActive(hasActive);
+            bar.Second.Root.gameObject.SetActive(two);
             bool onScreen = mode == SkillBarMode.OnScreen;
             // Over a chef the bar is small: just the icons, the timers and what a press did.
             bar.Key.transform.parent.gameObject.SetActive(hasActive && onScreen);
+            string switchKey = two && onScreen ? SpecialInput.SwitchNameFor(PlayerOf(state)) : null;
+            bar.SwitchBack.gameObject.SetActive(switchKey != null);
+            if (switchKey != null) bar.SwitchKey.text = switchKey;
             float smallX = 0f;
             if (hasActive)
             {
-                smallX = ActiveSize + 16f;
-                Color colour = SpecialFx.ColourOf(active);
-                SetSpecial(bar.Active, active);
-                bool cooling = now < state.CooldownUntil;
-                bool running = now < state.ActiveUntil;
-                bool pending = now < state.PendingUntil;
-                float left = state.CooldownUntil - now;
-
-                bar.Active.Back.color = cooling && !running ? Color.Lerp(colour, Color.black, 0.55f) : colour;
-                bar.Active.Sweep.enabled = cooling && state.CooldownTotal > 0f && state.CooldownTotal < 999f;
-                if (bar.Active.Sweep.enabled) bar.Active.Sweep.fillAmount = Mathf.Clamp01(left / state.CooldownTotal);
-
-                // The effect running: a bright ring that empties as it runs out.
-                float duration = state.ActiveUntil - now;
-                float total = Mathf.Max(0.01f, state.ActiveUntil - (state.CooldownUntil - state.CooldownTotal));
-                bar.Active.Ring.fillAmount = running ? Mathf.Clamp01(duration / total) : 1f;
-                Color ring = running ? Color.white : colour;
-                float readyFlash = Mathf.Clamp01(1f - (real - bar.ReadyAt) / 0.6f);
-                if (!cooling && !running) ring.a = 0.55f + 0.35f * Mathf.Sin(real * 4f) * 0.5f + 0.45f * readyFlash;
-                else if (!running) ring.a = 0.25f;
-                bar.Active.Ring.color = ring;
-                Color glow = colour;
-                glow.a = !cooling ? 0.35f + 0.5f * readyFlash : 0f;
-                if (running) glow.a = 0.5f;
-                bar.Active.Glow.color = glow;
-
-                string seconds = null;
-                if (running) seconds = Mathf.CeilToInt(duration).ToString();
-                else if (cooling && state.CooldownTotal < 999f) seconds = left >= 10f ? Mathf.CeilToInt(left).ToString() : left.ToString("0.0");
-                else if (cooling) seconds = Lang.T("USED", "HẾT");
-                bar.Active.Seconds.text = seconds ?? "";
-                bar.Active.Seconds.color = running ? Color.white : new Color(1f, 1f, 1f, 0.95f);
-                SetGlyphColour(bar.Active, seconds != null ? new Color(1f, 1f, 1f, 0.28f) : Color.white);
-                bar.Active.Count.text = CountText(state, active);
-
+                smallX = ActiveSize + 16f + (two ? SecondGap + SecondSize : 0f);
+                DrawActive(state, bar, bar.Active, mainSlot, true, now, real);
+                if (two) DrawActive(state, bar, bar.Second, 1 - mainSlot, false, now, real);
                 bar.Key.text = SpecialInput.NameFor(PlayerOf(state));
-
-                // Shake when refused; pop when used.
-                float scale = 1f, shake = 0f;
-                float denied;
-                bool refused = s_deniedAt.TryGetValue(state, out denied) && real - denied < FlashSeconds;
-                if (refused && real - denied < 0.35f)
-                {
-                    float t = (real - denied) / 0.35f;
-                    shake = Mathf.Sin(t * Mathf.PI * 6f) * 9f * (1f - t);
-                    bar.Active.Back.color = Color.Lerp(bar.Active.Back.color, DenyColour, 1f - t);
-                }
-                float used;
-                if (s_usedAt.TryGetValue(state, out used))
-                {
-                    float age = real - used;
-                    if (age >= 0f && age < 0.3f) scale = 1f + 0.22f * Mathf.Sin(Mathf.PI * age / 0.3f);
-                }
-                scale *= 1f + 0.12f * readyFlash * Mathf.Sin(Mathf.PI * Mathf.Clamp01((real - bar.ReadyAt) / 0.6f));
-                bar.Active.Root.localScale = new Vector3(scale, scale, 1f);
-                bar.Active.Root.anchoredPosition = new Vector2(ActiveSize * 0.5f + shake, ActiveSize * 0.5f + 30f);
 
                 // Over the button, centred: what a press does now. (Why a press was refused floats
                 // up over the chef instead, see Deny.)
-                bool recallHint = running && active == Special.Recall;
+                bool recallHint = now < state.Timing[mainSlot].ActiveUntil && active == Special.Recall;
                 bar.Reason.gameObject.SetActive(recallHint);
                 if (recallHint)
                 {
                     bar.Reason.text = Lang.T("PRESS AGAIN TO RETURN", "BẤM LẦN NỮA ĐỂ QUAY VỀ");
-                    bar.Reason.color = Color.Lerp(colour, Color.white, 0.6f);
+                    bar.Reason.color = Color.Lerp(SpecialFx.ColourOf(active), Color.white, 0.6f);
                 }
-                if (pending) SetGlyphColour(bar.Active, new Color(1f, 1f, 1f, 0.5f + 0.5f * Mathf.Sin(real * 12f)));
             }
             else bar.Reason.gameObject.SetActive(false);
 
@@ -538,9 +532,10 @@ namespace ChefSkills
 
             // --- passives and quirk ------------------------------------------------------------
             int slot = 0;
-            for (int i = 1; i < 4; i++)
+            for (int row = 0; row < SmallSlots.Length; row++)
             {
-                Icon icon = bar.Small[i - 1];
+                int i = SmallSlots[row];
+                Icon icon = bar.Small[row];
                 Special special = (Special)state.Loadout[i];
                 if (special == Special.None)
                 {
@@ -551,7 +546,7 @@ namespace ChefSkills
                 SetSpecial(icon, special);
                 icon.Root.anchoredPosition = new Vector2(smallX + slot * (SmallSize + SmallGap) + SmallSize * 0.5f, SmallSize * 0.5f + 30f);
                 slot++;
-                bool quirk = i == 3;
+                bool quirk = i == (int)SpecialSlot.Quirk;
                 Color colour = SpecialFx.ColourOf(special);
                 Vector2 timer;
                 bool timing = state.Timers.TryGetValue(special, out timer) && timer.x > now;
@@ -639,25 +634,38 @@ namespace ChefSkills
         private static void Compact(ChefState state, Bar bar, float now, float real)
         {
             float x = 0f, width = 0f;
-            bool hasActive = state.Active != Special.None;
+            int mainSlot = state.SelectedSlot;
+            bool hasActive = state.ActiveAt(mainSlot) != Special.None;
+            ActiveTimer timing = state.Timing[mainSlot];
             float denied;
             bool refused = s_deniedAt.TryGetValue(state, out denied) && real - denied < FlashSeconds;
-            bool showActive = hasActive && (now >= state.CooldownUntil || now < state.ActiveUntil || now < state.PendingUntil || refused);
+            bool showActive = hasActive && (now >= timing.CooldownUntil || now < timing.ActiveUntil || now < state.PendingUntil || refused);
             bar.Active.Root.gameObject.SetActive(showActive);
+            bar.SwitchBack.gameObject.SetActive(false);
             if (!showActive) bar.Reason.gameObject.SetActive(false);
             if (showActive)
             {
                 width = ActiveSize;
                 x = ActiveSize + 16f;
             }
-            for (int i = 1; i < 4; i++)
+            // The other active only while its effect runs (so a running Time Out still shows).
+            int otherSlot = 1 - mainSlot;
+            bool showOther = state.ActiveAt(otherSlot) != Special.None && now < state.Timing[otherSlot].ActiveUntil;
+            bar.Second.Root.gameObject.SetActive(showOther);
+            if (showOther)
             {
-                Icon icon = bar.Small[i - 1];
-                var special = (Special)state.Loadout[i];
+                bar.Second.Root.anchoredPosition = new Vector2(x + SecondSize * 0.5f, ActiveSize * 0.5f + 30f);
+                width = x + SecondSize;
+                x += SecondSize + 16f;
+            }
+            for (int row = 0; row < SmallSlots.Length; row++)
+            {
+                Icon icon = bar.Small[row];
+                var special = (Special)state.Loadout[SmallSlots[row]];
                 if (special == Special.None) continue;
                 Vector2 timer;
-                bool timing = state.Timers.TryGetValue(special, out timer) && timer.x > now;
-                bool show = timing || CountText(state, special) != "";
+                bool timed = state.Timers.TryGetValue(special, out timer) && timer.x > now;
+                bool show = timed || CountText(state, special) != "";
                 icon.Root.gameObject.SetActive(show);
                 if (!show) continue;
                 // Small icons sit level with the middle of the active button.
@@ -667,6 +675,80 @@ namespace ChefSkills
             }
             bar.CompactWidth = width;
             if (width <= 0f) bar.Root.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// One active's button: its cooldown sweep and seconds, a ring while its effect runs, a
+        /// glow when ready. The <paramref name="main"/> one (the SKILL KEY uses it) also shakes
+        /// when refused and pops when switched to; the other one sits dimmed beside it.
+        /// </summary>
+        private static void DrawActive(ChefState state, Bar bar, Icon icon, int slot, bool main, float now, float real)
+        {
+            Special active = state.ActiveAt(slot);
+            ActiveTimer timing = state.Timing[slot];
+            Color colour = SpecialFx.ColourOf(active);
+            SetSpecial(icon, active);
+            bool cooling = now < timing.CooldownUntil;
+            bool running = now < timing.ActiveUntil;
+            bool pending = main && now < state.PendingUntil;
+            float left = timing.CooldownUntil - now;
+
+            icon.Back.color = cooling && !running ? Color.Lerp(colour, Color.black, 0.55f) : colour;
+            icon.Sweep.enabled = cooling && timing.CooldownTotal > 0f && timing.CooldownTotal < 999f;
+            if (icon.Sweep.enabled) icon.Sweep.fillAmount = Mathf.Clamp01(left / timing.CooldownTotal);
+
+            // The effect running: a bright ring that empties as it runs out.
+            float duration = timing.ActiveUntil - now;
+            float total = Mathf.Max(0.01f, timing.ActiveUntil - (timing.CooldownUntil - timing.CooldownTotal));
+            icon.Ring.fillAmount = running ? Mathf.Clamp01(duration / total) : 1f;
+            Color ring = running ? Color.white : colour;
+            float readyFlash = Mathf.Clamp01(1f - (real - bar.ReadyAt[slot]) / 0.6f);
+            if (!cooling && !running) ring.a = 0.55f + 0.35f * Mathf.Sin(real * 4f) * 0.5f + 0.45f * readyFlash;
+            else if (!running) ring.a = 0.25f;
+            icon.Ring.color = ring;
+            Color glow = colour;
+            glow.a = !cooling ? 0.35f + 0.5f * readyFlash : 0f;
+            if (running) glow.a = 0.5f;
+            if (!main) glow.a *= 0.5f;
+            icon.Glow.color = glow;
+
+            string seconds = null;
+            if (running) seconds = Mathf.CeilToInt(duration).ToString();
+            else if (cooling && timing.CooldownTotal < 999f) seconds = left >= 10f ? Mathf.CeilToInt(left).ToString() : left.ToString("0.0");
+            else if (cooling) seconds = Lang.T("USED", "HẾT");
+            icon.Seconds.text = seconds ?? "";
+            icon.Seconds.color = running ? Color.white : new Color(1f, 1f, 1f, 0.95f);
+            SetGlyphColour(icon, seconds != null ? new Color(1f, 1f, 1f, 0.28f) : Color.white);
+            icon.Count.text = CountText(state, active);
+
+            // Shake when refused; pop when used or switched to.
+            float scale = 1f, shake = 0f;
+            float denied = -100f;
+            bool refused = main && s_deniedAt.TryGetValue(state, out denied) && real - denied < FlashSeconds;
+            if (refused && real - denied < 0.35f)
+            {
+                float t = (real - denied) / 0.35f;
+                shake = Mathf.Sin(t * Mathf.PI * 6f) * 9f * (1f - t);
+                icon.Back.color = Color.Lerp(icon.Back.color, DenyColour, 1f - t);
+            }
+            float used;
+            Special usedSpecial;
+            if (s_usedAt.TryGetValue(state, out used) && s_usedSpecial.TryGetValue(state, out usedSpecial) && usedSpecial == active)
+            {
+                float age = real - used;
+                if (age >= 0f && age < 0.3f) scale = 1f + 0.22f * Mathf.Sin(Mathf.PI * age / 0.3f);
+            }
+            float switched;
+            if (main && s_switchedAt.TryGetValue(state, out switched))
+            {
+                float age = real - switched;
+                if (age >= 0f && age < 0.25f) scale *= 1f + 0.15f * Mathf.Sin(Mathf.PI * age / 0.25f);
+            }
+            scale *= 1f + 0.12f * readyFlash * Mathf.Sin(Mathf.PI * Mathf.Clamp01((real - bar.ReadyAt[slot]) / 0.6f));
+            icon.Root.localScale = new Vector3(scale, scale, 1f);
+            float x = main ? ActiveSize * 0.5f : ActiveSize + SecondGap + SecondSize * 0.5f;
+            icon.Root.anchoredPosition = new Vector2(x + shake, ActiveSize * 0.5f + 30f);
+            if (pending) SetGlyphColour(icon, new Color(1f, 1f, 1f, 0.5f + 0.5f * Mathf.Sin(real * 12f)));
         }
 
         private void DrawChips(ChefState state, Bar bar, float barWidth, float maxRow)
@@ -836,6 +918,22 @@ namespace ChefSkills
             bar.Root.pivot = new Vector2(0f, 0f);
 
             bar.Active = MakeIcon(bar.Root, "Active", ActiveSize, 46, 40);
+            bar.Second = MakeIcon(bar.Root, "Second", SecondSize, 32, 28);
+            bar.SecondGroup = bar.Second.Root.gameObject.AddComponent<CanvasGroup>();
+            bar.SecondGroup.alpha = 0.72f;
+            bar.SecondGroup.interactable = false;
+            bar.SecondGroup.blocksRaycasts = false;
+            bar.Second.Root.gameObject.SetActive(false);
+            // Under the other active: the key that switches to it.
+            RectTransform switchBack = Rect("SwitchBack", bar.Root, new Vector2(0f, 0f),
+                new Vector2(ActiveSize + SecondGap + SecondSize * 0.5f, 14f + (ActiveSize - SecondSize) * 0.5f), new Vector2(SecondSize + 8f, 24f));
+            bar.SwitchBack = switchBack.gameObject.AddComponent<Image>();
+            bar.SwitchBack.raycastTarget = false;
+            bar.SwitchBack.color = KeyBack;
+            bar.SwitchKey = MakeText(switchBack, "SwitchKey", 15, TextAnchor.MiddleCenter);
+            bar.SwitchKey.rectTransform.anchoredPosition = Vector2.zero;
+            bar.SwitchKey.color = new Color(0.95f, 0.97f, 1f, 0.9f);
+            switchBack.gameObject.SetActive(false);
 
             RectTransform keyBack = Rect("KeyBack", bar.Root, new Vector2(0f, 0f), new Vector2(ActiveSize * 0.5f, 14f), new Vector2(ActiveSize, 26f));
             bar.KeyBack = keyBack.gameObject.AddComponent<Image>();
@@ -845,7 +943,7 @@ namespace ChefSkills
             bar.Key.rectTransform.anchoredPosition = Vector2.zero;
             bar.Key.color = new Color(0.95f, 0.97f, 1f, 1f);
 
-            for (int i = 0; i < 3; i++) bar.Small[i] = MakeIcon(bar.Root, "Small" + i, SmallSize, 24, 22);
+            for (int i = 0; i < bar.Small.Length; i++) bar.Small[i] = MakeIcon(bar.Root, "Small" + i, SmallSize, 24, 22);
 
 
             // Centred over the active button (its top is at ActiveSize + 30).

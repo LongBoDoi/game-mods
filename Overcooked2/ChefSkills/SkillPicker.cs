@@ -47,6 +47,9 @@ namespace ChefSkills
         private static readonly Color MutedColour = new Color(0.62f, 0.68f, 0.78f, 1f);
         private static readonly Color ShadowColour = new Color(0.08f, 0.14f, 0.22f, 0.65f);
         private static readonly Color NoneColour = new Color(0.45f, 0.5f, 0.6f, 1f);
+        // A passive tile's level bars: lit up to its level, the rest dim.
+        private static readonly Color LevelPipColour = new Color(0.55f, 1f, 0.5f, 1f);
+        private static readonly Color LevelPipEmpty = new Color(0.05f, 0.08f, 0.14f, 0.6f);
 
         private static readonly List<SkillPicker> s_open = new List<SkillPicker>();
         private static GameObject s_dim;
@@ -59,6 +62,8 @@ namespace ChefSkills
             public Image Back, Frame, Disc, Picture;
             public Text Glyph, Name, Badge;
             public Image BadgeBack;
+            /// <summary>Passive tiles: the level bars, bottom first (null on other tiles).</summary>
+            public Image[] LevelPips;
             public CanvasGroup Group;
             public Vector2 Position; // top-left in content space (y down, positive)
             public int Row;
@@ -93,14 +98,12 @@ namespace ChefSkills
         private float _laneLeft, _laneRight;
 
         /// <summary>A player's colour index (for the panel's name tag), and how many players are on this machine.</summary>
-        private readonly string _owner;
 
         private SkillPicker(Transform canvas, GameArt art, PlayerInputLookup.Player player, string owner, SpecialSlot slot, Special current, bool shared)
         {
             Player = player;
             Slot = slot;
             _art = art;
-            _owner = owner;
             _openedAt = Time.unscaledTime;
             _lastMouse = Input.mousePosition;
             _mouseAnchor = _lastMouse;
@@ -136,6 +139,7 @@ namespace ChefSkills
             title.offsetMin = new Vector2(Pad, -Pad - HeaderHeight + 10f);
             title.offsetMax = new Vector2(-Pad, -Pad + 6f);
             string what = slot == SpecialSlot.Active ? Lang.T("CHOOSE YOUR ACTIVE", "CHỌN KỸ NĂNG CHỦ ĐỘNG")
+                : slot == SpecialSlot.Active2 ? Lang.T("CHOOSE A SECOND ACTIVE", "CHỌN KỸ NĂNG CHỦ ĐỘNG THỨ HAI")
                 : slot == SpecialSlot.Quirk ? Lang.T("CHOOSE A QUIRK", "CHỌN MỘT TẬT") : Lang.T("CHOOSE A PASSIVE", "CHỌN KỸ NĂNG BỊ ĐỘNG");
             _titleText = AddText(title, Header, 44, TitleColour, TextAnchor.MiddleLeft, what);
             AddShadow(_titleText.gameObject);
@@ -536,7 +540,9 @@ namespace ChefSkills
                 tile.Root.localScale = new Vector3(grow, grow, 1f);
                 tile.Root.anchoredPosition = new Vector2(tile.Position.x + TileWidth / 2f + shake, -tile.Position.y - TileHeight / 2f);
 
-                string badge = mine ? Lang.T("CURRENT", "ĐANG CHỌN") : isTaken ? Lang.T("TAKEN", "ĐÃ BỊ LẤY") : !allowed ? Lang.T("CLASH", "KỴ NHAU") : null;
+                string badge = mine ? Lang.T("CURRENT", "ĐANG CHỌN") : isTaken ? Lang.T("TAKEN", "ĐÃ BỊ LẤY")
+                    : !allowed && SpecialCatalog.OverBudget(loadout, Slot, tile.Special) ? (Lang.Vi ? "CẦN " : "NEEDS ") + SpecialCatalog.LevelOf(tile.Special)
+                    : !allowed ? Lang.T("CLASH", "KỴ NHAU") : null;
                 tile.BadgeBack.gameObject.SetActive(badge != null);
                 if (badge != null)
                 {
@@ -565,6 +571,14 @@ namespace ChefSkills
                 status = Lang.T("ANOTHER PLAYER HAS IT: ONE PER KITCHEN", "NGƯỜI KHÁC ĐÃ CHỌN: MỖI BẾP MỘT NGƯỜI");
                 colour = BlockedColour;
             }
+            else if (special != Special.None && SpecialCatalog.OverBudget(loadout, Slot, special))
+            {
+                int left = SpecialCatalog.BudgetLeft(loadout, Slot);
+                status = Lang.Vi
+                    ? "CẦN " + SpecialCatalog.LevelOf(special) + " CẤP, CÒN " + left + " (CẤP BỊ ĐỘNG CỘNG LẠI TỐI ĐA " + SpecialCatalog.PassiveBudget + ")"
+                    : "NEEDS " + SpecialCatalog.LevelOf(special) + " LEVELS, " + left + " LEFT (PASSIVES ADD UP TO " + SpecialCatalog.PassiveBudget + ")";
+                colour = BlockedColour;
+            }
             else if (special != Special.None && !SpecialCatalog.Fits(loadout, Slot, special))
             {
                 Special with = SpecialCatalog.ClashWith(loadout, Slot, special);
@@ -584,11 +598,12 @@ namespace ChefSkills
 
         private string TagFor(Special special, SpecialInfo info)
         {
-            if (info == null) return Slot == SpecialSlot.Active ? Lang.T("NO ACTIVE", "KHÔNG CHỦ ĐỘNG") : Slot == SpecialSlot.Quirk ? Lang.T("NO QUIRK", "KHÔNG TẬT") : Lang.T("NO PASSIVE", "KHÔNG BỊ ĐỘNG");
+            if (info == null) return SpecialCatalog.KindFor(Slot) == SpecialKind.Active ? Lang.T("NO ACTIVE", "KHÔNG CHỦ ĐỘNG") : Slot == SpecialSlot.Quirk ? Lang.T("NO QUIRK", "KHÔNG TẬT") : Lang.T("NO PASSIVE", "KHÔNG BỊ ĐỘNG");
             int category = SpecialCatalog.CategoryOf(special);
             string tag = category >= 0 ? SpecialCatalog.CategoryNames[category] : "";
             if (info.Kind == SpecialKind.Active)
                 tag += info.Cooldown >= 999f ? Lang.T("  -  ONCE PER LEVEL", "  -  MỖI MÀN MỘT LẦN") : (Lang.Vi ? "  -  HỒI CHIÊU " + Mathf.RoundToInt(info.Cooldown) + " S" : "  -  " + Mathf.RoundToInt(info.Cooldown) + " S COOLDOWN");
+            if (info.Kind == SpecialKind.Passive && info.Level > 0) tag += Lang.Vi ? "  -  CẤP " + info.Level : "  -  LEVEL " + info.Level;
             if (info.Kind == SpecialKind.Quirk && info.Refund > 0) tag += Lang.Vi ? "  -  THÊM " + info.Refund + " ĐIỂM" : "  -  FREES " + info.Refund + (info.Refund == 1 ? " POINT" : " POINTS");
             if (info.TeamWide) tag += Lang.T("  -  WHOLE TEAM, ONE PER KITCHEN", "  -  CẢ ĐỘI, MỖI BẾP MỘT NGƯỜI");
             if (info.Kind == SpecialKind.Quirk && Solo) tag += Lang.T("  -  SOLO: BOTH CHEFS", "  -  CHƠI MỘT MÌNH: CẢ HAI ĐẦU BẾP");
@@ -712,6 +727,23 @@ namespace ChefSkills
             AddShadow(tile.Glyph.gameObject);
             SpecialFx.ShowIcon(tile.Picture, tile.Glyph, special);
             if (special == Special.None) tile.Glyph.text = "-";
+
+            // A passive's level: bars to the right of the disc, lit from the bottom up.
+            int level = SpecialCatalog.LevelOf(special);
+            if (level > 0)
+            {
+                tile.LevelPips = new Image[SpecialCatalog.PassiveBudget];
+                for (int k = 0; k < tile.LevelPips.Length; k++)
+                {
+                    RectTransform pip = Child("Level" + k, tile.Root);
+                    pip.anchorMin = pip.anchorMax = new Vector2(0.5f, 1f);
+                    pip.anchoredPosition = new Vector2(DiscSize / 2f + 8f, -8f - DiscSize + 6f + k * 14f);
+                    pip.sizeDelta = new Vector2(7f, 11f);
+                    tile.LevelPips[k] = pip.gameObject.AddComponent<Image>();
+                    tile.LevelPips[k].raycastTarget = false;
+                    tile.LevelPips[k].color = level > k ? LevelPipColour : LevelPipEmpty;
+                }
+            }
 
             RectTransform name = Child("Name", tile.Root);
             name.anchorMin = name.anchorMax = new Vector2(0.5f, 0f);

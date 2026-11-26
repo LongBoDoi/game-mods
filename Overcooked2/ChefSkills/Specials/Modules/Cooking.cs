@@ -35,7 +35,7 @@ namespace ChefSkills.Specials
         private const float RescueHold = 10f;
         private const float OverclockSeconds = 10f;
         internal const float OverclockScale = 3f;
-        private const float SizzleScale = 1.6f;
+        private const float SizzleScale = 2f;
         // The most the specials together (OVERCLOCK x SIZZLE MASTER) speed one pot up; the COOKING
         // skill comes on top of this.
         private const float MaxSpecialCookScale = 4f;
@@ -423,7 +423,7 @@ namespace ChefSkills.Specials
                 delta = held;
             }
 
-            if (sizzle && delta > 0f) Pulse(pot, Special.SizzleMaster, "x1.6");
+            if (sizzle && delta > 0f) Pulse(pot, Special.SizzleMaster, "x2");
             // FIRE MARSHAL: food past done burns half as fast (cooking up to done is untouched), and
             // a pot over-doing on a cooker it protects says so.
             if (AnyMarshal && delta > 0f && progress + delta > time && OwnerWith(pot, Special.FireMarshal) != null)
@@ -816,7 +816,8 @@ namespace ChefSkills.Specials
             for (int i = 0; i < s_grease.Count; i++)
             {
                 ChefState state = s_grease[i];
-                if (state.Chef == null || state.ActiveUntil <= now) continue;
+                // Grease Trail's own slot: another active's effect (Frenzy, Decoy...) never stretches it.
+                if (state.Chef == null || state.RunningUntil(Special.GreaseTrail) <= now) continue;
                 if (now < state.Get("GreaseTrail.next", 0f)) continue;
                 state.Set("GreaseTrail.next", now + GreasePointEvery);
                 s_greasePoints.Add(new GreasePoint { Position = state.Position, Until = now + GreasePointLife, Owner = state.Id, Team = state.Team });
@@ -864,7 +865,7 @@ namespace ChefSkills.Specials
             for (int i = 0; i < s_grease.Count; i++)
             {
                 ChefState state = s_grease[i];
-                if (state.Chef == null || state.ActiveUntil <= now) continue;
+                if (state.Chef == null || state.RunningUntil(Special.GreaseTrail) <= now) continue;
                 if (now < state.Get("GreaseTrail.fx", 0f)) continue;
                 state.Set("GreaseTrail.fx", now + GreaseFxEvery);
                 SpecialFx.Burst(state.Position, colour, GreaseRadius + 0.15f, GreasePointLife);
@@ -1185,7 +1186,7 @@ namespace ChefSkills.Specials
     // ==== patches ======================================================================================
 
     /// <summary>
-    /// SIZZLE MASTER x1.6, OVERCLOCK (cooker), COLD HANDS / RESCUE holds, FIRE MARSHAL's slower
+    /// SIZZLE MASTER x2, OVERCLOCK (cooker), COLD HANDS / RESCUE holds, FIRE MARSHAL's slower
     /// burning. Runs after COOKING / SLOW BURN (low priority) so its caps see the final delta; the
     /// specials' multipliers compose up to x4 together, with the skill on top.
     /// </summary>
