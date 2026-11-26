@@ -74,6 +74,9 @@ $Targets = @(
     [pscustomobject]@{ Key = 'EmoteSync'; Kind = 'Mod'
         Blurb = 'Arcade MOD (HostTools) emote texts follow each player, synced online'
         Id = 'com.manhl.overcooked2.emotesync'; LegacyId = $null; Files = @(); Requires = $null }
+    [pscustomobject]@{ Key = 'RelayNet'; Kind = 'Mod'
+        Blurb = 'online play over Steam''s relay network (everyone needs it); F9 shows ping'
+        Id = 'com.manhl.overcooked2.relaynet'; LegacyId = $null; Files = @(); Requires = $null }
     [pscustomobject]@{ Key = 'DIYChefFix'; Kind = 'Mod'
         Blurb = 'fixes the default chef + chef grid of the third-party DIYChef FastInit'
         Id = 'com.manhl.overcooked2.diycheffix'; LegacyId = $null; Files = @(); Requires = 'DIYChefFastInit.dll' }
