@@ -21,28 +21,43 @@ namespace ChefSkills.Specials
     /// preview, the bounty, the hot streak, team recharges) go over SpecialNet.
     ///
     /// What players see: every bonus a delivery got floats up over the pass that took it
-    /// ("CHARMER TIP +50%", "BOUNTY! x2"...), the bounty order is framed in gold on the order bar,
+    /// ("CHARMER TIP +35%", "BOUNTY! x1.5"...), the bounty order is framed in gold on the order bar,
     /// chefs glow while Golden Hour / a full Hot Streak / Coffee Run holds, the passes are ringed
     /// while Time Out stops the clock, and team recharges sweep over the skill icons.
     /// </summary>
     internal sealed class OrdersModule : ISpecialModule
     {
         // --- tuning -----------------------------------------------------------------------------
-        internal const float CharmerTip = 1.5f;
-        internal const float MaitreDLifetime = 1.25f;
-        internal const float ClutchWindow = 0.25f;
-        internal const float FreshSeconds = 20f;
+        internal const float CharmerTip = 1.35f;
+        internal const float MaitreDLifetime = 1.15f;
+        // Fortune Teller: the foretold order's extra time (that order only; never on top of Maitre D').
+        internal const float FortuneLifetime = 1.1f;
+        internal const float ClutchWindow = 0.2f;
+        internal const float ClutchScore = 1.5f;
+        internal const float BountyScore = 1.5f;
+        // Bounty Hunter: after a claim, the team's next bounty is marked this much later.
+        internal const float BountyPause = 15f;
+        internal const float FreshSeconds = 25f;
         internal const float FreshTip = 1.5f;
         internal const float CloseEnoughCooldown = 45f;
-        internal const float ComboKeeperCooldown = 40f;
-        internal const float GoldenHourSeconds = 45f;
+        internal const float ComboKeeperCooldown = 25f;
+        internal const float SecondChanceCooldown = 30f;
+        internal const float GoldenHourSeconds = 60f;
         internal const float CoffeeSpeed = 0.25f;
-        internal const float CoffeeSeconds = 6f;
-        internal const float PressurePerOrder = 0.05f;
-        internal const int PressureMaxOrders = 5;
+        internal const float CoffeeSeconds = 10f;
+        // Under Pressure: only the orders beyond the first two count.
+        internal const int PressureFreeOrders = 2;
+        internal const float PressurePerOrder = 0.07f;
+        internal const int PressureMaxOrders = 3;
         internal const float StreakStep = 0.03f;
+        // Hot Streak: speed grows up to this many orders; the +1 to skills needs StreakSkills.
         internal const int StreakMax = 5;
-        internal const float DecoySeconds = 15f;
+        internal const int StreakSkills = 8;
+        internal const float DecoySeconds = 25f;
+        // Gambler's tip rolls (host), and the caps on what all the delivery specials multiply to.
+        private static readonly float[] GamblerRolls = { 0f, 1f, 2f, 2.5f };
+        internal const float MaxTipFactor = 2.5f;
+        internal const float MaxScoreFactor = 2f;
         internal const float PoseSeconds = 1f;
         internal const float TimeOutSeconds = 10f;
         // Reroll on a full order bar: the new order is added a moment after the removal reached
@@ -60,6 +75,7 @@ namespace ChefSkills.Specials
         private static readonly ushort TopicStreak = (ushort)((int)Special.HotStreak * 10 + 1);
         private static readonly ushort TopicCloseEnough = (ushort)((int)Special.CloseEnough * 10 + 1);
         private static readonly ushort TopicComboKeeper = (ushort)((int)Special.ComboKeeper * 10 + 1);
+        private static readonly ushort TopicSecondChance = (ushort)((int)Special.SecondChance * 10 + 1);
 
         // --- private game members ---------------------------------------------------------------
         internal static readonly FieldInfo ServerActiveOrders = AccessTools.Field(typeof(ServerOrderControllerBase), "m_activeOrders");
@@ -100,6 +116,9 @@ namespace ChefSkills.Specials
         // Team recharges: host decides with them, every machine shows them (SpecialNet).
         private static readonly float[] s_comboKeeperReadyAt = new float[2];
         private static readonly float[] s_closeEnoughReadyAt = new float[2];
+        private static readonly float[] s_secondChanceReadyAt = new float[2];
+        // Bounty Hunter (host): no new bounty for this team until then (the pause after a claim).
+        private static readonly float[] s_bountyPauseUntil = new float[2];
         private static readonly RecipeList.Entry[] s_fortuneNext = new RecipeList.Entry[2];
         private static readonly uint[] s_bountyServer = new uint[2];
         private static readonly int[] s_bountyShown = new int[2];
@@ -143,11 +162,15 @@ namespace ChefSkills.Specials
         internal static bool FailActive;
         internal static int FailMultiplier, FailCombo;
         internal static bool FailMaintained;
+        // Combo Keeper kept the streaks through this wrong dish: Hot Streak keeps going too.
+        internal static bool KeepStreak;
 
         // An order being added by a special: its lifetime, and no Fortune Teller swap.
         internal static float LifetimeOverride = -1f;
         internal static bool SkipFortune;
         internal static bool AddingDecoy;
+        // The order being added right now is the one Fortune Teller foretold (its extra time).
+        internal static bool FortuneBoost;
 
         private static float s_nextBountyCheck, s_nextBountySend, s_nextStatus, s_nextResend;
 
@@ -175,6 +198,7 @@ namespace ChefSkills.Specials
             SpecialNet.Register(TopicStreak, OnStreak);
             SpecialNet.Register(TopicCloseEnough, OnTeamRecharge);
             SpecialNet.Register(TopicComboKeeper, OnTeamRecharge);
+            SpecialNet.Register(TopicSecondChance, OnTeamRecharge);
 
             SpecialRuntime.RegisterActive(Special.Reroll, new ActiveHandler { Execute = ExecuteReroll });
             SpecialRuntime.RegisterActive(Special.TimeOut, new ActiveHandler
@@ -198,6 +222,8 @@ namespace ChefSkills.Specials
                 s_secondChanceOrders[i].Clear();
                 s_comboKeeperReadyAt[i] = 0f;
                 s_closeEnoughReadyAt[i] = 0f;
+                s_secondChanceReadyAt[i] = 0f;
+                s_bountyPauseUntil[i] = 0f;
                 s_fortuneNext[i] = null;
                 s_bountyServer[i] = 0;
                 s_bountyShown[i] = -1;
@@ -221,9 +247,11 @@ namespace ChefSkills.Specials
             CtxPlacer = null;
             ExpiryActive = false;
             FailActive = false;
+            KeepStreak = false;
             LifetimeOverride = -1f;
             SkipFortune = false;
             AddingDecoy = false;
+            FortuneBoost = false;
             s_nextBountyCheck = s_nextBountySend = s_nextStatus = s_nextResend = 0f;
             OrdersServerTimeOutPatch.Reset();
             OrdersClientTimeOutPatch.Reset();
@@ -423,9 +451,10 @@ namespace ChefSkills.Specials
 
         // --- speed and skills (every machine) -----------------------------------------------------
 
+        /// <summary>Under Pressure: the team's waiting orders beyond the first two (capped).</summary>
         private static int PressureOrders(ChefState chef)
         {
-            return Mathf.Min(s_waiting[Idx(TeamOf(chef))], PressureMaxOrders);
+            return Mathf.Clamp(s_waiting[Idx(TeamOf(chef))] - PressureFreeOrders, 0, PressureMaxOrders);
         }
 
         private static int StreakOf(ChefState chef)
@@ -447,11 +476,11 @@ namespace ChefSkills.Specials
             return 1f + StreakStep * StreakOf(chef);
         }
 
-        // Skills come in whole levels (~12-20% each): at the full streak every other skill gets +1.
+        // Skills come in whole levels (~12-20% each): at a streak of 8 every other skill gets +1.
         private static int SkillLevels(ChefState chef, Skill skill)
         {
             if (skill == Skill.Running || skill == Skill.Dashing || !chef.Has(Special.HotStreak)) return 0;
-            return s_streak[Idx(TeamOf(chef))] >= StreakMax ? 1 : 0;
+            return s_streak[Idx(TeamOf(chef))] >= StreakSkills ? 1 : 0;
         }
 
         // --- every frame ------------------------------------------------------------------------
@@ -538,7 +567,8 @@ namespace ChefSkills.Specials
                 }
             }
 
-            // Bounty Hunter: keep one live order marked per team.
+            // Bounty Hunter: keep one live order marked per team (none during a team's pause after
+            // a claim; an expired or removed bounty is re-marked at once).
             if (now >= s_nextBountyCheck && SpecialRuntime.AnyHas(Special.BountyHunter))
             {
                 s_nextBountyCheck = now + 0.5f;
@@ -558,7 +588,7 @@ namespace ChefSkills.Specials
                     if (!alive)
                     {
                         var choices = new List<uint>();
-                        for (int i = 0; i < orders.Count; i++)
+                        for (int i = 0; i < orders.Count && now >= s_bountyPauseUntil[t]; i++)
                             if (!IsDecoy(t, orders[i].ID.m_id)) choices.Add(orders[i].ID.m_id);
                         uint picked = choices.Count > 0 ? choices[Random.Range(0, choices.Count)] : 0;
                         if (picked != current)
@@ -589,12 +619,23 @@ namespace ChefSkills.Specials
         /// <summary>Host: starts a team recharge everywhere (sweep on the special's icon).</summary>
         private static void SendTeamRecharge(Special special, int t, float seconds)
         {
-            if (special == Special.CloseEnough) s_closeEnoughReadyAt[t] = SpecialRuntime.Now + seconds;
-            else s_comboKeeperReadyAt[t] = SpecialRuntime.Now + seconds;
-            SpecialNet.SendToAll(new SpecialMessage
+            ushort topic;
+            if (special == Special.CloseEnough)
             {
-                Topic = special == Special.CloseEnough ? TopicCloseEnough : TopicComboKeeper, A = t, B = seconds, I = (int)special
-            });
+                s_closeEnoughReadyAt[t] = SpecialRuntime.Now + seconds;
+                topic = TopicCloseEnough;
+            }
+            else if (special == Special.SecondChance)
+            {
+                s_secondChanceReadyAt[t] = SpecialRuntime.Now + seconds;
+                topic = TopicSecondChance;
+            }
+            else
+            {
+                s_comboKeeperReadyAt[t] = SpecialRuntime.Now + seconds;
+                topic = TopicComboKeeper;
+            }
+            SpecialNet.SendToAll(new SpecialMessage { Topic = topic, A = t, B = seconds, I = (int)special });
         }
 
         /// <summary>Host: takes an order off a team's list everywhere (no score change).</summary>
@@ -674,7 +715,7 @@ namespace ChefSkills.Specials
                         SpecialFx.Burst(chef.Position, Special.GoldenHour);
                     }
                 }
-                if (chef.Has(Special.HotStreak) && s_streak[t] >= StreakMax)
+                if (chef.Has(Special.HotStreak) && s_streak[t] >= StreakSkills)
                     SpecialFx.Mark(chef.Chef, Special.HotStreak, 0.6f, null);
                 if (chef.Has(Special.UnderPressure) && PressureOrders(chef) >= PressureMaxOrders)
                     SpecialFx.Mark(chef.Chef, Special.UnderPressure, 0.6f, null);
@@ -743,7 +784,7 @@ namespace ChefSkills.Specials
             }
         }
 
-        /// <summary>Every machine: the bounty order's card gets a pulsing gold frame, an x2 badge and a BOUNTY ribbon.</summary>
+        /// <summary>Every machine: the bounty order's card gets a pulsing gold frame, an x1.5 badge and a BOUNTY ribbon.</summary>
         private static void UpdateBountyFrames(bool menu)
         {
             for (int t = 0; t < 2; t++)
@@ -757,7 +798,7 @@ namespace ChefSkills.Specials
                     s_bountyWidget[t] = null;
                     if (widget == null) continue;
                     CardMark mark = MakeMark(widget, "ChefSkillsBounty", SpecialFx.ColourOf(Special.BountyHunter), true,
-                        Lang.T("BOUNTY  x2", "THƯỞNG  x2"), new Color(0.22f, 0.12f, 0.02f, 1f));
+                        Lang.T("BOUNTY  x1.5", "THƯỞNG  x1.5"), new Color(0.22f, 0.12f, 0.02f, 1f));
                     if (mark == null) continue; // its tiles aren't built yet: next frame
                     s_bountyMark[t] = mark;
                     s_bountyFrame[t] = mark.Front.gameObject;
@@ -1126,6 +1167,7 @@ namespace ChefSkills.Specials
             float until = SpecialRuntime.Now + message.B;
             if (special == Special.CloseEnough) s_closeEnoughReadyAt[t] = until;
             else if (special == Special.ComboKeeper) s_comboKeeperReadyAt[t] = until;
+            else if (special == Special.SecondChance) s_secondChanceReadyAt[t] = until;
             else return;
             foreach (ChefState chef in SpecialRuntime.Chefs)
                 if (chef.Local && chef.Has(special) && Idx(TeamOf(chef)) == t) chef.SetTimer(special, until, message.B);
@@ -1162,10 +1204,13 @@ namespace ChefSkills.Specials
             List<ServerOrderData> orders = ServerOrders(controller);
             if (orders == null) return chef.Refuse(Lang.Both("NOT READY YET", "CHƯA SẴN SÀNG"));
             if (orders.Count == 0) return chef.Refuse(Lang.Both("NO ORDERS", "KHÔNG CÓ MÓN"));
-            // The newest order every client already has (one just added may still be on its way).
+            // The oldest order (first on the bar): a fresh order takes its place, so the team loses
+            // nothing. One just added may still be on its way to the clients; the list is in the
+            // order they came in, so the oldest is safe once any order has been out for a moment
+            // (an expired order's timer starts over, so its own age can't tell).
             ServerOrderData target = null;
-            for (int i = orders.Count - 1; i >= 0 && target == null; i--)
-                if (orders[i].Lifetime - orders[i].Remaining >= RerollMinAge) target = orders[i];
+            for (int i = 0; i < orders.Count && target == null; i++)
+                if (orders[i].Lifetime - orders[i].Remaining >= RerollMinAge) target = orders[0];
             if (target == null) return chef.Refuse(Lang.Both("WAIT FOR THE ORDER", "ĐỢI CÓ MÓN ĐÃ"));
 
             bool wasFull = ServerFull(controller);
@@ -1374,28 +1419,35 @@ namespace ChefSkills.Specials
                 }
                 if (placer.Has(Special.Gambler))
                 {
-                    int roll = Random.Range(0, 4);
+                    float roll = GamblerRolls[Random.Range(0, GamblerRolls.Length)];
                     tipFactor *= roll;
-                    if (hasTip) PassText(at, ref line, roll == 0 ? SpecialFx.NameBoth(Special.Gambler, ": TIP LOST", ": MẤT BOA") : SpecialFx.NameBoth(Special.Gambler, " TIP x" + roll, ": BOA x" + roll), Special.Gambler);
+                    string shown = roll.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+                    if (hasTip) PassText(at, ref line, roll <= 0f ? SpecialFx.NameBoth(Special.Gambler, ": TIP LOST", ": MẤT BOA") : SpecialFx.NameBoth(Special.Gambler, " TIP x" + shown, ": BOA x" + shown), Special.Gambler);
                     if (hasTip && first == Special.None) first = Special.Gambler;
                 }
-                if (placer.Has(Special.Clutch) && timeProp <= ClutchWindow)
+                // A Close Enough hand-in was never the right dish: no Clutch or Bounty on top.
+                if (placer.Has(Special.Clutch) && timeProp <= ClutchWindow && !CtxCloseEnough)
                 {
-                    scoreFactor *= 2f;
-                    PassText(at, ref line, SpecialFx.NameBoth(Special.Clutch, "! x2", "! x2"), Special.Clutch);
+                    scoreFactor *= ClutchScore;
+                    PassText(at, ref line, SpecialFx.NameBoth(Special.Clutch, "! x1.5", "! x1.5"), Special.Clutch);
                     if (first == Special.None) first = Special.Clutch;
                 }
             }
-            if (s_bountyServer[t] != 0 && s_bountyServer[t] == orderId.m_id && TeamHas(Special.BountyHunter, team))
+            if (s_bountyServer[t] != 0 && s_bountyServer[t] == orderId.m_id && !CtxCloseEnough && TeamHas(Special.BountyHunter, team))
             {
-                scoreFactor *= 2f;
+                scoreFactor *= BountyScore;
+                // The next bounty comes after a pause (this team only), and every bar drops the frame now.
                 s_bountyServer[t] = 0;
-                s_nextBountyCheck = 0f; // mark another one at once
-                PassText(at, ref line, Lang.Both("BOUNTY! x2", "TIỀN THƯỞNG! x2"), Special.BountyHunter);
+                s_bountyPauseUntil[t] = SpecialRuntime.Now + BountyPause;
+                SendBounty(t);
+                PassText(at, ref line, Lang.Both("BOUNTY! x1.5", "TIỀN THƯỞNG! x1.5"), Special.BountyHunter);
                 if (first == Special.None) first = Special.BountyHunter;
             }
             if (first != Special.None) SpecialFx.BurstAll(at, first);
             if (placer != null && first != Special.None && placer.Chef != null) SpecialFx.BurstAll(placer.Position, first);
+            // However the specials pile up, one dish gets at most x2.5 tip and x2 score.
+            tipFactor = Mathf.Min(tipFactor, MaxTipFactor);
+            scoreFactor = Mathf.Min(scoreFactor, MaxScoreFactor);
             if (Mathf.Approximately(tipFactor, 1f) && Mathf.Approximately(scoreFactor, 1f)) return;
 
             int newTip = Mathf.Max(0, Mathf.RoundToInt(tip * tipFactor * scoreFactor));
@@ -1427,7 +1479,8 @@ namespace ChefSkills.Specials
             TeamID team = s_versus && stationTeam == TeamID.Two ? TeamID.Two : TeamID.One;
             int t = Idx(team);
             int before = s_streak[t];
-            s_streak[t] = CtxSuccess ? Mathf.Min(before + 1, 99) : 0;
+            // A wrong dish breaks the streak, unless Combo Keeper just kept the streaks.
+            s_streak[t] = CtxSuccess ? Mathf.Min(before + 1, 99) : KeepStreak ? before : 0;
             if (s_streak[t] == before) return;
             SendStreak(t);
             StreakText(team, before, s_streak[t]);
@@ -1443,12 +1496,14 @@ namespace ChefSkills.Specials
                 {
                     if (before > 0) SpecialFx.TextAll(chef.Chef, Lang.Both("STREAK LOST", "MẤT CHUỖI"), Special.HotStreak);
                 }
-                else if (after == StreakMax)
+                else if (after == StreakSkills)
                 {
-                    SpecialFx.TextAll(chef.Chef, Lang.Both("MAX STREAK! +1 SKILLS", "CHUỖI TỐI ĐA! KỸ NĂNG +1"), Special.HotStreak);
+                    SpecialFx.TextAll(chef.Chef, Lang.Both("STREAK " + StreakSkills + "! +1 SKILLS", "CHUỖI " + StreakSkills + "! KỸ NĂNG +1"), Special.HotStreak);
                     SpecialFx.BurstAll(chef.Position, Special.HotStreak);
                 }
-                else if (after < StreakMax) SpecialFx.TextAll(chef.Chef, Lang.Both("STREAK " + after, "CHUỖI " + after), Special.HotStreak);
+                else if (after == StreakMax)
+                    SpecialFx.TextAll(chef.Chef, Lang.Both("STREAK " + after + ": MAX SPEED", "CHUỖI " + after + ": TỐC ĐỘ TỐI ĐA"), Special.HotStreak);
+                else if (after < StreakSkills) SpecialFx.TextAll(chef.Chef, Lang.Both("STREAK " + after, "CHUỖI " + after), Special.HotStreak);
             }
         }
 
@@ -1456,19 +1511,31 @@ namespace ChefSkills.Specials
         internal static void AfterExpiry(TeamMonitor.TeamScoreStats score, TeamID team, OrderID orderId)
         {
             int t = Idx(team);
+            // Every expiry is a team mistake (Glass Cannon, Adrenaline), forgiven or not.
+            TeamBuffs.OnTeamMistake(team);
+            bool forgiven = false, kept = false;
             if (ExpiryActive)
             {
                 int line = 0;
                 Vector3 at = PassPoint(team) - Vector3.up * 1.7f;
-                // Each order's first expiry is free.
-                if (TeamHas(Special.SecondChance, team) && s_secondChanceOrders[t].Add(orderId.m_id))
+                // An order's first expiry costs nothing (no points, no streaks), once per 30 s per
+                // team. A later expiry of the same order is never forgiven, recharge or not.
+                if (TeamHas(Special.SecondChance, team) && s_secondChanceOrders[t].Add(orderId.m_id) &&
+                    SpecialRuntime.Now >= s_secondChanceReadyAt[t])
                 {
+                    forgiven = true;
                     score.TotalTimeExpireDeductions = ExpiryDeductions;
+                    score.TotalMultiplier = ExpiryMultiplier;
+                    score.TotalCombo = ExpiryCombo;
+                    score.ComboMaintained = ExpiryMaintained;
+                    SendTeamRecharge(Special.SecondChance, t, SecondChanceCooldown);
                     PassText(at, ref line, SpecialFx.NameBoth(Special.SecondChance, ": NO PENALTY", ": KHÔNG BỊ PHẠT"), Special.SecondChance);
                     SpecialFx.BurstAll(at, Special.SecondChance);
                 }
-                if ((ExpiryMultiplier > 0 || ExpiryCombo > 0) && ComboKeeperReady(team))
+                // Combo Keeper never fires on an expiry Second Chance already forgave.
+                if (!forgiven && ComboWorthKeeping(team, ExpiryMultiplier) && ComboKeeperReady(team))
                 {
+                    kept = true;
                     score.TotalMultiplier = ExpiryMultiplier;
                     score.TotalCombo = ExpiryCombo;
                     score.ComboMaintained = ExpiryMaintained;
@@ -1476,7 +1543,7 @@ namespace ChefSkills.Specials
                     PassText(at, ref line, Lang.Both("COMBO KEPT!", "GIỮ ĐƯỢC CHUỖI!"), Special.ComboKeeper);
                 }
             }
-            if (s_streak[t] != 0)
+            if (s_streak[t] != 0 && !forgiven && !kept)
             {
                 int before = s_streak[t];
                 s_streak[t] = 0;
@@ -1485,18 +1552,33 @@ namespace ChefSkills.Specials
             }
         }
 
-        /// <summary>Host, inside SendDeliveryFailed: Combo Keeper keeps the tip streak through a wrong dish.</summary>
+        /// <summary>
+        /// Host, inside SendDeliveryFailed: a wrong dish is a team mistake (Glass Cannon,
+        /// Adrenaline); Combo Keeper keeps the tip streak (and Hot Streak) through it.
+        /// </summary>
         internal static void AfterFailedDelivery(TeamMonitor.TeamScoreStats score, TeamID team, ServerPlateStation station)
         {
-            if (!FailActive || (FailMultiplier <= 0 && FailCombo <= 0) || !ComboKeeperReady(team)) return;
+            if (!FailActive) return;
+            TeamBuffs.OnTeamMistake(team);
+            if (!ComboWorthKeeping(team, FailMultiplier) || !ComboKeeperReady(team)) return;
             score.TotalMultiplier = FailMultiplier;
             score.TotalCombo = FailCombo;
             score.ComboMaintained = FailMaintained;
+            KeepStreak = true; // read by AfterDelivery, once the hand-in is done
             SendTeamRecharge(Special.ComboKeeper, Idx(team), ComboKeeperCooldown);
             Vector3 at = station != null ? station.transform.position : PassPoint(team) - Vector3.up * 1.7f;
             int line = 0;
             PassText(at, ref line, Lang.Both("COMBO KEPT!", "GIỮ ĐƯỢC CHUỖI!"), Special.ComboKeeper);
             SpecialFx.BurstAll(at, Special.ComboKeeper);
+        }
+
+        /// <summary>
+        /// Combo Keeper only spends its charge when there is something to keep: a tip multiplier
+        /// above x1 (the game counts 0 and 1 as x1), or a Hot Streak on a team that has one.
+        /// </summary>
+        private static bool ComboWorthKeeping(TeamID team, int multiplier)
+        {
+            return multiplier > 1 || (s_streak[Idx(team)] > 0 && TeamHas(Special.HotStreak, team));
         }
 
         private static bool ComboKeeperReady(TeamID team)
@@ -1515,16 +1597,25 @@ namespace ChefSkills.Specials
             SendTeamRecharge(Special.CloseEnough, Idx(team), CloseEnoughCooldown);
         }
 
-        /// <summary>Host: Maître d' (and other new-order effects) as an order comes in.</summary>
+        /// <summary>Host: Maître d' and Fortune Teller (and other new-order effects) as an order comes in.</summary>
         internal static void OrderAdded(TeamID teamId, OrderID orderId)
         {
-            if (AddingDecoy || !SpecialRuntime.AnyHas(Special.MaitreD)) return;
+            if (AddingDecoy) return;
             TeamID team = s_versus && teamId == TeamID.Two ? TeamID.Two : TeamID.One;
-            if (!TeamHas(Special.MaitreD, team)) return;
+            // The same rule as OrdersLifetimePatch: Maitre D' wins, the foretold order never gets both.
+            bool maitre = SpecialRuntime.AnyHas(Special.MaitreD) && TeamHas(Special.MaitreD, team);
+            bool fortune = FortuneBoost && FortuneLifetime > (maitre ? MaitreDLifetime : 1f);
+            if (!maitre && !fortune) return;
             // Orders that come in together (the round's first two) get one word.
             int t = Idx(team);
             if (Time.unscaledTime < s_maitreTextAt[t]) return;
             s_maitreTextAt[t] = Time.unscaledTime + 1.5f;
+            if (fortune)
+            {
+                int extra = Mathf.RoundToInt((FortuneLifetime - 1f) * 100f);
+                SpecialFx.TextAllAt(PassPoint(team), Lang.Both("FORETOLD ORDER +" + extra + "% TIME", "MÓN ĐÃ BÁO TRƯỚC +" + extra + "% THỜI GIAN"), Special.FortuneTeller);
+                return;
+            }
             SpecialFx.TextAllAt(PassPoint(team), Lang.Both("NEW ORDER +" + Mathf.RoundToInt((MaitreDLifetime - 1f) * 100f) + "% TIME", "MÓN MỚI +" + Mathf.RoundToInt((MaitreDLifetime - 1f) * 100f) + "% THỜI GIAN"), Special.MaitreD);
         }
 
@@ -1565,7 +1656,10 @@ namespace ChefSkills.Specials
 
     // === Harmony patches (host unless noted) =======================================================
 
-    /// <summary>MAITRE D': new orders live 25% longer. Also gives a decoy its short life.</summary>
+    /// <summary>
+    /// MAITRE D': new orders live 15% longer. FORTUNE TELLER: the foretold order lives 10% longer
+    /// (the larger of the two, never both). Also gives a decoy its short life.
+    /// </summary>
     [HarmonyPatch(typeof(ServerFixedTimeOrderController), "GetNextOrderLifetime")]
     internal static class OrdersLifetimePatch
     {
@@ -1578,10 +1672,14 @@ namespace ChefSkills.Specials
                     __result = OrdersModule.LifetimeOverride;
                     return;
                 }
-                if (!SpecialRuntime.InLevel || !SpecialRuntime.AnyHas(Special.MaitreD)) return;
+                bool fortune = OrdersModule.FortuneBoost;
+                if (!SpecialRuntime.InLevel || (!fortune && !SpecialRuntime.AnyHas(Special.MaitreD))) return;
                 if (!OrdersModule.ServerFlowReady()) return;
-                if (OrdersModule.TeamHas(Special.MaitreD, OrdersModule.ServerTeamOf(__instance)))
-                    __result *= OrdersModule.MaitreDLifetime;
+                float factor = 1f;
+                if (SpecialRuntime.AnyHas(Special.MaitreD) && OrdersModule.TeamHas(Special.MaitreD, OrdersModule.ServerTeamOf(__instance)))
+                    factor = OrdersModule.MaitreDLifetime;
+                if (fortune) factor = Mathf.Max(factor, OrdersModule.FortuneLifetime);
+                __result *= factor;
             }
             catch (Exception e)
             {
@@ -1590,7 +1688,7 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>MAITRE D': a word over the pass as each longer-lived order comes in.</summary>
+    /// <summary>MAITRE D' / FORTUNE TELLER: a word over the pass as each longer-lived order comes in.</summary>
     [HarmonyPatch(typeof(ServerKitchenFlowControllerBase), "OnOrderAdded")]
     internal static class OrdersAddedPatch
     {
@@ -1598,7 +1696,7 @@ namespace ChefSkills.Specials
         {
             try
             {
-                if (!SpecialRuntime.InLevel || !SpecialRuntime.AnyHas(Special.MaitreD)) return;
+                if (!SpecialRuntime.InLevel || (!OrdersModule.FortuneBoost && !SpecialRuntime.AnyHas(Special.MaitreD))) return;
                 OrdersModule.OrderAdded(_teamID, _orderID);
             }
             catch (Exception e)
@@ -1611,13 +1709,14 @@ namespace ChefSkills.Specials
     /// <summary>
     /// FORTUNE TELLER: orders are issued one roll late, so the next one is always known. Only for
     /// plain/scripted round data (phased levels count their recipes, so rolling ahead would end a
-    /// phase early).
+    /// phase early). The foretold order, once issued, gets its extra time (OrdersLifetimePatch).
     /// </summary>
     [HarmonyPatch(typeof(ServerOrderControllerBase), "AddNewOrder", new Type[] { typeof(RecipeList.Entry) })]
     internal static class OrdersFortunePatch
     {
         private static void Prefix(ServerOrderControllerBase __instance, ref RecipeList.Entry _entry)
         {
+            OrdersModule.FortuneBoost = false;
             try
             {
                 if (OrdersModule.AddingDecoy || OrdersModule.SkipFortune || !SpecialRuntime.InLevel || !SpecialNet.IsServer) return;
@@ -1634,6 +1733,7 @@ namespace ChefSkills.Specials
                     RecipeList.Entry rolled = _entry;
                     _entry = known;
                     OrdersModule.SetFortune(t, rolled);
+                    OrdersModule.FortuneBoost = true;
                     return;
                 }
                 RoundInstanceDataBase instance = OrdersModule.ServerRoundInstance != null
@@ -1646,6 +1746,11 @@ namespace ChefSkills.Specials
             {
                 SpecialRuntime.Fail("FortuneTeller.AddNewOrder", e);
             }
+        }
+
+        private static void Postfix()
+        {
+            OrdersModule.FortuneBoost = false;
         }
     }
 
@@ -1743,6 +1848,7 @@ namespace ChefSkills.Specials
         {
             OrdersModule.CtxActive = false;
             OrdersModule.CtxCloseEnough = false;
+            OrdersModule.KeepStreak = false;
             try
             {
                 if (!SpecialRuntime.InLevel || !OrdersModule.AnyDeliverySpecial()) return;
@@ -1783,6 +1889,7 @@ namespace ChefSkills.Specials
             {
                 OrdersModule.CtxActive = false;
                 OrdersModule.CtxCloseEnough = false;
+                OrdersModule.KeepStreak = false;
                 OrdersModule.CtxPlacer = null;
             }
         }
@@ -1807,7 +1914,7 @@ namespace ChefSkills.Specials
     }
 
     /// <summary>
-    /// CHARMER, GAMBLER, FRESH DELIVERY, GOLDEN HOUR (tip), CLUTCH, BOUNTY HUNTER (score x2) and
+    /// CHARMER, GAMBLER, FRESH DELIVERY, GOLDEN HOUR (tip), CLUTCH, BOUNTY HUNTER (score x1.5) and
     /// DECOY (nothing): changes the delivery's score and tip right before the host sends them, so
     /// every machine's score and tip pop-up show the result.
     /// </summary>
@@ -1872,7 +1979,10 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>SECOND CHANCE / COMBO KEEPER / HOT STREAK: fix the score before the expiry is sent.</summary>
+    /// <summary>
+    /// SECOND CHANCE / COMBO KEEPER / HOT STREAK: fix the score before the expiry is sent.
+    /// GLASS CANNON / ADRENALINE: the expiry is a team mistake.
+    /// </summary>
     [HarmonyPatch(typeof(ServerKitchenFlowControllerBase), "SendOrderExpired")]
     internal static class OrdersExpirySendPatch
     {
@@ -1882,7 +1992,8 @@ namespace ChefSkills.Specials
             {
                 if (!SpecialRuntime.InLevel) return;
                 if (!SpecialRuntime.AnyHas(Special.SecondChance) && !SpecialRuntime.AnyHas(Special.ComboKeeper) &&
-                    !SpecialRuntime.AnyHas(Special.HotStreak)) return;
+                    !SpecialRuntime.AnyHas(Special.HotStreak) && !SpecialRuntime.AnyHas(Special.GlassCannon) &&
+                    !SpecialRuntime.AnyHas(Special.Adrenaline)) return;
                 ServerTeamMonitor monitor = __instance.GetMonitorForTeam(_teamID);
                 if (monitor == null) return;
                 OrdersModule.AfterExpiry(monitor.Score, OrdersModule.Versus && _teamID == TeamID.Two ? TeamID.Two : TeamID.One, _orderID);
@@ -1894,7 +2005,10 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>COMBO KEEPER: remembers the tip streak before a wrong dish resets it.</summary>
+    /// <summary>
+    /// COMBO KEEPER: remembers the tip streak before a wrong dish resets it. GLASS CANNON /
+    /// ADRENALINE: marks the wrong dish as a team mistake for the send patch.
+    /// </summary>
     [HarmonyPatch(typeof(ServerKitchenFlowControllerBase), "OnFailedDelivery")]
     internal static class OrdersFailedPatch
     {
@@ -1903,7 +2017,9 @@ namespace ChefSkills.Specials
             OrdersModule.FailActive = false;
             try
             {
-                if (!SpecialRuntime.InLevel || !SpecialRuntime.AnyHas(Special.ComboKeeper) || _plateStation == null) return;
+                if (!SpecialRuntime.InLevel || _plateStation == null) return;
+                if (!SpecialRuntime.AnyHas(Special.ComboKeeper) && !SpecialRuntime.AnyHas(Special.GlassCannon) &&
+                    !SpecialRuntime.AnyHas(Special.Adrenaline)) return;
                 ServerTeamMonitor monitor = __instance.GetMonitorForTeam(_plateStation.GetTeamID());
                 if (monitor == null) return;
                 OrdersModule.FailActive = true;
@@ -1923,7 +2039,7 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>COMBO KEEPER: puts the tip streak back before the wrong dish is sent.</summary>
+    /// <summary>COMBO KEEPER: puts the tip streak back before the wrong dish is sent (and the team-mistake hook).</summary>
     [HarmonyPatch(typeof(ServerKitchenFlowControllerBase), "SendDeliveryFailed")]
     internal static class OrdersFailedSendPatch
     {

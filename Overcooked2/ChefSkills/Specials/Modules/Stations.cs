@@ -31,7 +31,11 @@ namespace ChefSkills.Specials
     internal sealed class StationsModule : ISpecialModule
     {
         // --- tuning -------------------------------------------------------------------------------
-        private const float MultitaskRate = 0.4f;
+        private const float MultitaskRate = 0.35f;
+        // MULTITASK: boards and sinks working by themselves at once, per chef (the oldest goes).
+        private const int MultitaskJobs = 2;
+        private const float EchoChance = 0.6f;
+        private const float EchoRange = 6f;
         private const float LuckyKnifeChance = 0.10f;
         private const float LuckyCharmChance = 0.25f;
         // LUCKY CHARM on a sink: washing has no strokes, so every this many seconds of scrubbing
@@ -42,11 +46,21 @@ namespace ChefSkills.Specials
         private const float InspiringPercent = 25f;
         private const float ZenStillSeconds = 1.5f;
         private const float ZenStillSpeed = 0.5f;
-        private const int HexStrokes = 5;
+        private const int HexStrokes = 10;
+        // HEX on a sink: this much of the hexed chef's washing does nothing.
+        private const float HexWashSeconds = 3f;
         private const float HexSeconds = 30f;
-        private const float HexRange = 3.5f;
+        private const float HexRange = 5f;
         private const float HexArc = 70f;
         private const int DashStrokes = 3;
+        // DASH-CHOP: a board takes a dash's strokes at most this often.
+        private const float DashBoardSeconds = 2f;
+        // DISHWASHER: every this many dishes a chef hands in, the plate comes back clean.
+        private const int DishwasherEvery = 3;
+        // BUTLER: the dirty plate reaches the sink this many times sooner.
+        private const float ButlerSpeed = 2f;
+        // TUNNEL VISION: sinks this close together are one station (a double sink).
+        private const float TunnelSinkJoin = 1.5f;
         private const float BoardReach = 2f;
         private const float BoardTouch = 1.2f;
         private const float DashReach = 1.8f;
@@ -88,6 +102,10 @@ namespace ChefSkills.Specials
         private static readonly FieldInfo ClientSinkUi = AccessTools.Field(typeof(ClientWashingStation), "m_progressUI");
         private static readonly FieldInfo ClientSinkConfig = AccessTools.Field(typeof(ClientWashingStation), "m_washingStation");
         private static readonly FieldInfo ClientSinkPlates = AccessTools.Field(typeof(ClientWashingStation), "m_plateCount");
+        private static readonly FieldInfo ClientSinkWashing = AccessTools.Field(typeof(ClientWashingStation), "m_isWashing");
+        private static readonly FieldInfo ClientSinkInteractable = AccessTools.Field(typeof(ClientWashingStation), "m_interactable");
+        private static readonly FieldInfo ClientInteracters = AccessTools.Field(typeof(ClientInteractable), "m_interacters");
+        private static readonly FieldInfo PlateOnPass = AccessTools.Field(typeof(ServerPlateStation), "m_plate");
         private static readonly FieldInfo RackStack = AccessTools.Field(typeof(ServerPlateReturnStation), "m_stack");
         private static readonly FieldInfo RackConfig = AccessTools.Field(typeof(ServerPlateReturnStation), "m_returnStation");
         private static readonly FieldInfo StackItems = AccessTools.Field(typeof(ServerPlateStackBase), "m_stack");
@@ -110,15 +128,24 @@ namespace ChefSkills.Specials
             public float LastWork = -100f;
             public bool ZenCharged;
             public int HexServer, HexClient;
+            // HEX: seconds of washing still swallowed, on the host's sinks and on this machine's bars.
+            public float HexWashServer, HexWashClient;
             public float HexUntil;
             public ServerWorkstation EchoCurrent, EchoOther;
             public float PrepReadyAt;
+            // TUNNEL VISION: the station this chef's player locked to (ModeChop = a board, ModeWash
+            // = a sink), by its entity ID and where it stands; the same on every machine.
             public int TunnelMode;
+            public uint TunnelStation;
+            public Vector3 TunnelAt;
             public int Dishes;
             public ClientPlayerControlsImpl_Default Impl;
-            public readonly HashSet<int> DashHits = new HashSet<int>();
             public float ChopInterval;
             public float BlockedTextAt = -100f;
+            // Host: MULTITASK's boards and sinks, oldest first.
+            public readonly List<Component> Jobs = new List<Component>();
+            // Host: the SPARE PAN copy this chef has out (entity ID; 0 = none).
+            public uint Spare;
         }
 
         private sealed class BoardJob
@@ -154,6 +181,12 @@ namespace ChefSkills.Specials
         private static readonly Dictionary<ServerWashingStation, float> s_scrub = new Dictionary<ServerWashingStation, float>();
         private static readonly Dictionary<ServerWashingStation, float> s_sinkSyncAt = new Dictionary<ServerWashingStation, float>();
         private static readonly Dictionary<int, GameObject> s_templates = new Dictionary<int, GameObject>();
+        // DASH-CHOP: when each board can take a dash's strokes again.
+        private static readonly Dictionary<ServerWorkstation, float> s_dashReadyAt = new Dictionary<ServerWorkstation, float>();
+        // PLATE CONJURER: the conjured plates still in play (entity IDs); each is used once.
+        private static readonly HashSet<uint> s_conjured = new HashSet<uint>();
+        // SPARE PAN: copies just emptied onto a plate, removed on the next tick.
+        private static readonly List<uint> s_spentSpares = new List<uint>();
         private static ServerWorkstation[] s_boards = new ServerWorkstation[0];
         private static ServerWashingStation[] s_sinks = new ServerWashingStation[0];
         private static float s_nextScan, s_nextFlags, s_nextStatus, s_nextAura;
@@ -162,7 +195,23 @@ namespace ChefSkills.Specials
         // Read by the per-frame patches, refreshed twice a second.
         internal static bool Blockers;
         internal static bool AnyHex;
+        internal static bool AnySleepy;
         internal static bool AnyDelivery;
+
+        /// <summary>The delivery patch has something to do: DISHWASHER, BUTLER or a conjured plate.</summary>
+        internal static bool DeliveryHooked
+        {
+            get { return AnyDelivery || s_conjured.Count > 0; }
+        }
+
+        /// <summary>The sink patches have something to do: a dozing or hexed chef may be washing.</summary>
+        internal static bool WashBlockers
+        {
+            get { return AnySleepy || AnyHex; }
+        }
+
+        /// <summary>The SPARE PAN patches: some copy is out.</summary>
+        internal static bool AnySpare;
 
         // --- setup --------------------------------------------------------------------------------
 
@@ -203,10 +252,13 @@ namespace ChefSkills.Specials
             s_clean.Clear();
             s_scrub.Clear();
             s_sinkSyncAt.Clear();
+            s_dashReadyAt.Clear();
+            s_conjured.Clear();
+            s_spentSpares.Clear();
             s_boards = new ServerWorkstation[0];
             s_sinks = new ServerWashingStation[0];
             s_nextScan = s_nextFlags = s_nextStatus = s_nextAura = 0f;
-            Blockers = AnyHex = AnyDelivery = false;
+            Blockers = AnyHex = AnySleepy = AnyDelivery = AnySpare = false;
         }
 
         /// <summary>
@@ -278,6 +330,7 @@ namespace ChefSkills.Specials
                 s_nextFlags = Now + 0.5f;
                 Blockers = SpecialRuntime.AnyHas(Special.Germaphobe) || SpecialRuntime.AnyHas(Special.TunnelVision);
                 AnyDelivery = SpecialRuntime.AnyHas(Special.Dishwasher) || SpecialRuntime.AnyHas(Special.Butler);
+                AnySleepy = SpecialRuntime.AnyHas(Special.Sleepy);
             }
             if (Now >= s_nextStatus)
             {
@@ -303,11 +356,13 @@ namespace ChefSkills.Specials
                 s_sinks = Object.FindObjectsOfType<ServerWashingStation>();
             }
             if (zen) ZenTick(dt);
+            if (multitask) PruneJobs();
             if (multitask && s_multitask.Count > 0) MultitaskBoards(dt);
             if (dash) DashChopTick();
             if (multitask || zen || charm) SinkTick(dt, multitask);
             if (s_butler.Count > 0) ButlerTick(dt);
             if (s_clean.Count > 0) CleanPlateTick();
+            if (s_spentSpares.Count > 0) RemoveSpentSpares();
         }
 
         /// <summary>The text under a local chef's active: ZEN ready, HEXED, TUNNEL VISION's mode.</summary>
@@ -322,8 +377,8 @@ namespace ChefSkills.Specials
                 // One chip each (SetStatus does nothing when a chip is unchanged).
                 chef.SetStatus("Stations.Zen", chef.Has(Special.Zen) && mine.ZenCharged ? SpecialCatalog.NameOf(Special.Zen) + Lang.T(" READY", " SẴN SÀNG") : null, Special.Zen);
                 chef.SetStatus("Stations.Hex", HexLeft(mine) > 0 ? Lang.T("HEXED x", "BỊ NGUYỀN x") + mine.HexClient : null, Special.Hex);
-                chef.SetStatus("Stations.Tunnel", chef.Has(Special.TunnelVision) && mine.TunnelMode != 0
-                    ? (mine.TunnelMode == ModeChop ? Lang.T("CHOP ONLY", "CHỈ THÁI") : Lang.T("WASH ONLY", "CHỈ RỬA")) : null, Special.TunnelVision);
+                chef.SetStatus("Stations.Tunnel", chef.Has(Special.TunnelVision) && mine.TunnelMode != 0 ? TunnelText(mine.TunnelMode) : null,
+                    Special.TunnelVision);
             }
         }
 
@@ -413,13 +468,26 @@ namespace ChefSkills.Specials
 
         private static List<AimTarget> PanTargets(ChefState state)
         {
-            return Around<ClientCookingHandler>(state, BoardReach, delegate(ClientCookingHandler pan)
+            List<AimTarget> targets = Around<ClientCookingHandler>(state, BoardReach, delegate(ClientCookingHandler pan)
             {
-                GameObject obj = pan.gameObject;
-                if (obj.GetComponent<PhysicalAttachment>() == null || obj.GetComponentInParent<PlayerControls>() != null) return false;
-                ClientIngredientContainer contents = obj.GetComponent<ClientIngredientContainer>();
-                return contents == null || !contents.HasContents();
+                return EmptyLoose(pan.gameObject);
             });
+            // Mixing bowls too (one that also cooks is already in).
+            List<AimTarget> bowls = Around<ClientMixingHandler>(state, BoardReach, delegate(ClientMixingHandler bowl)
+            {
+                return bowl.GetComponent<ClientCookingHandler>() == null && EmptyLoose(bowl.gameObject);
+            });
+            if (bowls.Count == 0) return targets;
+            targets.AddRange(bowls);
+            return SpecialAim.FacedFirst(targets, state.Position, state.Forward, FaceArc);
+        }
+
+        /// <summary>A pan, pot or bowl nobody carries, with nothing in it (this machine's view).</summary>
+        private static bool EmptyLoose(GameObject obj)
+        {
+            if (obj.GetComponent<PhysicalAttachment>() == null || obj.GetComponentInParent<PlayerControls>() != null) return false;
+            ClientIngredientContainer contents = obj.GetComponent<ClientIngredientContainer>();
+            return contents == null || !contents.HasContents();
         }
 
         private static List<AimTarget> HexTargets(ChefState state)
@@ -533,9 +601,10 @@ namespace ChefSkills.Specials
         }
 
         /// <summary>
-        /// Server: <paramref name="strokes"/> more chop strokes by this chef (through ChopPatch, so
-        /// their CHOPPING counts), mirrored on every machine's progress bar, which also draws the
-        /// effect (see <see cref="OnStrokes"/>). <paramref name="show"/>: seconds a ring stays.
+        /// Server: <paramref name="strokes"/> more chop strokes by this chef (one for one: CHOPPING
+        /// and its credit stay out of them, see ChopPatch), mirrored on every machine's progress
+        /// bar, which also draws the effect (see <see cref="OnStrokes"/>). <paramref name="show"/>:
+        /// seconds a ring stays.
         /// </summary>
         private static void ExtraStrokes(ServerWorkstation board, ServerWorkableItem item, ChefState chef, ushort topic,
             int strokes, float show)
@@ -544,11 +613,19 @@ namespace ChefSkills.Specials
             if (station == null || item == null || item.HasFinished() || chef.Chef == null || strokes <= 0) return;
             uint id = EntityIdOf(item.gameObject);
             int done = 0;
-            for (int i = 0; i < strokes; i++)
+            LevelState.RawStrokes++;
+            try
             {
-                item.DoWork(station, chef.Chef);
-                done++;
-                if (item == null || item.HasFinished()) break;
+                for (int i = 0; i < strokes; i++)
+                {
+                    item.DoWork(station, chef.Chef);
+                    done++;
+                    if (item == null || item.HasFinished()) break;
+                }
+            }
+            finally
+            {
+                LevelState.RawStrokes--;
             }
             if (id == 0) return;
             if (item == null || item.HasFinished())
@@ -577,11 +654,19 @@ namespace ChefSkills.Specials
             ChefState chef = SpecialRuntime.StateById(message.Chef);
             GameObject worker = chef != null ? chef.Chef : null;
             int strokes = Mathf.RoundToInt(message.A);
-            for (int i = 0; i < strokes && item != null; i++)
+            // One for one, the same way the host's strokes went past ChopPatch.
+            LevelState.RawStrokes++;
+            try
             {
-                if (item.HasFinished()) break;
-                // Through ClientChopPatch, the same way the host's stroke went through ChopPatch.
-                item.DoWork(station, worker);
+                for (int i = 0; i < strokes && item != null; i++)
+                {
+                    if (item.HasFinished()) break;
+                    item.DoWork(station, worker);
+                }
+            }
+            finally
+            {
+                LevelState.RawStrokes--;
             }
             GameObject board = station != null ? station.gameObject : null;
             // A stroke that finished the item: the host has already swapped it for the chopped
@@ -629,8 +714,9 @@ namespace ChefSkills.Specials
         }
 
         /// <summary>
-        /// Server, a chef's chop stroke at a board: HEX swallows it, ZEN and LUCKY KNIFE finish the
-        /// item. Returns false to skip the stroke; <paramref name="normal"/> when it went ahead.
+        /// Server, a chef's chop stroke at a board: SLEEPY (dozing) and HEX swallow it, ZEN and
+        /// LUCKY KNIFE finish the item. Returns false to skip the stroke; <paramref name="normal"/>
+        /// when it went ahead.
         /// </summary>
         internal static bool BeforeChop(ServerWorkstation board, Transform interacter, out bool normal)
         {
@@ -642,6 +728,8 @@ namespace ChefSkills.Specials
             if (item == null) return true;
             Mine mine = Of(chef);
             mine.LastWork = Now;
+            // Every machine's bar swallows the same stroke (BeforeClientChop).
+            if (MovementSpecials.Dozing(chef)) return false;
             if (mine.HexServer > 0)
             {
                 if (Now < mine.HexUntil)
@@ -654,6 +742,7 @@ namespace ChefSkills.Specials
             if (mine.ZenCharged && chef.Has(Special.Zen))
             {
                 SetZen(chef, false);
+                LevelState.SkipChop(interacter.gameObject);
                 if (Finish(board, item, chef))
                 {
                     SpecialFx.BurstAll(board.transform.position, Special.Zen);
@@ -663,6 +752,9 @@ namespace ChefSkills.Specials
             }
             if (chef.Has(Special.LuckyKnife) && UnityEngine.Random.value < LuckyKnifeChance)
             {
+                // The bars counted this chop (their item finishes when the host swaps it), so
+                // the host's CHOPPING credit counts it too and the two stay in step.
+                LevelState.SkipChop(interacter.gameObject);
                 if (Finish(board, item, chef))
                 {
                     SpecialFx.BurstAll(board.transform.position, Special.LuckyKnife);
@@ -692,8 +784,10 @@ namespace ChefSkills.Specials
                     if (mine.EchoCurrent != null) mine.EchoOther = mine.EchoCurrent;
                     mine.EchoCurrent = board;
                 }
+                // The host rolls; the echo goes out as strokes (TopicEcho), so every bar agrees.
                 ServerWorkstation other = mine.EchoOther;
-                if (other != null && other != board)
+                if (other != null && other != board && other.gameObject.activeInHierarchy &&
+                    FlatDistance(other.transform.position, chef.Position) <= EchoRange && UnityEngine.Random.value < EchoChance)
                 {
                     ServerWorkableItem otherItem = ItemOn(other);
                     if (otherItem != null) ExtraStrokes(other, otherItem, chef, TopicEcho, 1, 0f);
@@ -711,16 +805,18 @@ namespace ChefSkills.Specials
             if (!s_multitask.TryGetValue(board, out job) || job.Item != item)
                 s_multitask[board] = new BoardJob { Chef = chef, Item = item };
             else job.Chef = chef;
+            TouchJob(mine, board);
         }
 
-        /// <summary>Every machine, a chop stroke on its own progress bar: HEX swallows it here too.</summary>
+        /// <summary>Every machine, a chop stroke on its own progress bar: SLEEPY and HEX swallow it here too.</summary>
         internal static bool BeforeClientChop(ClientWorkstation board, Transform interacter)
         {
-            if (!AnyHex || interacter == null || ClientBoardItem == null) return true;
+            if ((!AnyHex && !AnySleepy) || interacter == null || ClientBoardItem == null) return true;
             ChefState chef = SpecialRuntime.StateOf(interacter.gameObject);
-            if (chef == null) return true;
+            if (chef == null || ClientBoardItem.GetValue(board) == null) return true;
+            if (MovementSpecials.Dozing(chef)) return false;
             Mine mine = Of(chef);
-            if (HexLeft(mine) <= 0 || ClientBoardItem.GetValue(board) == null) return true;
+            if (HexLeft(mine) <= 0) return true;
             mine.HexClient--;
             SpecialFx.Text(board.gameObject, mine.HexClient > 0 ? Lang.T("HEXED x", "BỊ NGUYỀN x") + mine.HexClient : Lang.T("HEX BROKEN", "GIẢI NGUYỀN"), ColourOf(Special.Hex));
             return false;
@@ -750,7 +846,7 @@ namespace ChefSkills.Specials
             return mine.ChopInterval;
         }
 
-        /// <summary>Server: MULTITASK boards nobody is at keep chopping at 40% of the chef's rhythm.</summary>
+        /// <summary>Server: MULTITASK boards nobody is at keep chopping at 35% of the chef's rhythm.</summary>
         private static void MultitaskBoards(float dt)
         {
             s_deadJobs.Clear();
@@ -779,7 +875,81 @@ namespace ChefSkills.Specials
             for (int i = 0; i < s_deadJobs.Count; i++) s_multitask.Remove(s_deadJobs[i]);
         }
 
-        /// <summary>Server: DASH-CHOP gives each loaded board the dashing chef passes three strokes per dash.</summary>
+        /// <summary>Server: this board or sink is the chef's newest MULTITASK job.</summary>
+        private static void TouchJob(Mine mine, Component station)
+        {
+            int at = mine.Jobs.IndexOf(station);
+            if (at == mine.Jobs.Count - 1 && at >= 0) return;
+            if (at >= 0) mine.Jobs.RemoveAt(at);
+            mine.Jobs.Add(station);
+        }
+
+        /// <summary>
+        /// Server: each MULTITASK chef keeps at most two boards and sinks working by themselves
+        /// (the one they stand at doesn't count); a third takes over from the oldest. Jobs that
+        /// ended or went to another chef leave the list.
+        /// </summary>
+        private static void PruneJobs()
+        {
+            IList<ChefState> chefs = SpecialRuntime.Chefs;
+            for (int i = 0; i < chefs.Count; i++)
+            {
+                ChefState chef = chefs[i];
+                if (!chef.Has(Special.Multitask)) continue;
+                List<Component> jobs = Of(chef).Jobs;
+                if (jobs.Count == 0) continue;
+                int working = 0;
+                for (int j = jobs.Count - 1; j >= 0; j--)
+                {
+                    bool alive, alone;
+                    JobState(chef, jobs[j], out alive, out alone);
+                    if (!alive) jobs.RemoveAt(j);
+                    else if (alone) working++;
+                }
+                for (int j = 0; j < jobs.Count && working > MultitaskJobs; j++)
+                {
+                    bool alive, alone;
+                    JobState(chef, jobs[j], out alive, out alone);
+                    if (!alone) continue;
+                    ServerWorkstation board = jobs[j] as ServerWorkstation;
+                    if (board != null) s_multitask.Remove(board);
+                    jobs.RemoveAt(j);
+                    j--;
+                    working--;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Server: is this still the chef's job (<paramref name="alive"/>), and is it working by
+        /// itself right now (<paramref name="alone"/>: loaded and nobody at it)?
+        /// </summary>
+        private static void JobState(ChefState chef, Component station, out bool alive, out bool alone)
+        {
+            alive = alone = false;
+            if (station == null || !station.gameObject.activeInHierarchy) return;
+            ServerWorkstation board = station as ServerWorkstation;
+            if (board != null)
+            {
+                BoardJob job;
+                alive = s_multitask.TryGetValue(board, out job) && job.Chef == chef && ItemOn(board) == job.Item && job.Item != null;
+                alone = alive && !Busy(board);
+                return;
+            }
+            ServerWashingStation sink = station as ServerWashingStation;
+            if (sink == null || SinkInteractor == null || SinkPlates == null) return;
+            // A sink stays the chef's while they were the last to wash there.
+            alive = SpecialRuntime.StateOf(SinkInteractor.GetValue(sink) as GameObject) == chef;
+            if (!alive) return;
+            ServerInteractable interactable;
+            List<GameObject> washers = WashersOf(sink, out interactable);
+            alone = (int)SinkPlates.GetValue(sink) > 0 && (washers == null || washers.Count == 0);
+        }
+
+        /// <summary>
+        /// Server: DASH-CHOP gives each loaded board the dashing chef passes three strokes per
+        /// dash, each board at most once every 2 s.
+        /// </summary>
         private static void DashChopTick()
         {
             IList<ChefState> chefs = SpecialRuntime.Chefs;
@@ -790,11 +960,7 @@ namespace ChefSkills.Specials
                 Mine mine = Of(chef);
                 // The host runs every chef's movement (see MovementPatch), so this is its real dash.
                 if (mine.Impl == null) mine.Impl = chef.Chef.GetComponent<ClientPlayerControlsImpl_Default>();
-                if (mine.Impl == null || !mine.Impl.IsDashing())
-                {
-                    if (mine.DashHits.Count > 0) mine.DashHits.Clear();
-                    continue;
-                }
+                if (mine.Impl == null || !mine.Impl.IsDashing()) continue;
                 for (int b = 0; b < s_boards.Length; b++)
                 {
                     ServerWorkstation board = s_boards[b];
@@ -804,7 +970,10 @@ namespace ChefSkills.Specials
                     float distance;
                     // In front or beside: boards are passed, not dashed into.
                     if (!Faces(chef, board.transform.position, DashReach, DashArc, out distance)) continue;
-                    if (!mine.DashHits.Add(board.GetInstanceID())) continue;
+                    // Also keeps one dash from hitting the same board twice.
+                    float readyAt;
+                    if (s_dashReadyAt.TryGetValue(board, out readyAt) && Now < readyAt) continue;
+                    s_dashReadyAt[board] = Now + DashBoardSeconds;
                     ExtraStrokes(board, item, chef, TopicDash, DashStrokes, 0f);
                 }
             }
@@ -812,7 +981,7 @@ namespace ChefSkills.Specials
 
         // --- ZEN ----------------------------------------------------------------------------------
 
-        /// <summary>Server: a ZEN chef standing still (and not working) for 1.5 s charges up.</summary>
+        /// <summary>Server: a ZEN chef a player steers, standing still (and not working) for 1.5 s, charges up.</summary>
         private static void ZenTick(float dt)
         {
             if (dt <= 0f) return;
@@ -832,9 +1001,11 @@ namespace ChefSkills.Specials
                 bool still = mine.HasPosition && moved.magnitude / dt < ZenStillSpeed;
                 mine.LastPosition = position;
                 mine.HasPosition = true;
-                // Chopping or washing is standing still too, but doesn't count as calm.
+                // Chopping or washing is standing still too, but doesn't count as calm. Nor does a
+                // chef nobody steers (the parked one of a player alone): calm is earned in play.
                 bool working = Now - mine.LastWork < 0.8f;
-                mine.Still = still && !working ? mine.Still + dt : 0f;
+                bool steered = SpecialRuntime.PlayerControlled(chef);
+                mine.Still = still && !working && steered ? mine.Still + dt : 0f;
                 if (!mine.ZenCharged && mine.Still >= ZenStillSeconds)
                 {
                     SetZen(chef, true);
@@ -898,6 +1069,9 @@ namespace ChefSkills.Specials
                 if (chef == null) continue;
                 Mine mine = Of(chef);
                 mine.LastWork = Now;
+                if (chef.Has(Special.Multitask)) TouchJob(mine, sink);
+                // A dozing or hexed chef isn't really washing (see StationsWashPatch).
+                if (MovementSpecials.Dozing(chef) || HexWashing(mine, true)) continue;
                 if (mine.ZenCharged && chef.Has(Special.Zen)) zen = chef;
                 if (chef.Has(Special.LuckyCharm)) lucky = true;
             }
@@ -957,13 +1131,15 @@ namespace ChefSkills.Specials
                 ui.SetProgress(Mathf.Clamp01(timer / config.m_cleanPlateTime));
         }
 
-        /// <summary>Server: MULTITASK, the last washer walked away; keep washing at 40% of their rate.</summary>
+        /// <summary>Server: MULTITASK, the last washer walked away; keep washing at 35% of their rate.</summary>
         private static void LeftAlone(ServerWashingStation sink, WashingStation config, ServerInteractable interactable,
             int plates, float dt)
         {
             GameObject last = SinkInteractor != null ? SinkInteractor.GetValue(sink) as GameObject : null;
             ChefState chef = SpecialRuntime.StateOf(last);
             if (chef == null || !chef.Has(Special.Multitask) || interactable == null || !interactable.enabled) return;
+            // One of the chef's two jobs (PruneJobs dropped it if not).
+            if (!Of(chef).Jobs.Contains(sink)) return;
             ServerPlateReturnStation rack = SinkRack != null ? SinkRack.GetValue(sink) as ServerPlateReturnStation : null;
             // A full or blocked drying rack stops the sink, as it does for a washing chef.
             if (rack == null || !rack.CanReturnPlate()) return;
@@ -1039,19 +1215,34 @@ namespace ChefSkills.Specials
         }
 
         /// <summary>
-        /// Server, a dish was just handed in by a chef: DISHWASHER sends every second plate to a
-        /// sink's drying rack (clean), BUTLER sends the dirty plate into a sink.
+        /// Server, a dish was just handed in: a PLATE CONJURER plate doesn't come back at all;
+        /// for a chef's dish, DISHWASHER sends every third plate to a sink's drying rack (clean),
+        /// BUTLER sends the dirty plate into a sink, twice as fast.
         /// </summary>
-        internal static void Delivered(PlateReturnController controller, PlatingStepData plateType, int before)
+        internal static void Delivered(PlateReturnController controller, PlatingStepData plateType, ServerPlateStation pass, int before)
         {
-            ChefState chef = SpecialRuntime.StateOf(LevelState.CurrentPlacer);
-            if (chef == null) return;
-            bool dishwasher = chef.Has(Special.Dishwasher), butler = chef.Has(Special.Butler);
-            if (!dishwasher && !butler) return;
+            if (PendingPlates == null) return;
             object list = PendingPlates.GetValue(controller);
             if (!ReadListTypes(list)) return;
             int count = (int)s_listCount.GetValue(list, null);
             if (count != before + 1) return; // no plate was queued for this dish
+
+            // Conjured plates are used once (whoever handed the dish in): drop its return first.
+            if (s_conjured.Count > 0 && pass != null && PlateOnPass != null)
+            {
+                ServerPlate plate = PlateOnPass.GetValue(pass) as ServerPlate;
+                uint plateId = plate != null ? EntityIdOf(plate.gameObject) : 0u;
+                if (plateId != 0 && s_conjured.Remove(plateId))
+                {
+                    s_listRemoveAt.Invoke(list, new object[] { count - 1 });
+                    return;
+                }
+            }
+
+            ChefState chef = SpecialRuntime.StateOf(LevelState.CurrentPlacer);
+            if (chef == null) return;
+            bool dishwasher = chef.Has(Special.Dishwasher), butler = chef.Has(Special.Butler);
+            if (!dishwasher && !butler) return;
             Array items = s_listItems.GetValue(list) as Array;
             object entry = items != null && items.Length >= count ? items.GetValue(count - 1) : null;
             if (!ReadEntryTypes(entry)) return;
@@ -1063,7 +1254,7 @@ namespace ChefSkills.Specials
                 Mine mine = Of(chef);
                 mine.Dishes++;
                 ServerPlateReturnStation rack = SinkRack != null ? SinkRack.GetValue(sink) as ServerPlateReturnStation : null;
-                if (mine.Dishes % 2 == 0 && rack != null)
+                if (mine.Dishes % DishwasherEvery == 0 && rack != null)
                 {
                     // Same delay, but it comes back on the drying rack: a clean plate.
                     s_entryStation.SetValue(entry, rack);
@@ -1074,7 +1265,7 @@ namespace ChefSkills.Specials
             }
             if (butler && SinkAddPlates != null)
             {
-                float timer = (float)s_entryTimer.GetValue(entry);
+                float timer = (float)s_entryTimer.GetValue(entry) / ButlerSpeed;
                 s_listRemoveAt.Invoke(list, new object[] { count - 1 });
                 s_butler.Add(new ButlerPlate { Sink = sink, Timer = timer, Entry = entry, Controller = controller });
             }
@@ -1237,25 +1428,58 @@ namespace ChefSkills.Specials
             if (chef == null) return false;
             bool germaphobe = chef.Has(Special.Germaphobe), tunnel = chef.Has(Special.TunnelVision);
             if (!germaphobe && !tunnel) return false;
-            int mode = tunnel ? Of(chef).TunnelMode : 0;
+            Mine mine = Of(chef);
             bool sink = station.GetComponent<WashingStation>() != null;
-            bool blocked = sink ? germaphobe || mode == ModeChop
-                : mode == ModeWash && station.GetComponent<Workstation>() != null;
+            bool board = !sink && station.GetComponent<Workstation>() != null;
+            bool phobia = sink && germaphobe;
+            bool blocked = phobia || (tunnel && mine.TunnelMode != 0 && (sink || board) && !TunnelAllows(mine, station, sink));
             if (blocked && client && chef.Local && chef.Chef != null)
             {
-                Mine mine = Of(chef);
                 if (Now - mine.BlockedTextAt >= BlockedTextSeconds)
                 {
                     mine.BlockedTextAt = Now;
-                    bool phobia = sink && germaphobe;
-                    SpecialFx.Text(chef.Chef, phobia ? Lang.T("NO WASHING", "KHÔNG RỬA ĐÂU") : sink ? Lang.T("CHOP ONLY", "CHỈ THÁI") : Lang.T("WASH ONLY", "CHỈ RỬA"),
+                    SpecialFx.Text(chef.Chef, phobia ? Lang.T("NO WASHING", "KHÔNG RỬA ĐÂU") : TunnelText(mine.TunnelMode),
                         ColourOf(phobia ? Special.Germaphobe : Special.TunnelVision));
                 }
             }
             return blocked;
         }
 
-        /// <summary>Server: a TUNNEL VISION chef's first board or sink decides what they can do.</summary>
+        private static string TunnelText(int mode)
+        {
+            return mode == ModeChop ? Lang.T("THIS BOARD ONLY", "CHỈ THỚT NÀY") : Lang.T("THIS SINK ONLY", "CHỈ BỒN RỬA NÀY");
+        }
+
+        /// <summary>
+        /// Every machine: is this the TUNNEL VISION station (its board; its sink, or one right
+        /// next to it)? From entity IDs and positions, so every machine gives the same answer.
+        /// </summary>
+        private static bool TunnelAllows(Mine mine, GameObject station, bool sink)
+        {
+            if (mine.TunnelMode == 0) return true;
+            if (sink != (mine.TunnelMode == ModeWash)) return false;
+            uint key = StationKey(station);
+            if (key != 0 && key == mine.TunnelStation) return true;
+            Vector3 at = station.transform.position;
+            if (sink) return FlatDistance(at, mine.TunnelAt) <= TunnelSinkJoin;
+            // A board without an entity ID: by where it stands.
+            return key == 0 && FlatDistance(at, mine.TunnelAt) < 0.1f;
+        }
+
+        /// <summary>
+        /// A station's own network entity ID (0 if it has none): the same on every machine. Not
+        /// a parent's, which other stations may share.
+        /// </summary>
+        private static uint StationKey(GameObject station)
+        {
+            uint id = EntityIdOf(station);
+            return id != EntitySerialisationRegistry.kInvalidEntityID ? id : 0u;
+        }
+
+        /// <summary>
+        /// Server: a TUNNEL VISION chef's first board or sink is the only station their player
+        /// may chop or wash at (both chefs, for a player alone).
+        /// </summary>
         internal static void BeganInteract(GameObject station, GameObject interacter)
         {
             ChefState chef = SpecialRuntime.StateOf(interacter);
@@ -1263,23 +1487,36 @@ namespace ChefSkills.Specials
             int mode = station.GetComponent<Workstation>() != null ? ModeChop
                 : station.GetComponent<WashingStation>() != null ? ModeWash : 0;
             if (mode == 0) return;
-            if (chef.Id != 0) SpecialNet.SendToAll(new SpecialMessage { Topic = TopicTunnel, Chef = chef.Id, I = mode });
-            else SetTunnel(chef, mode);
+            uint key = StationKey(station);
+            Vector3 at = station.transform.position;
+            if (chef.Id != 0)
+                SpecialNet.SendToAll(new SpecialMessage { Topic = TopicTunnel, Chef = chef.Id, I = (int)key, A = mode, Vector2 = at });
+            else SetTunnel(chef, mode, key, at);
         }
 
         private static void OnTunnel(SpecialMessage message)
         {
             ChefState chef = SpecialRuntime.StateById(message.Chef);
-            if (chef != null) SetTunnel(chef, message.I);
+            // I = the station's entity ID, A = the mode, Vector2 = where it stands.
+            if (chef != null) SetTunnel(chef, Mathf.RoundToInt(message.A), (uint)message.I, message.Vector2);
         }
 
-        private static void SetTunnel(ChefState chef, int mode)
+        /// <summary>Every machine: lock the chef and the other chefs of their player to this station.</summary>
+        private static void SetTunnel(ChefState chef, int mode, uint key, Vector3 at)
         {
-            Mine mine = Of(chef);
-            if (mine.TunnelMode != 0) return;
-            mine.TunnelMode = mode;
-            if (chef.Chef != null)
-                SpecialFx.Text(chef.Chef, mode == ModeChop ? Lang.T("CHOP ONLY", "CHỈ THÁI") : Lang.T("WASH ONLY", "CHỈ RỬA"), ColourOf(Special.TunnelVision));
+            if (Of(chef).TunnelMode != 0) return;
+            var chefs = SpecialRuntime.SiblingsOf(chef);
+            chefs.Insert(0, chef);
+            for (int i = 0; i < chefs.Count; i++)
+            {
+                Mine mine = Of(chefs[i]);
+                if (mine.TunnelMode != 0) continue;
+                mine.TunnelMode = mode;
+                mine.TunnelStation = key;
+                mine.TunnelAt = at;
+                if (chefs[i].Chef != null && chefs[i].Has(Special.TunnelVision))
+                    SpecialFx.Text(chefs[i].Chef, TunnelText(mode), ColourOf(Special.TunnelVision));
+            }
         }
 
         // --- HEX ----------------------------------------------------------------------------------
@@ -1316,21 +1553,26 @@ namespace ChefSkills.Specials
                 }
             }
             if (target == null) return state.Refuse(lonely ? SpecialFx.NameBoth(Special.LoneWolf, " IGNORES IT", " PHỚT LỜ") : Lang.Both("NO CHEF IN FRONT", "KHÔNG CÓ ĐẦU BẾP TRƯỚC MẶT"));
-            if (target.Id == 0) ApplyHex(target, HexStrokes);
-            else SpecialNet.SendToAll(new SpecialMessage { Topic = TopicHex, Chef = target.Id, I = HexStrokes, D = state.Id });
+            // B = seconds of washing it swallows, C = when it started (the host's level time).
+            if (target.Id == 0) ApplyHex(target, HexStrokes, HexWashSeconds, 0f);
+            else SpecialNet.SendToAll(new SpecialMessage { Topic = TopicHex, Chef = target.Id, I = HexStrokes, D = state.Id,
+                B = HexWashSeconds, C = SpecialRuntime.LevelTime });
             SpecialFx.BeamAll(from, target.Position, Special.Hex, 0.6f);
             return true;
         }
 
-        private static void ApplyHex(ChefState target, int strokes)
+        /// <param name="late">How long ago the host cast it (a message's trip; at most half a second counts).</param>
+        private static void ApplyHex(ChefState target, int strokes, float washSeconds, float late)
         {
             Mine mine = Of(target);
-            // Separate counts for the host's real chopping and each machine's own progress bar
-            // (the host runs both for the same stroke). Both run out after a while, so a count
-            // that drifted apart can't linger.
+            // Separate counts for the host's real chopping and washing and each machine's own
+            // progress bars (the host runs both for the same stroke or frame). Both run out after
+            // a while, so a count that drifted apart can't linger.
             mine.HexServer = strokes;
             mine.HexClient = strokes;
-            mine.HexUntil = Now + HexSeconds;
+            mine.HexWashServer = washSeconds;
+            mine.HexWashClient = washSeconds;
+            mine.HexUntil = Now + HexSeconds - Mathf.Clamp(late, 0f, 0.5f);
             AnyHex = true;
             if (target.Chef != null) SpecialFx.Text(target.Chef, Lang.T("HEXED!", "BỊ NGUYỀN!"), ColourOf(Special.Hex));
         }
@@ -1338,7 +1580,96 @@ namespace ChefSkills.Specials
         private static void OnHex(SpecialMessage message)
         {
             ChefState target = SpecialRuntime.StateById(message.Chef);
-            if (target != null) ApplyHex(target, message.I);
+            if (target != null) ApplyHex(target, message.I, message.B, SpecialRuntime.LevelTime - message.C);
+        }
+
+        /// <summary>
+        /// Is a hex still swallowing this chef's washing, on the host's sinks
+        /// (<paramref name="server"/>) or this machine's bars?
+        /// </summary>
+        private static bool HexWashing(Mine mine, bool server)
+        {
+            float left = server ? mine.HexWashServer : mine.HexWashClient;
+            if (left <= 0f) return false;
+            if (Now < mine.HexUntil) return true;
+            mine.HexWashServer = mine.HexWashClient = 0f;
+            return false;
+        }
+
+        /// <summary>
+        /// Every machine, a sink's frame, before its timer moves (<paramref name="server"/>: the
+        /// host's real sink, else this machine's bar): a dozing SLEEPY chef doesn't wash, and a
+        /// hexed one's first seconds of washing do nothing. Returns the share of the washers who
+        /// really wash (0 = the sink stands still this frame).
+        /// </summary>
+        internal static float WashingShare(List<GameObject> washers, float dt, bool server)
+        {
+            if (washers == null || washers.Count == 0) return 1f;
+            int blocked = 0;
+            for (int i = 0; i < washers.Count; i++)
+            {
+                ChefState chef = SpecialRuntime.StateOf(washers[i]);
+                if (chef == null) continue;
+                if (MovementSpecials.Dozing(chef))
+                {
+                    blocked++;
+                    continue;
+                }
+                Mine mine = Of(chef);
+                if (!HexWashing(mine, server)) continue;
+                blocked++;
+                if (server) mine.HexWashServer -= dt;
+                else mine.HexWashClient -= dt;
+            }
+            return blocked == 0 ? 1f : (washers.Count - blocked) / (float)washers.Count;
+        }
+
+        /// <summary>The host's sink about to wash this frame: its washers, or null if it won't wash.</summary>
+        internal static List<GameObject> ServerWashers(ServerWashingStation sink)
+        {
+            if (SinkPlates == null || (int)SinkPlates.GetValue(sink) <= 0) return null;
+            ServerInteractable interactable;
+            List<GameObject> washers = WashersOf(sink, out interactable);
+            return interactable != null && interactable.IsBeingInteractedWith() ? washers : null;
+        }
+
+        /// <summary>This machine's sink bar about to move this frame: its washers, or null if it won't.</summary>
+        internal static List<GameObject> ClientWashers(ClientWashingStation sink)
+        {
+            if (ClientSinkPlates == null || ClientSinkWashing == null || ClientSinkInteractable == null || ClientInteracters == null) return null;
+            if (!(bool)ClientSinkWashing.GetValue(sink) || (int)ClientSinkPlates.GetValue(sink) <= 0) return null;
+            object interactable = ClientSinkInteractable.GetValue(sink);
+            return interactable != null ? ClientInteracters.GetValue(interactable) as List<GameObject> : null;
+        }
+
+        /// <summary>This machine's sink bar: draw it again from its (held back) timer.</summary>
+        internal static void RedrawSink(ClientWashingStation sink)
+        {
+            if (ClientSinkTimer == null) return;
+            var ui = ClientSinkUi != null ? ClientSinkUi.GetValue(sink) as ProgressUIController : null;
+            var config = ClientSinkConfig != null ? ClientSinkConfig.GetValue(sink) as WashingStation : null;
+            if (ui != null && config != null && config.m_cleanPlateTime > 0f)
+                ui.SetProgress(Mathf.Clamp01((float)ClientSinkTimer.GetValue(sink) / config.m_cleanPlateTime));
+        }
+
+        internal static float ServerSinkTimer(ServerWashingStation sink)
+        {
+            return SinkTimer != null ? (float)SinkTimer.GetValue(sink) : 0f;
+        }
+
+        internal static void SetServerSinkTimer(ServerWashingStation sink, float timer)
+        {
+            if (SinkTimer != null) SinkTimer.SetValue(sink, timer);
+        }
+
+        internal static float ClientSinkTimerOf(ClientWashingStation sink)
+        {
+            return ClientSinkTimer != null ? (float)ClientSinkTimer.GetValue(sink) : 0f;
+        }
+
+        internal static void SetClientSinkTimer(ClientWashingStation sink, float timer)
+        {
+            if (ClientSinkTimer != null) ClientSinkTimer.SetValue(sink, timer);
         }
 
         // --- actives ------------------------------------------------------------------------------
@@ -1377,15 +1708,19 @@ namespace ChefSkills.Specials
 
         private static bool WashBurst(ChefState state)
         {
-            if (state.Has(Special.Germaphobe) || Of(state).TunnelMode == ModeChop) return state.Refuse(Lang.Both("YOU CAN'T WASH", "BẠN KHÔNG RỬA ĐƯỢC"));
+            if (state.Has(Special.Germaphobe) || (state.Has(Special.TunnelVision) && Of(state).TunnelMode == ModeChop)) return state.Refuse(Lang.Both("YOU CAN'T WASH", "BẠN KHÔNG RỬA ĐƯỢC"));
             if (SinkPlates == null) return state.Refuse(Lang.Both("NOT AVAILABLE", "KHÔNG DÙNG ĐƯỢC"));
             Vector3 from = AimPosition(state), forward = AimForward(state);
             ServerWashingStation best = null;
             float bestDistance = float.MaxValue;
             bool full = false;
+            Mine mine = Of(state);
+            bool tunnel = state.Has(Special.TunnelVision);
             foreach (ServerWashingStation sink in Object.FindObjectsOfType<ServerWashingStation>())
             {
                 if (sink == null || !sink.gameObject.activeInHierarchy || (int)SinkPlates.GetValue(sink) <= 0) continue;
+                // TUNNEL VISION: only the chef's own sink.
+                if (tunnel && !TunnelAllows(mine, sink.gameObject, true)) continue;
                 float distance;
                 if (!Reaches(state, from, forward, sink.transform.position, SinkReach, FaceArc, out distance) || distance >= bestDistance) continue;
                 ServerPlateReturnStation rack = SinkRack != null ? SinkRack.GetValue(sink) as ServerPlateReturnStation : null;
@@ -1449,13 +1784,30 @@ namespace ChefSkills.Specials
             if (stack == null)
             {
                 // The plate is on the rack at least.
+                MarkConjured(TopOf(RackStack.GetValue(best) as ServerPlateStackBase));
                 SpecialFx.TextAll(best.gameObject, Lang.Both("+1 PLATE", "+1 ĐĨA"), Special.PlateConjurer);
                 return true;
             }
             Vector3 forward = state.Forward;
+            GameObject top = TopOf(stack);
             stack.HandlePickup(carrier, new Vector2(forward.x, forward.z).normalized);
+            GameObject held = carrier.InspectCarriedItem();
+            MarkConjured(held != null && held.GetComponent<ServerPlate>() != null ? held : top);
             SpecialFx.BeamAll(best.transform.position, state.Position, Special.PlateConjurer, 0.5f);
             return true;
+        }
+
+        private static GameObject TopOf(ServerPlateStackBase stack)
+        {
+            ServerStack items = stack != null && StackItems != null ? StackItems.GetValue(stack) as ServerStack : null;
+            return items != null ? items.InspectTopOfStack() : null;
+        }
+
+        /// <summary>Server: this plate was conjured; its dish's plate won't come back (see Delivered).</summary>
+        private static void MarkConjured(GameObject plate)
+        {
+            uint id = EntityIdOf(plate);
+            if (id != 0) s_conjured.Add(id);
         }
 
         // --- SPARE PAN ----------------------------------------------------------------------------
@@ -1465,17 +1817,26 @@ namespace ChefSkills.Specials
             if (state.Chef == null) return state.Refuse(Lang.Both("NOT AVAILABLE", "KHÔNG DÙNG ĐƯỢC"));
             // Every machine must make the same template.
             if (PartialLobby) return state.Refuse(Lang.Both("NEEDS CHEF SKILLS ON ALL PCS", "CẦN CHEF SKILLS TRÊN MỌI MÁY"));
+            // One copy out at a time: it goes once emptied onto a plate (see SpareEmptied).
+            Mine mine = Of(state);
+            if (mine.Spare != 0 && EntityById((int)mine.Spare) != null)
+                return state.Refuse(Lang.Both("SPARE STILL OUT", "CHẢO DỰ PHÒNG VẪN CÒN"));
+            mine.Spare = 0;
             ServerPlayerAttachmentCarrier carrier = state.Chef.GetComponent<ServerPlayerAttachmentCarrier>();
             Vector3 from = AimPosition(state), forward = AimForward(state);
 
-            // The empty pan or pot the chef faces (not one somebody carries).
+            // The empty pan, pot or mixing bowl the chef faces (not one somebody carries).
+            var candidates = new List<GameObject>();
+            foreach (ServerCookingHandler handler in Object.FindObjectsOfType<ServerCookingHandler>())
+                if (handler != null) candidates.Add(handler.gameObject);
+            foreach (ServerMixingHandler handler in Object.FindObjectsOfType<ServerMixingHandler>())
+                if (handler != null && !candidates.Contains(handler.gameObject)) candidates.Add(handler.gameObject);
             GameObject pan = null;
             float bestDistance = float.MaxValue;
             bool full = false;
-            foreach (ServerCookingHandler handler in Object.FindObjectsOfType<ServerCookingHandler>())
+            foreach (GameObject obj in candidates)
             {
-                if (handler == null || !handler.gameObject.activeInHierarchy) continue;
-                GameObject obj = handler.gameObject;
+                if (obj == null || !obj.activeInHierarchy) continue;
                 if (obj.GetComponent<PhysicalAttachment>() == null || obj.GetComponentInParent<PlayerControls>() != null) continue;
                 float distance;
                 if (!Reaches(state, from, forward, obj.transform.position, BoardReach, FaceArc, out distance) || distance >= bestDistance) continue;
@@ -1522,7 +1883,9 @@ namespace ChefSkills.Specials
             SpecialFx.BeamAll(pan.transform.position, to, Special.SparePan, 0.6f);
             SpecialFx.BurstAll(to, Special.SparePan);
             SpecialFx.TextAll(pan, Lang.Both("COPIED!", "ĐÃ CHÉP!"), Special.SparePan);
-            Plugin.Log.LogInfo("SPARE PAN: đã sao chép " + pan.name + " (mã " + EntityIdOf(copy) + ")");
+            mine.Spare = EntityIdOf(copy);
+            AnySpare = true;
+            Plugin.Log.LogInfo("SPARE PAN: đã sao chép " + pan.name + " (mã " + mine.Spare + ")");
             return true;
         }
 
@@ -1595,18 +1958,66 @@ namespace ChefSkills.Specials
         {
             if (message == null || SpecialNet.IsServer) return;
             GameObject spawner = EntityById((int)message.m_SpawnerHeader.m_uEntityID);
-            // The game never spawns anything from a pan, so a spawn from one is SPARE PAN's.
+            // The game never spawns anything from a pan or bowl, so a spawn from one is SPARE PAN's.
             // (Not gated on the level state: this client may still be on the skill screen.)
-            if (spawner == null || spawner.GetComponent<CookingHandler>() == null) return;
+            if (spawner == null || (spawner.GetComponent<CookingHandler>() == null && spawner.GetComponent<MixingHandler>() == null)) return;
             if (spawner.GetComponent<SpawnableEntityCollection>() != null) return;
             EnsureTemplate(spawner);
             Plugin.Log.LogInfo("SPARE PAN: tạo mẫu chảo " + spawner.name + " trên máy này");
+        }
+
+        /// <summary>
+        /// Server: a pan, pot or bowl just handed its contents on (onto a plate, or a bowl into a
+        /// pan or tray). A SPARE PAN copy left empty goes on the next tick.
+        /// </summary>
+        internal static void SpareEmptied(GameObject container)
+        {
+            uint id = EntityIdOf(container);
+            if (id == 0 || OwnerOfSpare(id) == null || s_spentSpares.Contains(id)) return;
+            IIngredientContents contents = container.RequestInterface<IIngredientContents>();
+            if (contents != null && contents.HasContents()) return;
+            s_spentSpares.Add(id);
+        }
+
+        private static ChefState OwnerOfSpare(uint id)
+        {
+            IList<ChefState> chefs = SpecialRuntime.Chefs;
+            for (int i = 0; i < chefs.Count; i++)
+                if (Of(chefs[i]).Spare == id) return chefs[i];
+            return null;
+        }
+
+        /// <summary>Server: removes the emptied SPARE PAN copies, from a chef's hands or a counter.</summary>
+        private static void RemoveSpentSpares()
+        {
+            for (int i = 0; i < s_spentSpares.Count; i++)
+            {
+                uint id = s_spentSpares[i];
+                ChefState owner = OwnerOfSpare(id);
+                GameObject copy = EntityById((int)id);
+                if (owner == null || copy == null) continue;
+                // Filled again in the meantime: it stays until emptied again.
+                IIngredientContents contents = copy.RequestInterface<IIngredientContents>();
+                if (contents != null && contents.HasContents()) continue;
+                Of(owner).Spare = 0;
+                Vector3 at = copy.transform.position;
+                ServerPlayerAttachmentCarrier carrier = copy.GetComponentInParent<ServerPlayerAttachmentCarrier>();
+                ServerAttachStation station = copy.GetComponentInParent<ServerAttachStation>();
+                if (carrier != null && carrier.InspectCarriedItem() == copy) carrier.DestroyCarriedItem();
+                else
+                {
+                    if (station != null && station.InspectItem() == copy) station.TakeItem();
+                    NetworkUtils.DestroyObject(copy);
+                }
+                SpecialFx.BurstAll(at, Special.SparePan);
+            }
+            s_spentSpares.Clear();
         }
     }
 
     // --- patches ----------------------------------------------------------------------------------
 
-    /// <summary>The host's chop stroke (one per chop animation): HEX, ZEN, LUCKY KNIFE, then LUCKY CHARM, ECHO KNIFE, MULTITASK.</summary>
+    /// <summary>The host's chop stroke (one per chop animation): SLEEPY, HEX, ZEN, LUCKY KNIFE, then LUCKY CHARM, ECHO KNIFE, MULTITASK.</summary>
     [HarmonyPatch(typeof(ServerWorkstation), "OnChop")]
     internal static class StationsChopPatch
     {
@@ -1638,13 +2049,13 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>Every machine's own chop stroke for its progress bar: HEX swallows it there too.</summary>
+    /// <summary>Every machine's own chop stroke for its progress bar: SLEEPY and HEX swallow it there too.</summary>
     [HarmonyPatch(typeof(ClientWorkstation), "OnChop")]
     internal static class StationsClientChopPatch
     {
         private static bool Prefix(ClientWorkstation __instance, Transform _interacter)
         {
-            if (!StationsModule.AnyHex) return true;
+            if (!StationsModule.AnyHex && !StationsModule.AnySleepy) return true;
             try
             {
                 return StationsModule.BeforeClientChop(__instance, _interacter);
@@ -1711,14 +2122,17 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>DISHWASHER and BUTLER: where the plate of a dish a chef handed in comes back.</summary>
+    /// <summary>
+    /// DISHWASHER and BUTLER: where the plate of a dish a chef handed in comes back. PLATE
+    /// CONJURER: a conjured plate doesn't come back.
+    /// </summary>
     [HarmonyPatch(typeof(PlateReturnController), "FoodDelivered")]
     internal static class StationsDeliveryPatch
     {
         private static void Prefix(PlateReturnController __instance, out int __state)
         {
             __state = -1;
-            if (!StationsModule.AnyDelivery || LevelState.CurrentPlacer == null) return;
+            if (!StationsModule.DeliveryHooked) return;
             try
             {
                 __state = StationsModule.PendingCount(__instance);
@@ -1729,12 +2143,12 @@ namespace ChefSkills.Specials
             }
         }
 
-        private static void Postfix(PlateReturnController __instance, PlatingStepData _plateType, int __state)
+        private static void Postfix(PlateReturnController __instance, PlatingStepData _plateType, ServerPlateStation _station, int __state)
         {
             if (__state < 0) return;
             try
             {
-                StationsModule.Delivered(__instance, _plateType, __state);
+                StationsModule.Delivered(__instance, _plateType, _station, __state);
             }
             catch (Exception error)
             {
@@ -1791,6 +2205,124 @@ namespace ChefSkills.Specials
             catch (Exception error)
             {
                 SpecialRuntime.Fail("Stations.BeforeSpawnEntity", error);
+            }
+        }
+    }
+
+    /// <summary>
+    /// SLEEPY and HEX on the host's sinks: a dozing chef doesn't wash, a hexed chef's first
+    /// seconds of washing do nothing. The frame's progress is taken back afterwards (whatever
+    /// WashPatch made of it), so the order of the two patches doesn't matter.
+    /// </summary>
+    [HarmonyPatch(typeof(ServerWashingStation), "UpdateSynchronising")]
+    internal static class StationsWashPatch
+    {
+        // __state: x = the timer before the frame (-1: untouched), y = the share of it that counts.
+        private static void Prefix(ServerWashingStation __instance, out Vector2 __state)
+        {
+            __state = new Vector2(-1f, 1f);
+            if (!StationsModule.WashBlockers || !SpecialRuntime.InLevel) return;
+            try
+            {
+                List<GameObject> washers = StationsModule.ServerWashers(__instance);
+                if (washers == null || washers.Count == 0) return;
+                float share = StationsModule.WashingShare(washers, TimeManager.GetDeltaTime(__instance.gameObject), true);
+                if (share < 1f) __state = new Vector2(StationsModule.ServerSinkTimer(__instance), share);
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("Stations.WashPrefix", error);
+            }
+        }
+
+        private static void Postfix(ServerWashingStation __instance, Vector2 __state)
+        {
+            if (__state.x < 0f) return;
+            try
+            {
+                float after = StationsModule.ServerSinkTimer(__instance);
+                // Only a frame that washed (not one that finished a plate and reset the timer).
+                if (after <= __state.x) return;
+                StationsModule.SetServerSinkTimer(__instance, __state.x + (after - __state.x) * __state.y);
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("Stations.WashPostfix", error);
+            }
+        }
+    }
+
+    /// <summary>The same on every machine's sink bar, which runs the timer itself between the host's messages.</summary>
+    [HarmonyPatch(typeof(ClientWashingStation), "UpdateSynchronising")]
+    internal static class StationsClientWashPatch
+    {
+        private static void Prefix(ClientWashingStation __instance, out Vector2 __state)
+        {
+            __state = new Vector2(-1f, 1f);
+            if (!StationsModule.WashBlockers || !SpecialRuntime.InLevel) return;
+            try
+            {
+                List<GameObject> washers = StationsModule.ClientWashers(__instance);
+                if (washers == null || washers.Count == 0) return;
+                float share = StationsModule.WashingShare(washers, TimeManager.GetDeltaTime(__instance.gameObject), false);
+                if (share < 1f) __state = new Vector2(StationsModule.ClientSinkTimerOf(__instance), share);
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("Stations.ClientWashPrefix", error);
+            }
+        }
+
+        private static void Postfix(ClientWashingStation __instance, Vector2 __state)
+        {
+            if (__state.x < 0f) return;
+            try
+            {
+                float after = StationsModule.ClientSinkTimerOf(__instance);
+                if (after <= __state.x) return;
+                StationsModule.SetClientSinkTimer(__instance, __state.x + (after - __state.x) * __state.y);
+                // The game (and ClientWashPatch) drew this frame's bar from the timer before this.
+                StationsModule.RedrawSink(__instance);
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("Stations.ClientWashPostfix", error);
+            }
+        }
+    }
+
+    /// <summary>SPARE PAN: a pan or pot handed its food on; an emptied copy goes.</summary>
+    [HarmonyPatch(typeof(ServerCookableContainer), "TransferToContainer")]
+    internal static class StationsSparePanPatch
+    {
+        private static void Postfix(ServerCookableContainer __instance)
+        {
+            if (!StationsModule.AnySpare || __instance == null) return;
+            try
+            {
+                StationsModule.SpareEmptied(__instance.gameObject);
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("Stations.SparePanEmptied", error);
+            }
+        }
+    }
+
+    /// <summary>SPARE PAN: the same for a mixing bowl.</summary>
+    [HarmonyPatch(typeof(ServerMixableContainer), "TransferToContainer")]
+    internal static class StationsSpareBowlPatch
+    {
+        private static void Postfix(ServerMixableContainer __instance)
+        {
+            if (!StationsModule.AnySpare || __instance == null) return;
+            try
+            {
+                StationsModule.SpareEmptied(__instance.gameObject);
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("Stations.SpareBowlEmptied", error);
             }
         }
     }

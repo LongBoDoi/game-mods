@@ -46,20 +46,26 @@ namespace ChefSkills.Specials
 
         private const float RallySeconds = 8f;
         private const float RallyStrength = 0.3f;
-        private const float BodyguardRange = 4f;
-        private const float BuddyRange = 4f;
+        private const float BodyguardRange = 6f;
+        private const float BuddyRange = 5f;
         private const float BuddyStrength = 0.15f;
         private const float FrenzyHigh = 10f;
-        private const float FrenzyCrash = 6f;
-        private const float SecondWindSeconds = 30f;
-        private const float AdrenalineSeconds = 5f;
+        private const float FrenzyCrash = 4f;
+        private const float SecondWindSeconds = 60f;
+        private const float AdrenalineSeconds = 8f;
         private const float AdrenalineStrength = 0.5f;
-        private const float GlassCannonSeconds = 15f;
-        private const float SlowStarterSeconds = 60f;
-        private const float SneezeRange = 3f;
+        private const float GlassCannonSeconds = 20f;
+        private const float SlowStarterSeconds = 45f;
+        // Slow Starter: the bonus once warmed up.
+        private const int SlowStarterBonus = 1;
+        private const float SneezeRange = 4f;
         private const float SneezeSeconds = 2f;
-        // Battery: the share of the teammate's full cooldown it takes off.
-        private const float BatteryShare = 0.5f;
+        // Battery: the share of the teammate's catalog cooldown it takes off at most.
+        private const float BatteryShare = 0.35f;
+        // Battery: at most this share of the holder's own catalog cooldown.
+        private const float BatteryHolderShare = 0.5f;
+        // Battery: a holder whose active comes back sooner than this charges nothing (Pocket, Pack Mule).
+        private const float BatteryMinCooldown = 5f;
         // Battery: the teammate you face counts first (from your press), within this far and arc.
         private const float BatteryFaceRange = 8f;
         private const float BatteryFaceArc = 60f;
@@ -259,7 +265,7 @@ namespace ChefSkills.Specials
             if (state.Has(Special.GlassCannon))
                 bonus += SpecialRuntime.HasBuff(state, GlassCannonBuff) ? -1 : 1;
             if (state.Has(Special.SlowStarter))
-                bonus += SpecialRuntime.HasBuff(state, SlowReadyBuff) ? 2 : -1;
+                bonus += SpecialRuntime.HasBuff(state, SlowReadyBuff) ? SlowStarterBonus : -1;
             if (SpecialRuntime.HasBuff(state, SecondWindBuff))
                 bonus += skill == Skill.Running || skill == Skill.Dashing ? 3 : 1;
             return bonus;
@@ -312,10 +318,28 @@ namespace ChefSkills.Specials
                 if (other == state || other.Chef == null || Respawning(other) || !Affects(state, other)) continue;
                 if (FlatSqrDistance(centre, other.Position) > SneezeRange * SneezeRange) continue;
                 hit++;
+                DropHeld(other);
                 if (other.Id == 0) ApplySneeze(other, state, SneezeSeconds);
                 else SpecialNet.SendToAll(new SpecialMessage { Topic = SneezeTopic, Chef = other.Id, D = state.Id, A = SneezeSeconds });
             }
-            return hit > 0 || state.Refuse(Lang.Both("NOBODY WITHIN 3 M", "KHÔNG CÓ AI TRONG 3 M"));
+            int range = Mathf.RoundToInt(SneezeRange);
+            return hit > 0 || state.Refuse(Lang.Both("NOBODY WITHIN " + range + " M", "KHÔNG CÓ AI TRONG " + range + " M"));
+        }
+
+        /// <summary>Host: a sneezed-on chef drops what it holds (the game's own drop, as Clumsy does).</summary>
+        private static void DropHeld(ChefState victim)
+        {
+            try
+            {
+                ServerPlayerAttachmentCarrier carrier = victim.Chef.GetComponent<ServerPlayerAttachmentCarrier>();
+                GameObject item = carrier != null ? carrier.InspectCarriedItem() : null;
+                if (item == null) return;
+                carrier.TakeItem();
+            }
+            catch (Exception error)
+            {
+                SpecialRuntime.Fail("SneezeBomb.Drop", error);
+            }
         }
 
         private static void SneezeActivated(ChefState state)
@@ -361,10 +385,34 @@ namespace ChefSkills.Specials
                 mate.CooldownTotal > 0f && mate.CooldownTotal <= 600f;
         }
 
+        /// <summary>The catalog cooldown of a chef's active (not what modifiers made of it); 0 if none.</summary>
+        private static float CatalogCooldown(ChefState chef)
+        {
+            if (chef == null || chef.Active == Special.None) return 0f;
+            SpecialInfo info = SpecialCatalog.Info(chef.Active);
+            return info != null ? info.Cooldown : 0f;
+        }
+
         /// <summary>
-        /// Host, after any active is confirmed. A Battery chef's active charges a teammate's: the
-        /// one it faced at the press if that one is recharging, else the one with the longest wait.
-        /// If nobody is recharging the charge is kept and goes to the next teammate who uses theirs.
+        /// Can this holder's active charge anyone? Not one that comes back in moments (Pocket,
+        /// Pack Mule): that would recycle a teammate's big active off a near-free press.
+        /// </summary>
+        private static bool CanCharge(ChefState holder)
+        {
+            return CatalogCooldown(holder) >= BatteryMinCooldown;
+        }
+
+        /// <summary>Can a charge from <paramref name="holder"/> go to <paramref name="mate"/> (not the holder's own other chef)?</summary>
+        private static bool BatteryReaches(ChefState holder, ChefState mate)
+        {
+            return Affects(holder, mate) && !SpecialRuntime.SamePlayer(holder, mate);
+        }
+
+        /// <summary>
+        /// Host, after any active is confirmed. A Battery chef's active (5 s+ cooldown) charges a
+        /// teammate's: the one it faced at the press if that one is recharging, else the one with
+        /// the longest wait. If nobody is recharging the charge is kept and goes to the next
+        /// teammate who uses theirs. Never to the holder's own other chef (a player alone).
         /// </summary>
         private static void OnAnyActivated(ChefState state, Special special)
         {
@@ -376,21 +424,24 @@ namespace ChefSkills.Specials
             {
                 foreach (ChefState holder in SpecialRuntime.Teammates(state))
                 {
-                    if (!BatteryCharged.Contains(holder) || !Affects(holder, state)) continue;
+                    if (!BatteryCharged.Contains(holder) || !BatteryReaches(holder, state) || !CanCharge(holder)) continue;
                     SendBattery(holder, state);
                     SetCharge(holder, false);
                     break;
                 }
             }
 
-            if (!state.Has(Special.Battery)) return;
+            if (!state.Has(Special.Battery) || !CanCharge(state)) return;
             ChefState best = null;
             float bestScore = float.MinValue;
+            bool anyReachable = false;
             Vector3 from = state.RequestPosition, facing = state.RequestForward;
             facing.y = 0f;
             foreach (ChefState mate in SpecialRuntime.Teammates(state))
             {
-                if (!Rechargeable(mate, now) || !Affects(state, mate)) continue;
+                if (mate.Chef == null || !BatteryReaches(state, mate)) continue;
+                anyReachable = true;
+                if (!Rechargeable(mate, now)) continue;
                 Vector3 offset = mate.Position - from;
                 offset.y = 0f;
                 float score = mate.CooldownUntil - now;
@@ -404,13 +455,19 @@ namespace ChefSkills.Specials
                 }
             }
             if (best != null) SendBattery(state, best);
-            else if (!BatteryCharged.Contains(state)) SetCharge(state, true);
+            // Kept only if someone could ever take it.
+            else if (anyReachable && !BatteryCharged.Contains(state)) SetCharge(state, true);
         }
 
+        /// <summary>
+        /// Host: min(the teammate's time left, 35% of its catalog cooldown, half the holder's
+        /// catalog cooldown), the same caps for a kept charge.
+        /// </summary>
         private static void SendBattery(ChefState holder, ChefState target)
         {
             float left = target.CooldownUntil - SpecialRuntime.Now;
-            float amount = Mathf.Min(left, target.CooldownTotal * BatteryShare);
+            float amount = Mathf.Min(left, Mathf.Min(CatalogCooldown(target) * BatteryShare,
+                CatalogCooldown(holder) * BatteryHolderShare));
             if (amount <= 0f) return;
             var message = new SpecialMessage { Topic = BatteryTopic, Chef = target.Id, D = holder.Id, A = amount };
             if (target.Id == 0) ApplyBattery(target, holder, amount);
@@ -528,6 +585,26 @@ namespace ChefSkills.Specials
             WatchKnocks = watch;
         }
 
+        /// <summary>
+        /// Host: <paramref name="team"/> let an order expire or handed in a wrong dish: cracks
+        /// every Glass Cannon and fires every Adrenaline on that team.
+        /// </summary>
+        internal static void OnTeamMistake(TeamID team)
+        {
+            if (!SpecialNet.IsServer) return;
+            if (!SpecialRuntime.AnyHas(Special.GlassCannon) && !SpecialRuntime.AnyHas(Special.Adrenaline)) return;
+            IList<ChefState> chefs = SpecialRuntime.Chefs;
+            for (int i = 0; i < chefs.Count; i++)
+            {
+                ChefState chef = chefs[i];
+                if (chef.Team != team) continue;
+                if (chef.Has(Special.GlassCannon))
+                    SpecialRuntime.BroadcastBuff(chef, GlassCannonBuff, GlassCannonSeconds, 1f, chef);
+                if (chef.Has(Special.Adrenaline))
+                    SpecialRuntime.BroadcastBuff(chef, AdrenalineBuff, AdrenalineSeconds, AdrenalineStrength, chef);
+            }
+        }
+
         /// <summary>Host: a chef was knocked back or slipped (Adrenaline, Glass Cannon).</summary>
         internal static void OnKnocked(ChefState chef)
         {
@@ -575,15 +652,15 @@ namespace ChefSkills.Specials
                 ChefState chef = Grants[g].Key;
                 int k = Grants[g].Value;
                 if (chef.Chef == null) continue;
-                // Your buddy is the teammate nearest you; you are the buddy of anyone with Buddy
-                // System whose nearest teammate is you ("and vice versa").
-                ChefState partner = chef.Has(Special.BuddySystem) ? NearestTeammate(chef, float.MaxValue / 4f) : null;
+                // Your buddy is the teammate nearest you within range; you are the buddy of anyone
+                // with Buddy System whose nearest teammate in range is you ("and vice versa").
+                ChefState partner = chef.Has(Special.BuddySystem) ? NearestTeammate(chef, BuddyRange) : null;
                 if (partner != null) Share(chef, partner, k);
                 for (int i = 0; i < chefs.Count; i++)
                 {
                     ChefState other = chefs[i];
                     if (other == chef || other == partner || other.Chef == null || other.Team != chef.Team) continue;
-                    if (other.Has(Special.BuddySystem) && NearestTeammate(other, float.MaxValue / 4f) == chef) Share(chef, other, k);
+                    if (other.Has(Special.BuddySystem) && NearestTeammate(other, BuddyRange) == chef) Share(chef, other, k);
                 }
             }
             Grants.Clear();
@@ -605,7 +682,7 @@ namespace ChefSkills.Specials
         }
 
         /// <summary>
-        /// Host: Second Wind. While the round timer shows 30 s or less, keeps a short buff going on
+        /// Host: Second Wind. While the round timer shows 60 s or less, keeps a short buff going on
         /// every Second Wind chef (renewed twice a second), so added time or a pause is followed.
         /// </summary>
         private static void UpdateSecondWind()
@@ -623,8 +700,8 @@ namespace ChefSkills.Specials
 
         /// <summary>
         /// Host: Slow Starter. Counts the seconds the round timer has run (not the intro); while
-        /// under 60 a ramp buff carries the time left (for the players' icons), after that a
-        /// level-long buff gives the +2, so every machine switches at the same moment.
+        /// under 45 a ramp buff carries the time left (for the players' icons), after that a
+        /// level-long buff gives the +1, so every machine switches at the same moment.
         /// </summary>
         private static void UpdateSlowStarter(float deltaTime)
         {
@@ -738,7 +815,7 @@ namespace ChefSkills.Specials
                     if ((started & FlagCracked) != 0) Pop(go, Lang.T("CRACKED! -1", "NỨT! -1"), CrackedColour);
                     else if ((ended & FlagCracked) != 0) SpecialFx.Text(go, Lang.T("MENDED +1", "LÀNH LẠI +1"), CrackedColour);
                     if ((ended & FlagSlow) != 0 && chef.Has(Special.SlowStarter))
-                        Pop(go, Lang.T("WARMED UP! +2", "NÓNG MÁY! +2"), SpecialFx.ColourOf(Special.SlowStarter));
+                        Pop(go, Lang.T("WARMED UP! +", "NÓNG MÁY! +") + SlowStarterBonus, SpecialFx.ColourOf(Special.SlowStarter));
                 }
 
                 if (ring && !hidden)
@@ -854,13 +931,19 @@ namespace ChefSkills.Specials
         private static readonly FieldInfo ImpactTimerField =
             AccessTools.Field(typeof(ClientPlayerControlsImpl_Default), "m_impactTimer");
 
-        private static bool Prefix(ClientPlayerControlsImpl_Default __instance)
+        private static bool Prefix(ClientPlayerControlsImpl_Default __instance, float _impactTime)
         {
             try
             {
                 if (!TeamBuffs.AnyGuarded || TeamBuffs.Landing || __instance == null) return true;
                 if (!TeamBuffs.IsGuarded(__instance.gameObject)) return true;
                 TeamBuffs.ShowBlocked(__instance.gameObject);
+                // Glass Cannon still cracks on a knock the guard stopped (host; OnKnocked checks).
+                if (TeamBuffs.WatchKnocks && _impactTime > 0f)
+                {
+                    ChefState state = SpecialRuntime.StateOf(__instance.gameObject);
+                    if (state != null && state.Has(Special.GlassCannon)) TeamBuffs.OnKnocked(state);
+                }
                 return false;
             }
             catch (Exception error)
@@ -940,6 +1023,8 @@ namespace ChefSkills.Specials
                     // Host only: everyone sees the slip that didn't happen.
                     ChefState state = SpecialRuntime.StateOf(_object);
                     if (state != null && state.Chef != null) SpecialFx.TextAll(state.Chef, Lang.Both("BLOCKED!", "CHẶN!"), Special.Bodyguard);
+                    // Glass Cannon still cracks on a slip the guard stopped.
+                    if (state != null && state.Has(Special.GlassCannon)) TeamBuffs.OnKnocked(state);
                     return false;
                 }
                 if (TeamBuffs.WatchKnocks)

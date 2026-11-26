@@ -9,8 +9,9 @@ namespace ChefSkills.Specials
 {
     /// <summary>
     /// Movement specials: Sprinter, Double Dash, Charge Dash, Momentum, Slipstream, Sure-Footed,
-    /// Immovable, Ghost, Conveyor Rider, Big Chef, Tiny Chef, Overdrive, Weatherproof, and the
-    /// quirks Heavy Boots, Clumsy and Sleepy.
+    /// Immovable, Ghost, Conveyor Rider, Big Chef, Tiny Chef, Overdrive, and the quirks Heavy
+    /// Boots, Clumsy and Sleepy. (Weatherproof is retired: Sure-Footed took its walkway rule,
+    /// Immovable and Conveyor Rider took the wind.)
     ///
     /// Who decides what (movement is simulated on the host and on the chef's own machine, which
     /// must agree, or the player's chef is pulled back to where the host has it):
@@ -23,8 +24,9 @@ namespace ChefSkills.Specials
     /// - Slipstream, Sleepy: the host decides (it has every chef's true position / one clock) and
     ///   tells every machine (a buff / own topic). Clumsy: the host drops the item when it sees the
     ///   dash start.
-    /// - Sure-Footed, Weatherproof, Conveyor Rider, Ghost, Immovable, Big/Tiny Chef: plain rules
-    ///   every machine applies the same way where the game simulates them.
+    /// - Sure-Footed, Conveyor Rider, Ghost, Immovable, Big/Tiny Chef: plain rules every machine
+    ///   applies the same way where the game simulates them. Sleepy's doze (no chopping or
+    ///   washing either) is read from the host's yawn message, so every machine agrees on it.
     /// - Overdrive: OnActivated (every machine) starts the framework's NoDashCooldown buff and a
     ///   run-speed buff of its own.
     ///
@@ -50,14 +52,17 @@ namespace ChefSkills.Specials
 
         // Own buffs, so they never merge with another module's run-speed buff.
         private const int SlipstreamBuff = (int)Special.Slipstream * 100 + 1;
+        private const int SlipstreamLeadBuff = (int)Special.Slipstream * 100 + 2;
         private const int OverdriveBuff = (int)Special.Overdrive * 100 + 1;
 
-        private const float SprintBonus = 1.5f;
+        // Sprint = 1 + this x the DASHING multiplier (Sprinter can't dash, so DASHING pays off here).
+        private const float SprintBonus = 0.35f;
         private const float SprintStamina = 4f;
         private const float SprintRegen = 1f;         // stamina seconds per second while not sprinting
         private const float SprintMinStart = 0.5f;
 
         private const int DashCharges = 2;
+        private const float DoubleDashRefill = 0.75f; // a charge takes this share of a normal recharge
 
         private const float ChargeFullSeconds = 1f;
         private const float ChargeMaxPower = 2f;
@@ -70,20 +75,23 @@ namespace ChefSkills.Specials
         private const float MomentumGrace = 0.4f;     // a stop shorter than this (a turn, a grab) keeps it
         private const float MomentumDecay = 0.3f;     // per second once stopped
 
-        private const float SlipstreamRange = 4f;
-        private const float SlipstreamWidth = 1.5f;
-        private const float SlipstreamBonus = 0.3f;
+        private const float SlipstreamRange = 5f;
+        private const float SlipstreamWidth = 3f;       // how far to either side of the leader's line
+        private const float SlipstreamBonus = 0.2f;     // the teammate behind
+        private const float SlipstreamLeadBonus = 0.1f; // the leader, while someone is in its stream
+        private const float SlipstreamOpposite = -0.3f; // a teammate facing further back than this is heading the other way
         private const float SlipstreamEvery = 0.25f;
-        private const float SlipstreamLinger = 1f;
+        private const float SlipstreamLinger = 2f;
 
         private const float BigScale = 1.2f, TinyScale = 0.8f;
-        private const float BigSpeed = 0.9f, TinySpeed = 1.15f;
+        private const float BigSpeed = 0.95f, TinySpeed = 1.1f;
+        private const float BigDash = 1.25f;            // Big Chef's dashes go this much further
         internal const float KnockFactor = 1.5f;
 
         private const float OverdriveSeconds = 6f;
         private const float OverdriveSpeed = 0.2f;
 
-        private const float SleepyEvery = 30f, SleepySeconds = 1f, SleepyWarn = 2f, SleepyResync = 10f;
+        private const float SleepyEvery = 30f, SleepySeconds = 2f, SleepyWarn = 2f, SleepyResync = 10f;
 
         private const float GhostOverlap = 0.6f;
 
@@ -120,8 +128,8 @@ namespace ChefSkills.Specials
             public float Raw, StopTime, SentBonus, Bonus;
             // Slipstream / Ghost (what this machine showed last frame)
             public bool Slipping, GhostNear;
-            // Sleepy (host: NextYawn, NextSync; every machine: YawnAt)
-            public float NextYawn, NextSync, YawnAt;
+            // Sleepy (host: NextYawn, NextSync; every machine: YawnAt, DozeUntil)
+            public float NextYawn, NextSync, YawnAt, DozeUntil;
             public bool Warned;
             // Heavy Boots (owner)
             public bool HeavyWasDown;
@@ -148,6 +156,9 @@ namespace ChefSkills.Specials
         {
             SpecialRuntime.RunSpeedModifiers.Add(RunFactor);
             SpecialRuntime.DashSpeedModifiers.Add(DashFactor);
+            // Charge Dash's release is the whole point of that special, so the speed cap doesn't
+            // cut its "up to twice the distance".
+            SpecialRuntime.UncappedDashSpeedModifiers.Add(ChargeFactor);
             SpecialRuntime.DashCooldownModifiers.Add(CooldownFactor);
             SpecialRuntime.DashAllowed.Add(CanDash);
 
@@ -233,15 +244,15 @@ namespace ChefSkills.Specials
                 ChefState state = chefs[i];
                 if (state.Chef == null) continue;
                 int key = state.Chef.GetInstanceID();
-                bool sure = state.Has(Special.SureFooted);
-                bool weather = state.Has(Special.Weatherproof);
-                // Weatherproof lets a helping wind through, so it beats Sure-Footed's "none at all".
-                if (weather) WindRule[key] = RuleTailwind;
-                else if (sure) WindRule[key] = RuleBlock;
-                // Conveyor Rider is the explicit choice, so it wins over the others.
-                if (state.Has(Special.ConveyorRider)) SurfaceRule[key] = RuleRider;
-                else if (weather) SurfaceRule[key] = RuleTailwind;
-                else if (sure) SurfaceRule[key] = RuleBlock;
+                bool sure = state.Has(Special.SureFooted), rider = state.Has(Special.ConveyorRider);
+                // Wind: Conveyor Rider rides it, Immovable isn't moved by it. Riding is the more
+                // explicit choice, so it is checked first. Sure-Footed is about footing only.
+                if (rider) WindRule[key] = RuleRider;
+                else if (state.Has(Special.Immovable)) WindRule[key] = RuleBlock;
+                // Moving floors: Conveyor Rider twice as fast; Sure-Footed still carried the way
+                // it faces, never held back.
+                if (rider) SurfaceRule[key] = RuleRider;
+                else if (sure) SurfaceRule[key] = RuleTailwind;
                 if (sure) AnySureFooted = true;
                 if (state.Has(Special.Ghost)) s_anyGhost = true;
                 if (state.Has(Special.DoubleDash) || state.Has(Special.ChargeDash) || state.Has(Special.Clumsy))
@@ -258,17 +269,35 @@ namespace ChefSkills.Specials
             if (state.Has(Special.BigChef)) factor *= BigSpeed;
             if (state.Has(Special.TinyChef)) factor *= TinySpeed;
             factor *= 1f + SpecialRuntime.BuffStrength(state, SlipstreamBuff);
+            factor *= 1f + SpecialRuntime.BuffStrength(state, SlipstreamLeadBuff);
             factor *= 1f + SpecialRuntime.BuffStrength(state, OverdriveBuff);
             if (state.Has(Special.Sprinter) || state.Has(Special.Momentum))
             {
                 MoveData data = Data(state);
-                if (state.Has(Special.Sprinter) && SpecialRuntime.Now < data.SprintUntil) factor *= SprintBonus;
+                if (state.Has(Special.Sprinter) && SpecialRuntime.Now < data.SprintUntil) factor *= SprintFactor(state);
                 if (state.Has(Special.Momentum)) factor *= 1f + data.Bonus;
             }
             return factor;
         }
 
+        /// <summary>
+        /// Sprinter's speed while sprinting: +35%, scaled by the DASHING multiplier (the chef's
+        /// level, which every machine knows, so every machine gets the same).
+        /// </summary>
+        private static float SprintFactor(ChefState state)
+        {
+            float dashing = state.Chef != null ? Plugin.Skills.Multiplier(state.Chef, Skill.Dashing) : 1f;
+            return 1f + SprintBonus * Mathf.Max(0f, dashing);
+        }
+
+        /// <summary>Dash speed changes inside the special speed cap (Big Chef).</summary>
         private static float DashFactor(ChefState state)
+        {
+            return state.Has(Special.BigChef) ? BigDash : 1f;
+        }
+
+        /// <summary>Charge Dash's released dash (outside the cap, see Register).</summary>
+        private static float ChargeFactor(ChefState state)
         {
             if (!state.Has(Special.ChargeDash)) return 1f;
             MoveData data = Data(state);
@@ -373,6 +402,7 @@ namespace ChefSkills.Specials
                     data.YawnAt = yawnAt;
                     if (message.A > 0f)
                     {
+                        data.DozeUntil = now + message.A;
                         SpecialRuntime.AddBuffLocal(state, BuffId.Frozen, message.A, 1f, state);
                         SpecialFx.Mark(state.Chef, SpecialFx.ColourOf(Special.Sleepy), message.A, "Zzz...", 0f);
                         SpecialFx.Burst(state.Position, SpecialFx.ColourOf(Special.Sleepy), 1f, 0.5f);
@@ -581,6 +611,9 @@ namespace ChefSkills.Specials
                 }
             }
             data.Slipping = slipping;
+            // The leader's own +10% while someone drafts it.
+            if (SpecialRuntime.HasBuff(state, SlipstreamLeadBuff))
+                SpecialFx.Mark(chef, SpecialFx.ColourOf(Special.Slipstream), RingSeconds, null, 0.65f);
 
             if (SpecialRuntime.HasBuff(state, OverdriveBuff))
                 SpecialFx.Mark(chef, SpecialFx.ColourOf(Special.Overdrive), RingSeconds, null, 0.95f);
@@ -633,13 +666,15 @@ namespace ChefSkills.Specials
             return data.Exhausted ? Lang.T("Let go of DASH", "Thả nút LƯỚT ra") : null;
         }
 
-        /// <summary>Owner: charges recharge one per normal dash recharge time.</summary>
+        /// <summary>Owner: charges recharge one per 3/4 of the normal dash recharge time.</summary>
         private static void DoubleDash(ChefState state, MoveData data, float dt, float now)
         {
             PlayerControls.MovementData movement = state.Controls.Movement;
             if (movement == null) return;
             // Outside Update_Movement this is the game's own value (MovementPatch restores it).
-            float recharge = Mathf.Max(0.05f, movement.DashCooldown / Mathf.Max(0.1f, Plugin.Skills.Multiplier(state.Chef, Skill.Dashing)));
+            // A little quicker than one dash, so two charges are more than a burst in the long run.
+            float recharge = Mathf.Max(0.05f, movement.DashCooldown * DoubleDashRefill /
+                Mathf.Max(0.1f, Plugin.Skills.Multiplier(state.Chef, Skill.Dashing)));
             data.Charges = Mathf.Min(DashCharges, data.Charges + dt / recharge);
             int whole = Mathf.FloorToInt(data.Charges + 0.0001f);
             state.SetCount(Special.DoubleDash, whole);
@@ -736,7 +771,20 @@ namespace ChefSkills.Specials
             data.HeavyWasDown = down;
         }
 
-        /// <summary>Host: every 30 s the chef dozes off and can't move for a second (every machine is told).</summary>
+        /// <summary>
+        /// SLEEPY: is this chef dozing right now (can't move, chop or wash)? Every machine, the
+        /// same answer (from the host's yawn message). Read by the chopping and washing patches.
+        /// Its own flag, not BuffId.Frozen: Sneeze, Grease, Swap and Show-Off freeze chefs too,
+        /// and those mustn't stop chopping.
+        /// </summary>
+        internal static bool Dozing(ChefState state)
+        {
+            if (state == null || !state.Has(Special.Sleepy)) return false;
+            MoveData data = state.Get<MoveData>(DataKey, null);
+            return data != null && SpecialRuntime.Now < data.DozeUntil;
+        }
+
+        /// <summary>Host: every 30 s the chef dozes off and can't move, chop or wash for 2 s (every machine is told).</summary>
         private static void SleepyHost(ChefState state, MoveData data, float now)
         {
             if (data.NextYawn <= 0f)
@@ -761,7 +809,11 @@ namespace ChefSkills.Specials
             }
         }
 
-        /// <summary>Host: teammates running close behind a Slipstream chef get +30% for a moment.</summary>
+        /// <summary>
+        /// Host: teammates running close behind a Slipstream chef get +20% for a moment, and the
+        /// leader +10% while anyone is in its stream. Any teammate counts unless it is heading
+        /// back the other way (a turn or a diagonal still drafts).
+        /// </summary>
         private static void Slipstream(IList<ChefState> chefs)
         {
             float now = SpecialRuntime.Now;
@@ -774,6 +826,7 @@ namespace ChefSkills.Specials
                 forward.y = 0f;
                 if (forward.sqrMagnitude < 0.01f) continue;
                 forward.Normalize();
+                bool drafted = false;
                 foreach (ChefState mate in SpecialRuntime.Teammates(leader))
                 {
                     if (mate.Chef == null || mate.Controls == null) continue;
@@ -785,17 +838,33 @@ namespace ChefSkills.Specials
                     if ((offset - forward * along).magnitude > SlipstreamWidth) continue;
                     Vector3 mateForward = mate.Forward;
                     mateForward.y = 0f;
-                    if (Vector3.Dot(mateForward.normalized, forward) < 0.3f) continue;
-                    // Still plenty left from the last one: no need to send it again yet.
-                    Buff current;
-                    if (mate.Buffs.TryGetValue(SlipstreamBuff, out current) && current.Until - now > SlipstreamLinger - 0.45f)
-                        continue;
+                    if (mateForward.sqrMagnitude < 0.01f || Vector3.Dot(mateForward.normalized, forward) < SlipstreamOpposite) continue;
+                    drafted = true;
+                    if (Fresh(mate, SlipstreamBuff, now)) continue;
                     SpecialRuntime.BroadcastBuff(mate, SlipstreamBuff, SlipstreamLinger, SlipstreamBonus, leader);
                 }
+                if (drafted && !Fresh(leader, SlipstreamLeadBuff, now))
+                    SpecialRuntime.BroadcastBuff(leader, SlipstreamLeadBuff, SlipstreamLinger, SlipstreamLeadBonus, leader);
             }
         }
 
-        /// <summary>Host: a Clumsy chef that dashed drops what it holds.</summary>
+        /// <summary>Slipstream: still plenty left from the last one, so no need to send it again yet.</summary>
+        private static bool Fresh(ChefState chef, int buff, float now)
+        {
+            Buff current;
+            return chef.Buffs.TryGetValue(buff, out current) && current.Until - now > SlipstreamLinger - 0.45f;
+        }
+
+        /// <summary>
+        /// Clumsy only drops plates: a clean one, one with food on it, or a stack of dirty ones
+        /// (the game's Plate / plate stack components). Choppers and cooks don't pay for it.
+        /// </summary>
+        private static bool IsPlate(GameObject item)
+        {
+            return item != null && (item.GetComponent<Plate>() != null || item.GetComponent<PlateStackBase>() != null);
+        }
+
+        /// <summary>Host: a Clumsy chef that dashed drops the plate it holds.</summary>
         private static void DropClumsy()
         {
             if (s_clumsyDrops.Count == 0) return;
@@ -807,7 +876,7 @@ namespace ChefSkills.Specials
                     if (state.Chef == null) continue;
                     ServerPlayerAttachmentCarrier carrier = state.Chef.GetComponent<ServerPlayerAttachmentCarrier>();
                     GameObject item = carrier != null ? carrier.InspectCarriedItem() : null;
-                    if (item == null) continue;
+                    if (!IsPlate(item)) continue;
                     // The game's own drop (PlayerControlsHelper.DropHeldItem) is just this.
                     carrier.TakeItem();
                     SpecialFx.TextAll(state.Chef, Lang.Both("OOPS!", "ÁI CHÀ!"), Special.Clumsy);
@@ -904,10 +973,11 @@ namespace ChefSkills.Specials
         }
 
         /// <summary>
-        /// What of a push (wind, a moving floor) a chef keeps under a rule: none (Sure-Footed),
-        /// only the part along where it faces (Weatherproof), or twice a push that helps and none
-        /// of one that holds it back (Conveyor Rider). Facing is the same on every machine (the
-        /// host takes it from the player's input), so every machine computes the same.
+        /// What of a push (wind, a moving floor) a chef keeps under a rule: none (Immovable's
+        /// wind), only the part along where it faces (Sure-Footed's walkways), or twice a push
+        /// that helps and none of one that holds it back (Conveyor Rider). Facing is the same on
+        /// every machine (the host takes it from the player's input), so every machine computes
+        /// the same.
         /// </summary>
         internal static Vector3 Filter(Transform chef, Vector3 push, int rule)
         {
@@ -923,9 +993,10 @@ namespace ChefSkills.Specials
 
         internal static Special SpecialOf(int rule)
         {
+            // Each rule now belongs to one special (the ring and the name shown).
             if (rule == RuleRider) return Special.ConveyorRider;
-            if (rule == RuleTailwind) return Special.Weatherproof;
-            return Special.SureFooted;
+            if (rule == RuleTailwind) return Special.SureFooted;
+            return Special.Immovable;
         }
 
         /// <summary>
@@ -1125,10 +1196,10 @@ namespace ChefSkills.Specials
     }
 
     /// <summary>
-    /// Immovable / Big Chef: no knock starts. Tiny Chef: knocks send it further. Big Chef's dash
-    /// bumps send others further. Every machine that simulates the knock applies the same rule;
-    /// the host (which sees every knock: its own simulation, and the players' reports of theirs)
-    /// shows what happened on every machine.
+    /// Immovable / Big Chef: no knock starts (a Glass Cannon still cracks). Tiny Chef: knocks
+    /// send it further. Big Chef's dash bumps send others further. Every machine that simulates
+    /// the knock applies the same rule; the host (which sees every knock: its own simulation, and
+    /// the players' reports of theirs) shows what happened on every machine.
     /// </summary>
     [HarmonyPatch(typeof(ClientPlayerControlsImpl_Default), "ApplyImpact")]
     internal static class MovementSpecialsImpactPatch
@@ -1149,6 +1220,10 @@ namespace ChefSkills.Specials
                         Special why = state.Has(Special.Immovable) ? Special.Immovable : Special.BigChef;
                         SpecialFx.TextAll(chef, Lang.Both("BLOCKED!", "CHẶN!"), why);
                         SpecialFx.MarkAll(chef, why, 0.6f, null);
+                        // Glass Cannon still cracks on a knock it was spared. TeamBuffs' postfix
+                        // doesn't see a skipped impact, and OnKnocked has its own debounce, so
+                        // this never counts twice.
+                        if (state.Has(Special.GlassCannon)) TeamBuffs.OnKnocked(state);
                     }
                     return false;
                 }
@@ -1230,8 +1305,8 @@ namespace ChefSkills.Specials
     }
 
     /// <summary>
-    /// Wind on a chef: none with Sure-Footed, only the part pushing it the way it faces with
-    /// Weatherproof (every machine).
+    /// Wind on a chef: none with Immovable, twice a helping wind (and none of a holding one) with
+    /// Conveyor Rider (every machine).
     /// </summary>
     [HarmonyPatch(typeof(WindAccumulator), "Update")]
     internal static class MovementSpecialsWindPatch
@@ -1248,20 +1323,21 @@ namespace ChefSkills.Specials
                     return;
                 Vector3 force = (Vector3)TotalForceField.GetValue(__instance);
                 if (force.sqrMagnitude < 1e-4f) return;
-                TotalForceField.SetValue(__instance, MovementSpecials.Filter(__instance.transform, force, rule));
-                if (force.sqrMagnitude > 0.04f) MovementSpecials.WindHeld(__instance.gameObject, MovementSpecials.SpecialOf(rule));
+                Vector3 kept = MovementSpecials.Filter(__instance.transform, force, rule);
+                TotalForceField.SetValue(__instance, kept);
+                if ((kept - force).sqrMagnitude > 0.04f) MovementSpecials.WindHeld(__instance.gameObject, MovementSpecials.SpecialOf(rule));
             }
             catch (Exception error)
             {
-                SpecialRuntime.Fail("Weatherproof.Wind", error);
+                SpecialRuntime.Fail("Movement.Wind", error);
             }
         }
     }
 
     /// <summary>
     /// Moving floors (travelators, the only IMovingSurface): Conveyor Rider is carried twice as
-    /// fast and never held back; Weatherproof only carried the way it faces; Sure-Footed not
-    /// carried. Every machine.
+    /// fast and never held back; Sure-Footed is carried the way it faces and never held back.
+    /// Every machine.
     /// </summary>
     [HarmonyPatch(typeof(SurfaceMovable), "Update")]
     internal static class MovementSpecialsSurfacePatch
@@ -1278,8 +1354,11 @@ namespace ChefSkills.Specials
                     return;
                 Vector3 velocity = (Vector3)VelocityField.GetValue(__instance);
                 if (velocity.sqrMagnitude < 1e-4f) return;
-                VelocityField.SetValue(__instance, MovementSpecials.Filter(__instance.transform, velocity, rule));
-                if (velocity.sqrMagnitude > 0.04f) MovementSpecials.WindHeld(__instance.gameObject, MovementSpecials.SpecialOf(rule));
+                Vector3 kept = MovementSpecials.Filter(__instance.transform, velocity, rule);
+                VelocityField.SetValue(__instance, kept);
+                // Glows only while it changes something (a Sure-Footed chef going with the floor
+                // is just carried, as anyone is).
+                if ((kept - velocity).sqrMagnitude > 0.04f) MovementSpecials.WindHeld(__instance.gameObject, MovementSpecials.SpecialOf(rule));
             }
             catch (Exception error)
             {

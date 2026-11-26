@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Team17.Online.Multiplayer.Messaging;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -218,6 +219,9 @@ namespace ChefSkills
                 _sync != null && _sync.IsHost ? Lang.T("HOLD: SKIP FOR ALL", "GIỮ: BỎ QUA CHO CẢ PHÒNG") : Lang.T("HOLD: SKIP", "GIỮ: BỎ QUA"));
             _open = true;
 
+            // Versus picks that only work against a rival team are offered only when there is one.
+            SpecialCatalog.CompetitiveLevel = IsCompetitiveLevel();
+
             var slots = new List<Slot>();
             foreach (PlayerInputLookup.Player player in players)
             {
@@ -381,11 +385,14 @@ namespace ChefSkills
         private static HashSet<Special> TakenByOthers(Slot self, List<Slot> slots, List<SkillSync.RemoteCard> remote)
         {
             var taken = new HashSet<Special>();
+            // In versus, "one per kitchen" means one per team: the other team's picks don't count.
+            TeamID? team = TeamOf(self.Chefs);
             foreach (Slot slot in slots)
-                if (slot != self && slot.Ready) AddTeamWide(taken, slot.Specials);
+                if (slot != self && slot.Ready && SameTeam(team, TeamOf(slot.Chefs))) AddTeamWide(taken, slot.Specials);
             if (remote != null)
                 foreach (SkillSync.RemoteCard card in remote)
-                    if (card.State == SkillSync.CardState.Ready) AddTeamWide(taken, card.Specials);
+                    if (card.State == SkillSync.CardState.Ready && SameTeam(team, TeamOf(card.Chefs)))
+                        AddTeamWide(taken, card.Specials);
             return taken;
         }
 
@@ -396,7 +403,38 @@ namespace ChefSkills
             {
                 SpecialInfo info = SpecialCatalog.Info((Special)pick);
                 if (info != null && info.TeamWide) taken.Add(info.Id);
+                // Picks that can't share a kitchen with this one (Second Chance and Combo Keeper).
+                foreach (Special other in SpecialCatalog.KitchenExclusiveWith((Special)pick)) taken.Add(other);
             }
+        }
+
+        /// <summary>
+        /// The team a player's chefs play for, on a competitive level (null in co-op, or when it
+        /// can't be told yet: then every pick counts, as before).
+        /// </summary>
+        private static TeamID? TeamOf(uint[] chefs)
+        {
+            if (!SpecialCatalog.CompetitiveLevel || chefs == null) return null;
+            foreach (uint chef in chefs)
+            {
+                try
+                {
+                    if (chef == 0) continue;
+                    GameObject go = EntitySerialisationRegistry.GetEntry(chef) != null ? EntitySerialisationRegistry.GetEntry(chef).m_GameObject : null;
+                    PlayerIDProvider provider = go != null ? go.GetComponent<PlayerIDProvider>() : null;
+                    if (provider != null) return provider.GetTeam();
+                }
+                catch (Exception error)
+                {
+                    Plugin.Log.LogDebug("Không đọc được đội của đầu bếp: " + error.Message);
+                }
+            }
+            return null;
+        }
+
+        private static bool SameTeam(TeamID? a, TeamID? b)
+        {
+            return a == null || b == null || a.Value == b.Value;
         }
 
         /// <summary>This machine's cards first, then everyone else's in the session's order.</summary>
@@ -528,6 +566,7 @@ namespace ChefSkills
                         break;
                     case SkillPicker.Outcome.Picked:
                         slot.Specials[(int)slot.Picker.Slot] = (int)picked;
+                        KeepAboveFloors(slot);
                         ClosePicker(slot);
                         PlaySound(GameOneShotAudioTag.UISelect);
                         break;
@@ -578,6 +617,8 @@ namespace ChefSkills
             {
                 if (!slot.Ready)
                 {
+                    // The host's floors may have arrived since (online): they apply first.
+                    KeepAboveFloors(slot);
                     // A build can only be locked in when it adds up to exactly zero: no point left
                     // to spend and none overspent. And a "one per kitchen" special can't be
                     // locked in once another player has it.
@@ -642,12 +683,13 @@ namespace ChefSkills
             if (slot.Left.JustPressed())
             {
                 slot.Left.ClaimPressEvent();
-                if (slot.Levels[index] > -max)
+                int floor = SkillStats.MinLevel((Skill)index, slot.Specials);
+                if (slot.Levels[index] > floor)
                 {
                     slot.Levels[index]--;
                     PlaySound(GameOneShotAudioTag.UIHighlight);
                 }
-                else Deny(slot);
+                else Deny(slot, FloorReason((Skill)index, slot.Specials, floor, max));
             }
             if (slot.Right.JustPressed())
             {
@@ -660,6 +702,45 @@ namespace ChefSkills
                     PlaySound(GameOneShotAudioTag.UIHighlight);
                 }
                 else Deny(slot);
+            }
+        }
+
+        /// <summary>Does the kitchen being loaded have rival teams (a versus level)?</summary>
+        private static bool IsCompetitiveLevel()
+        {
+            try
+            {
+                return Object.FindObjectOfType<ServerCompetitiveFlowController>() != null ||
+                       Object.FindObjectOfType<ClientCompetitiveFlowController>() != null;
+            }
+            catch (Exception error)
+            {
+                Plugin.Log.LogDebug("Không biết màn này có phải màn đối kháng không: " + error.Message);
+                return false;
+            }
+        }
+
+        /// <summary>Why a skill can't go lower (null at the usual bottom, -MaxLevel).</summary>
+        private static string FloorReason(Skill skill, int[] specials, int floor, int max)
+        {
+            if (floor <= -max) return null;
+            string name = SkillStats.Names[(int)skill];
+            Special quirk = SpecialCatalog.SkillLock(specials, skill);
+            if (quirk != Special.None)
+                return SpecialCatalog.NameOf(quirk) + ": " + name + Lang.T(" STAYS AT 0 OR ABOVE", " KHÔNG HẠ DƯỚI 0 ĐƯỢC");
+            return name + Lang.T(" CAN'T GO BELOW " + floor, " KHÔNG HẠ DƯỚI " + floor + " ĐƯỢC");
+        }
+
+        /// <summary>
+        /// Keeps every level at or above its floor: picking a quirk that takes a skill away (Heavy
+        /// Boots and DASHING...) brings that skill back up to 0.
+        /// </summary>
+        private static void KeepAboveFloors(Slot slot)
+        {
+            for (int i = 0; i < SkillStats.Count && i < slot.Levels.Length; i++)
+            {
+                int floor = SkillStats.MinLevel((Skill)i, slot.Specials);
+                if (slot.Levels[i] < floor) slot.Levels[i] = floor;
             }
         }
 
@@ -788,6 +869,7 @@ namespace ChefSkills
                 // screen, so everyone else can still see their card and carry on.
                 bool shared = _slots != null && _slots.Count > 1;
                 slot.Picker = SkillPicker.Open(_view.Overlay, _view.Art, slot.Player, owner, which, (Special)slot.Specials[(int)which], byMouse, shared);
+                if (slot.Picker != null) slot.Picker.Solo = slot.Chefs != null && slot.Chefs.Length > 1;
                 if (_slots != null) PlacePickers(_slots);
                 PlaySound(GameOneShotAudioTag.UISelect);
             }

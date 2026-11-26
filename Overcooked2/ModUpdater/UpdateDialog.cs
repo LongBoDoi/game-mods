@@ -31,6 +31,7 @@ namespace ModUpdater
         private static readonly Dictionary<string, string> Needs = new Dictionary<string, string>
         {
             { "DIYChefFix", "dev.gua.overcooked.diychef" },
+            { "RandomLevel", "dev.gua.overcooked.diylevel" },
         };
 
         private readonly Plugin plugin;

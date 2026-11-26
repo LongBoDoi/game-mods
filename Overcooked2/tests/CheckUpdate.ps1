@@ -6,7 +6,7 @@
     have yet, so a mod that arrived in a later release (TiengViet, DIYChefFix) reaches people who
     update through Mod Updater. It must not bring back a mod the player removed, and must not
     add a companion whose third-party plugin is missing. Mods that left the collection
-    (OC2Tweaks, RandomLevel, the Relay Kitchen level) are taken back out.
+    (OC2Tweaks, the Relay Kitchen level) are taken back out.
 
     Needs every mod's build.cmd to have run (..\dist), and a real BepInEx.dll to copy in so the
     installer sees a loader and never reaches the network.
@@ -50,7 +50,8 @@ try {
     }
     Copy-Item -LiteralPath $bepInEx -Destination (Join-Path $root 'BepInEx\core\BepInEx.dll')
     foreach ($stub in 'ChefSkills\ChefSkills.dll', 'ModUpdater\ModUpdater.dll', 'OC2Tweaks\OC2Tweaks.dll',
-                      'RandomLevel\RandomLevel.dll', 'RandomLevel\keep.txt', 'OC2DIYLevel\levels\manhl_relay_kitchen\info_manhl_relay') {
+                      'RandomLevel\RandomLevel.dll', 'RandomLevel\keep.txt',
+                      'OC2DIYLevel\OC2DIYLevel.dll', 'OC2DIYLevel\levels\manhl_relay_kitchen\info_manhl_relay') {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent (Join-Path $plugins $stub)) | Out-Null
         Set-Content -LiteralPath (Join-Path $plugins $stub) -Value 'old' -Encoding Ascii
     }
@@ -62,7 +63,7 @@ try {
     Check (Test-Path -LiteralPath (Join-Path $plugins 'ModUpdater\ModUpdater.ps1')) 'Mod Updater upgraded with its script'
     Check (Installed 'TiengViet') 'update added TiengViet'
     Check (-not (Test-Path -LiteralPath (Join-Path $plugins 'OC2Tweaks'))) 'retired OC2Tweaks removed with its folder'
-    Check (-not (Installed 'RandomLevel')) 'retired RandomLevel removed'
+    Check ((Get-Content -LiteralPath (Join-Path $plugins 'RandomLevel\RandomLevel.dll') -Raw) -ne "old`r`n") 'RandomLevel upgraded with OC2DIYLevel there'
     Check (Test-Path -LiteralPath (Join-Path $plugins 'RandomLevel\keep.txt')) 'other files in its folder kept'
     Check (-not (Test-Path -LiteralPath (Join-Path $plugins 'OC2DIYLevel\levels\manhl_relay_kitchen'))) 'retired Relay Kitchen level removed'
     Check (-not (Installed 'EmoteSync')) 'update did not bring back a mod the player removed'

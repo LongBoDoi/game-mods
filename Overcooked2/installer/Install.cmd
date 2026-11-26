@@ -4,6 +4,7 @@ rem list refreshed. Choose Q to close.
 rem   ChefSkills       trade skill levels each level, plus special skills
 rem   EmoteSync        Arcade MOD emote texts follow each player, synced online
 rem   DIYChefFix       fixes DIYChef FastInit's default chef and chef grid (needs DIYChef)
+rem   RandomLevel      random DIY levels (needs OC2DIYLevel)
 rem   ModUpdater       asks to update when a new release is out
 rem   TiengViet        Vietnamese for the game and these mods
 rem   OC2DIYLevel      third-party level pack - NOT included, you supply the extracted folder

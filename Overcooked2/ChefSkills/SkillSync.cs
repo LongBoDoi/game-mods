@@ -61,6 +61,8 @@ namespace ChefSkills
             public int[] Levels;
             public int Colour;
             public int[] Specials;
+            /// <summary>Its chefs' entity IDs (null when not known yet): which team it plays for.</summary>
+            public uint[] Chefs;
         }
 
         private sealed class Published
@@ -78,7 +80,9 @@ namespace ChefSkills
         // the SpecialNet channel every machine has to read). 6: SpecialNet protocol 2 (refusal
         // reasons, visual effects) and the reworked specials. 7: protocol 3 (aimed actives: the
         // chosen target in the press, chefs standing still while aiming; Swap and Summon wind up).
-        private const string Version = "7";
+        // 8: the balance pass (a cap on freed points, skill floors, capped bonuses, shared
+        // cooldowns, protocol 4), which changes what every machine simulates.
+        private const string Version = "8";
         private const float TickSeconds = 0.5f;
         private const int LevelLimit = 5;
 
@@ -114,6 +118,10 @@ namespace ChefSkills
         // Chef entity ID -> its player's special-skill loadout, for the same chefs.
         private static readonly Dictionary<uint, int[]> s_remoteSpecials = new Dictionary<uint, int[]>();
 
+        // Chef entity ID -> which player plays it (machine and player slot), for the same chefs:
+        // a player playing alone controls two chefs.
+        private static readonly Dictionary<uint, string> s_remoteOwner = new Dictionary<uint, string>();
+
         /// <summary>The last round this machine took part in, in this lobby (0 in a new lobby).</summary>
         private static int LastRound(CSteamID lobby)
         {
@@ -138,6 +146,7 @@ namespace ChefSkills
             s_hostSkipped = false;
             s_remote.Clear();
             s_remoteSpecials.Clear();
+            s_remoteOwner.Clear();
         }
 
         /// <summary>
@@ -166,6 +175,16 @@ namespace ChefSkills
         {
             int[] specials;
             return chef != 0 && s_remoteSpecials.TryGetValue(chef, out specials) ? specials : null;
+        }
+
+        /// <summary>
+        /// Who plays another machine's chef: the same text for every chef of the same player (null
+        /// when unknown).
+        /// </summary>
+        internal static string RemoteOwner(uint chef)
+        {
+            string owner;
+            return chef != 0 && s_remoteOwner.TryGetValue(chef, out owner) ? owner : null;
         }
 
         /// <summary>In an online lobby (false offline): which one, and whether this machine hosts it.</summary>
@@ -414,6 +433,7 @@ namespace ChefSkills
                         {
                             RemoteCard card = Card(key, i, names, ready ? CardState.Ready : CardState.Choosing, entry.Levels, entry.Colour);
                             card.Specials = entry.Specials ?? SpecialCatalog.Empty();
+                            card.Chefs = entry.Chefs;
                             cards.Add(card);
                         }
                     }
@@ -552,6 +572,7 @@ namespace ChefSkills
         {
             s_remote.Clear();
             s_remoteSpecials.Clear();
+            s_remoteOwner.Clear();
             if (s_ignored || s_hostSkipped) return;
             int round = s_roundLobby == lobby ? s_levelRound : 0;
             if (round <= 0) return;
@@ -576,12 +597,15 @@ namespace ChefSkills
                     // The host's rules apply: its MaxLevel, and no build spending more than it freed.
                     // Its specials under the host's rules, and the points its quirk frees.
                     int[] specials = SpecialCatalog.Enforce(entry.Specials);
-                    int[] levels = SkillStats.Enforce(entry.Levels, SpecialCatalog.Refund(specials));
+                    int[] levels = SkillStats.Enforce(entry.Levels, specials);
+                    string who = member.m_SteamID.ToString(CultureInfo.InvariantCulture) + ":" +
+                                 entry.Slot.ToString(CultureInfo.InvariantCulture);
                     foreach (uint chef in entry.Chefs)
                     {
                         if (chef == 0) continue;
                         s_remote[chef] = levels;
                         s_remoteSpecials[chef] = specials;
+                        s_remoteOwner[chef] = who;
                     }
                 }
             }

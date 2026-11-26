@@ -274,6 +274,13 @@ namespace ChefSkills
         private const float PendingSeconds = 0.6f;
         // A client's view of its cooldown can run a little ahead of the host's.
         private const float CooldownSlack = 0.3f;
+        /// <summary>
+        /// The most all specials and buffs together can multiply run or dash speed by, before the
+        /// RUNNING or DASHING skill (so Sprinter, Tiny Chef, Momentum, Rally Cry... can't pile up).
+        /// </summary>
+        internal const float MaxSpecialSpeed = 1.6f;
+        /// <summary>The most specials and buffs together can add to a skill's level (or take away).</summary>
+        internal const int MaxBonusLevels = 2, MaxMoveBonusLevels = 3, MinBonusLevels = -3;
 
         private static readonly List<ChefState> s_chefs = new List<ChefState>();
         private static readonly Dictionary<int, ChefState> s_byObject = new Dictionary<int, ChefState>();
@@ -287,8 +294,13 @@ namespace ChefSkills
 
         /// <summary>Changes to run speed: multipliers (1 = none), every machine, every frame.</summary>
         internal static readonly List<Func<ChefState, float>> RunSpeedModifiers = new List<Func<ChefState, float>>();
-        /// <summary>Changes to dash speed (so distance).</summary>
+        /// <summary>Changes to dash speed (so distance). Together capped at <see cref="MaxSpecialSpeed"/>.</summary>
         internal static readonly List<Func<ChefState, float>> DashSpeedModifiers = new List<Func<ChefState, float>>();
+        /// <summary>
+        /// Dash speed changes outside that cap: a dash a special itself is about (Charge Dash's
+        /// charged release), not a stacking bonus.
+        /// </summary>
+        internal static readonly List<Func<ChefState, float>> UncappedDashSpeedModifiers = new List<Func<ChefState, float>>();
         /// <summary>Changes to the dash recharge time (0 = none).</summary>
         internal static readonly List<Func<ChefState, float>> DashCooldownModifiers = new List<Func<ChefState, float>>();
         /// <summary>False from any of these: the chef can't start a dash now.</summary>
@@ -464,6 +476,42 @@ namespace ChefSkills
         }
 
         /// <summary>
+        /// Are these two chefs played by the same player (a player alone controls two chefs)? The
+        /// same answer on every machine: the player's own machine knows its players' chefs, the
+        /// others know them from the builds each machine published (see SkillSync).
+        /// </summary>
+        internal static bool SamePlayer(ChefState a, ChefState b)
+        {
+            if (a == null || b == null) return false;
+            if (a == b) return true;
+            if (a.Local != b.Local) return false;
+            if (a.Local)
+                return a.Provider != null && b.Provider != null && a.Provider.GetID() == b.Provider.GetID();
+            string ownerA = SkillSync.RemoteOwner(a.Id), ownerB = SkillSync.RemoteOwner(b.Id);
+            return ownerA != null && ownerA == ownerB;
+        }
+
+        /// <summary>The other chefs of this chef's player (none unless they play alone).</summary>
+        internal static List<ChefState> SiblingsOf(ChefState chef)
+        {
+            var list = new List<ChefState>();
+            if (chef == null) return list;
+            for (int i = 0; i < s_chefs.Count; i++)
+                if (s_chefs[i] != chef && SamePlayer(s_chefs[i], chef)) list.Add(s_chefs[i]);
+            return list;
+        }
+
+        /// <summary>
+        /// Is a player steering this chef right now (not the parked one of a player alone)? Every
+        /// machine agrees: the game keeps the controls of the parked chef switched off everywhere.
+        /// </summary>
+        internal static bool PlayerControlled(ChefState chef)
+        {
+            PlayerControls controls = chef != null ? chef.Controls : null;
+            return controls != null && controls.enabled && !controls.IsSuppressed();
+        }
+
+        /// <summary>
         /// The teammate this chef is facing (within <paramref name="arc"/> degrees and
         /// <paramref name="range"/>), else the nearest one within range; null if none.
         /// </summary>
@@ -558,7 +606,8 @@ namespace ChefSkills
             if (HasBuff(state, BuffId.Frozen) || SpecialAim.Aiming(state)) return 0f;
             float value = 1f + BuffStrength(state, BuffId.RunSpeed);
             value *= Product(RunSpeedModifiers, state, "RunSpeed");
-            return Mathf.Clamp(value, 0f, 4f);
+            // Upper bound only: a stop (0) still stops.
+            return Mathf.Clamp(value, 0f, MaxSpecialSpeed);
         }
 
         internal static float DashMultiplier(GameObject chef)
@@ -567,6 +616,8 @@ namespace ChefSkills
             if (state == null) return 1f;
             float value = 1f + BuffStrength(state, BuffId.DashSpeed);
             value *= Product(DashSpeedModifiers, state, "DashSpeed");
+            value = Mathf.Min(value, MaxSpecialSpeed);
+            value *= Product(UncappedDashSpeedModifiers, state, "DashSpeedUncapped");
             return Mathf.Clamp(value, 0.1f, 4f);
         }
 
@@ -617,7 +668,9 @@ namespace ChefSkills
                     Fail("LevelBonus", error);
                 }
             }
-            return bonus;
+            // Each special keeps its full strength; only piles of them are cut.
+            bool move = skill == Skill.Running || skill == Skill.Dashing;
+            return Mathf.Clamp(bonus, MinBonusLevels, move ? MaxMoveBonusLevels : MaxBonusLevels);
         }
 
         private static float Product(List<Func<ChefState, float>> list, ChefState state, string what)
@@ -894,6 +947,7 @@ namespace ChefSkills
             state.CooldownUntil = s_now + message.A;
             state.CooldownTotal = message.A;
             state.ActiveUntil = s_now + message.B;
+            ShareCooldown(state, special, message.A);
             ActiveHandler handler;
             if (s_actives.TryGetValue(special, out handler) && handler.OnActivated != null)
             {
@@ -935,10 +989,37 @@ namespace ChefSkills
             if (state.Local) SpecialHud.Deny(state, message.Text);
         }
 
-        /// <summary>Shortens a chef's active cooldown by <paramref name="seconds"/> (every machine).</summary>
+        /// <summary>
+        /// Every machine, as an active goes off: the chefs of the same player share one cooldown
+        /// (a player alone can't use the active once per chef), and a "one per kitchen" active
+        /// puts the same special on cooldown for every chef of the team.
+        /// </summary>
+        private static void ShareCooldown(ChefState state, Special special, float cooldown)
+        {
+            SpecialInfo info = SpecialCatalog.Info(special);
+            bool teamWide = info != null && info.TeamWide;
+            float until = s_now + cooldown;
+            for (int i = 0; i < s_chefs.Count; i++)
+            {
+                ChefState other = s_chefs[i];
+                if (other == state) continue;
+                bool share = SamePlayer(other, state) || (teamWide && other.Team == state.Team && other.Active == special);
+                if (!share || other.CooldownUntil >= until) continue;
+                other.CooldownUntil = until;
+                other.CooldownTotal = cooldown;
+            }
+        }
+
+        /// <summary>
+        /// Shortens a chef's active cooldown by <paramref name="seconds"/> (every machine), and its
+        /// player's other chef's, which shares it.
+        /// </summary>
         internal static void ShortenCooldownLocal(ChefState state, float seconds)
         {
-            if (state != null) state.CooldownUntil = Mathf.Max(s_now, state.CooldownUntil - seconds);
+            if (state == null) return;
+            state.CooldownUntil = Mathf.Max(s_now, state.CooldownUntil - seconds);
+            foreach (ChefState sibling in SiblingsOf(state))
+                sibling.CooldownUntil = Mathf.Max(s_now, sibling.CooldownUntil - seconds);
         }
 
         // --- safety -----------------------------------------------------------------------------

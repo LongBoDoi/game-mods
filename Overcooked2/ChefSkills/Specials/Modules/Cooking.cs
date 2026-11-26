@@ -26,26 +26,32 @@ namespace ChefSkills.Specials
     internal sealed class CookingModule : ISpecialModule
     {
         // --- tuning -------------------------------------------------------------------------------
-        // HOT HANDS: cooking seconds per second in the chef's hands (x COOKING skill).
-        private const float HotHandsRate = 1f;
+        // HOT HANDS: cooking seconds per second in the chef's hands (x COOKING skill; SIZZLE MASTER
+        // doesn't add to it, or a carried pot would cook faster than one on the heat).
+        private const float HotHandsRate = 1.25f;
         // COLD HANDS: seconds a pot waits at "done" before it starts to burn.
         private const float ColdHandsPause = 8f;
-        // RESCUE: seconds a rescued pot stays at "done" (time to take it off the heat).
-        private const float RescueHold = 5f;
+        // RESCUE: seconds a rescued pot stays at "done" (time to get it onto a plate).
+        private const float RescueHold = 10f;
         private const float OverclockSeconds = 10f;
         internal const float OverclockScale = 3f;
-        private const float SizzleScale = 2f;
-        private const float SteadyScale = 1.3f;
-        private const float FireBlastRadius = 4f;
+        private const float SizzleScale = 1.6f;
+        // The most the specials together (OVERCLOCK x SIZZLE MASTER) speed one pot up; the COOKING
+        // skill comes on top of this.
+        private const float MaxSpecialCookScale = 4f;
+        // FIRE MARSHAL: food past done in its pots burns this much as fast.
+        private const float MarshalBurnScale = 0.5f;
+        private const float SteadyScale = 1.75f;
+        private const float FireBlastRadius = 6f;
         private const float FireproofReach = 1.3f;
         private const float FireproofStampTime = 2f;
-        private const float SlowSpreadRadius = 5f;
-        internal const float SlowSpreadScale = 1f / 3f;
-        private const float GreaseSeconds = 3f;
-        private const float GreasePointLife = 3f;
+        // SLOW SPREAD: fire can't catch on from a neighbour within this reach of the chef.
+        private const float SlowSpreadRadius = 7f;
+        private const float GreaseSeconds = 4f;
+        private const float GreasePointLife = 6f;
         private const float GreasePointEvery = 0.12f;
         private const float GreaseFxEvery = 0.2f;
-        private const float GreaseRadius = 0.55f;
+        private const float GreaseRadius = 0.7f;
         private const float GreaseFreeze = 1.1f;
         private const float GreaseImmune = 2.5f;
         // "Perfectly cooked / mixed": just past done (Cooked needs progress > time), far from the
@@ -110,6 +116,7 @@ namespace ChefSkills.Specials
             public Vector3 Position;
             public float Until;
             public uint Owner;
+            public TeamID Team;
         }
         private static readonly List<GreasePoint> s_greasePoints = new List<GreasePoint>();
 
@@ -358,7 +365,6 @@ namespace ChefSkills.Specials
                 ServerIngredientContainer contents = held.GetComponent<ServerIngredientContainer>();
                 if (contents != null && !contents.HasContents()) continue;
                 float rate = HotHandsRate * Plugin.Skills.Multiplier(state.Chef, Skill.Cooking);
-                if (state.Has(Special.SizzleMaster)) rate *= SizzleScale;
                 float next = Mathf.Min(cap, progress + dt * rate);
                 cooking.SetCookingProgress(next);
                 Pulse(held, Special.HotHands, Lang.Both("HOT", "NÓNG"));
@@ -375,20 +381,24 @@ namespace ChefSkills.Specials
 
         internal static float AdjustCook(ServerCookingHandler handler, float delta)
         {
-            delta *= StationCookScale;
+            // The specials' speed-ups (OVERCLOCK's cooker, SIZZLE MASTER's pot) multiply, up to
+            // MaxSpecialCookScale together. COOKING / SLOW BURN is already in delta (that patch runs
+            // first), so the skill stays outside the cap.
+            float scale = StationCookScale;
             GameObject pot = handler.gameObject;
             float time = handler.AccessCookingTime;
             float progress = handler.GetCookingProgress();
-            if (time <= 0f || progress > 2f * time) return delta; // burnt: Cook does nothing
+            if (time <= 0f || progress > 2f * time) return delta * scale; // burnt: Cook does nothing
             int key = pot.GetInstanceID();
             float cap = time * DoneCap;
 
             bool sizzle = false;
             if (AnySizzle && OwnerWith(pot, Special.SizzleMaster) != null)
             {
-                delta *= SizzleScale;
+                scale *= SizzleScale;
                 sizzle = true;
             }
+            delta *= Mathf.Min(scale, MaxSpecialCookScale);
 
             // A hold at "done": RESCUE's, or COLD HANDS' (starts when the pot reaches done).
             Hold hold;
@@ -413,25 +423,32 @@ namespace ChefSkills.Specials
                 delta = held;
             }
 
-            if (sizzle && delta > 0f) Pulse(pot, Special.SizzleMaster, "x2");
-            // FIRE MARSHAL: a pot over-doing on a cooker it protects says so.
-            if (AnyMarshal && !holding && delta > 0f && progress > 1.3f * time && OwnerWith(pot, Special.FireMarshal) != null &&
-                pot.GetComponentInParent<ServerCookingStation>() != null)
-                Pulse(pot, Special.FireMarshal, Lang.Both("NO FIRE", "KHÔNG CHÁY"));
+            if (sizzle && delta > 0f) Pulse(pot, Special.SizzleMaster, "x1.6");
+            // FIRE MARSHAL: food past done burns half as fast (cooking up to done is untouched), and
+            // a pot over-doing on a cooker it protects says so.
+            if (AnyMarshal && delta > 0f && progress + delta > time && OwnerWith(pot, Special.FireMarshal) != null)
+            {
+                float cooking = Mathf.Max(0f, time - progress);
+                delta = cooking + (delta - cooking) * MarshalBurnScale;
+                if (!holding && progress > 1.3f * time && pot.GetComponentInParent<ServerCookingStation>() != null)
+                    Pulse(pot, Special.FireMarshal, Lang.Both("NO FIRE", "KHÔNG CHÁY"));
+            }
             return delta;
         }
 
         internal static float AdjustMix(ServerMixingHandler handler, float delta)
         {
-            delta *= StationMixScale;
+            float station = StationMixScale;
             if (AnySteady && delta > 0f && OwnerWith(handler.gameObject, Special.SteadyMixer) != null)
             {
                 float progress = handler.GetMixingProgress();
                 float cap = handler.AccessMixingTime * DoneCap;
-                delta = Cap(progress, delta * SteadyScale, cap);
+                // Overclock and Steady Mixer together stay within the same x4 as a pot's specials.
+                delta = Cap(progress, delta * Mathf.Min(station * SteadyScale, MaxSpecialCookScale), cap);
                 Pulse(handler.gameObject, Special.SteadyMixer, Lang.Both("STEADY", "ĐỀU TAY"));
                 if (progress < cap && progress + delta >= cap) SpecialFx.TextAll(handler.gameObject, Lang.Both("PERFECT!", "HOÀN HẢO!"), Special.SteadyMixer);
             }
+            else delta *= station;
             return delta;
         }
 
@@ -486,9 +503,9 @@ namespace ChefSkills.Specials
             if (ignition) SpecialFx.TextAll(flammable.gameObject, Lang.Both("NO FIRE!", "KHÔNG CHÁY!"), Special.FireMarshal);
         }
 
-        internal static void MarkSlowed(ServerFlammable flammable)
+        internal static void MarkFirebreak(ServerFlammable flammable)
         {
-            Pulse(flammable.gameObject, Special.SlowSpread, Lang.Both("SLOW", "CHẬM"));
+            Pulse(flammable.gameObject, Special.SlowSpread, Lang.Both("NO SPREAD", "KHÔNG LAN"));
         }
 
         // FIREPROOF (host): fire right next to a fireproof chef is stamped out.
@@ -634,7 +651,7 @@ namespace ChefSkills.Specials
         // --- actives (host) -----------------------------------------------------------------------
 
         // RESCUE: a burnt pot (in hand first, else the one faced) goes back to just done, holds
-        // there a few seconds, and the fire on its cooker goes out.
+        // there 10 s, and the fire on its cooker goes out.
         private static bool ExecuteRescue(ChefState state)
         {
             Vector3 from = state.RequestPosition, forward = Flat(state.RequestForward);
@@ -731,7 +748,7 @@ namespace ChefSkills.Specials
             Pulse(station.gameObject, Special.Overclock, "x3");
         }
 
-        // FIRE BLAST: every fire within 4 m goes out now.
+        // FIRE BLAST: every fire within 6 m goes out now.
         private static bool ExecuteFireBlast(ChefState state)
         {
             Vector3 centre = state.RequestPosition;
@@ -744,7 +761,7 @@ namespace ChefSkills.Specials
                 offset.y = 0f;
                 if (offset.sqrMagnitude <= range) near.Add(fire);
             }
-            if (near.Count == 0) return state.Refuse(Lang.Both("NO FIRE WITHIN 4 M", "KHÔNG CÓ LỬA TRONG 4 M"));
+            if (near.Count == 0) return state.Refuse(Lang.Both("NO FIRE WITHIN 6 M", "KHÔNG CÓ LỬA TRONG 6 M"));
             // FightFire (not Extinguish) also holds off re-ignition from neighbours for a moment.
             int count = 0;
             for (int i = 0; i < near.Count; i++)
@@ -802,7 +819,7 @@ namespace ChefSkills.Specials
                 if (state.Chef == null || state.ActiveUntil <= now) continue;
                 if (now < state.Get("GreaseTrail.next", 0f)) continue;
                 state.Set("GreaseTrail.next", now + GreasePointEvery);
-                s_greasePoints.Add(new GreasePoint { Position = state.Position, Until = now + GreasePointLife, Owner = state.Id });
+                s_greasePoints.Add(new GreasePoint { Position = state.Position, Until = now + GreasePointLife, Owner = state.Id, Team = state.Team });
             }
             for (int i = s_greasePoints.Count - 1; i >= 0; i--)
                 if (s_greasePoints[i].Until <= now) s_greasePoints.RemoveAt(i);
@@ -820,6 +837,8 @@ namespace ChefSkills.Specials
                 {
                     GreasePoint point = s_greasePoints[p];
                     if (point.Owner == victim.Id) continue;
+                    // Versus: your own team runs over your grease. Co-op party: it slips everyone.
+                    if (OrdersModule.Versus && point.Team == victim.Team) continue;
                     Vector3 offset = position - point.Position;
                     if (Mathf.Abs(offset.y) > 1f) continue;
                     offset.y = 0f;
@@ -1166,8 +1185,9 @@ namespace ChefSkills.Specials
     // ==== patches ======================================================================================
 
     /// <summary>
-    /// SIZZLE MASTER x2, OVERCLOCK (cooker), COLD HANDS / RESCUE holds. Runs after COOKING /
-    /// SLOW BURN (low priority) so its caps see the final delta; all multipliers compose.
+    /// SIZZLE MASTER x1.6, OVERCLOCK (cooker), COLD HANDS / RESCUE holds, FIRE MARSHAL's slower
+    /// burning. Runs after COOKING / SLOW BURN (low priority) so its caps see the final delta; the
+    /// specials' multipliers compose up to x4 together, with the skill on top.
     /// </summary>
     [HarmonyPatch(typeof(ServerCookingHandler), "Cook")]
     internal static class CookingCookPatch
@@ -1309,20 +1329,29 @@ namespace ChefSkills.Specials
             {
                 ServerPlayerAttachmentCarrier carrier = _control.GetComponent<ServerPlayerAttachmentCarrier>();
                 if (carrier != null && carrier.InspectCarriedItem() == __state) return; // nothing was placed
-                GameObject chef = _control.gameObject;
-                if (__state.GetComponent<ServerCookingHandler>() != null || __state.GetComponent<ServerMixingHandler>() != null)
-                {
-                    CookingModule.NoteHandled(chef, __state, true);
-                    return;
-                }
-                // Food went into the pot faced (or the pot on the station faced).
-                GameObject container = ContainerOf(_target);
-                if (container != null) CookingModule.NoteHandled(chef, container, false);
+                Credit(_control.gameObject, __state, _target);
             }
             catch (Exception error)
             {
                 SpecialRuntime.Fail("Cooking.Placed", error);
             }
+        }
+
+        /// <summary>
+        /// A chef put <paramref name="placed"/> onto or into <paramref name="target"/> (by hand, or a
+        /// Strong Arm toss that came down there).
+        /// </summary>
+        internal static void Credit(GameObject chef, GameObject placed, GameObject target)
+        {
+            if (chef == null || placed == null || !SpecialRuntime.InLevel) return;
+            if (placed.GetComponent<ServerCookingHandler>() != null || placed.GetComponent<ServerMixingHandler>() != null)
+            {
+                CookingModule.NoteHandled(chef, placed, true);
+                return;
+            }
+            // Food went into the pot faced (or the pot on the station faced).
+            GameObject container = ContainerOf(target);
+            if (container != null) CookingModule.NoteHandled(chef, container, false);
         }
 
         private static GameObject ContainerOf(GameObject target)
@@ -1361,7 +1390,7 @@ namespace ChefSkills.Specials
         }
     }
 
-    /// <summary>FIRE MARSHAL: a protected cooker never ignites (its food still burns).</summary>
+    /// <summary>FIRE MARSHAL: a protected cooker never ignites (its food still burns, half as fast).</summary>
     [HarmonyPatch(typeof(ServerFlammable), "Ignite")]
     internal static class FireMarshalIgnitePatch
     {
@@ -1383,8 +1412,8 @@ namespace ChefSkills.Specials
     }
 
     /// <summary>
-    /// Fire catching on from a neighbour: FIRE MARSHAL cookers don't heat up at all, and near a
-    /// SLOW SPREAD chef it builds up three times slower. (A fire that is already burning and
+    /// Fire catching on from a neighbour: FIRE MARSHAL cookers don't heat up at all, and nothing
+    /// near a SLOW SPREAD chef does either. (A fire that is already burning and
     /// regrowing after being fought is left alone.)
     /// </summary>
     [HarmonyPatch(typeof(ServerFlammable), "OnFireIncrease")]
@@ -1403,8 +1432,8 @@ namespace ChefSkills.Specials
                 }
                 if (CookingModule.AnySlow && _deltaTime > 0f && CookingModule.NearSlowSpread(__instance.transform.position))
                 {
-                    _deltaTime *= CookingModule.SlowSpreadScale;
-                    CookingModule.MarkSlowed(__instance);
+                    CookingModule.MarkFirebreak(__instance);
+                    return false;
                 }
             }
             catch (Exception error)
